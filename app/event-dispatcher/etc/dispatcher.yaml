@@ -1,0 +1,4 @@
+Name: event-dispatcher
+EMQXBroker: ${EMQX_BROKER}
+EMQXClientId: ${EMQX_CLIENT}
+KafkaBrokers: ${KAFKA_BROKERS}

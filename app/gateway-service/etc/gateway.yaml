@@ -1,0 +1,3 @@
+Name: gateway-service
+Host: ${HOST}
+Port: ${TCP_PORT}

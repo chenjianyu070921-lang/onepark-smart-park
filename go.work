@@ -1,0 +1,26 @@
+go 1.25.2
+
+use (
+	./app/access-control-service
+	./app/alarm-service
+	./app/auth-service
+	./app/billing-service
+	./app/dashboard-service
+	./app/device-service
+	./app/dispatch-service
+	./app/energy-analysis-service
+	./app/energy-data-service
+	./app/event-dispatcher
+	./app/gateway-service
+	./app/leasing-service
+	./app/notice-service
+	./app/parking-service
+	./app/shadow-service
+	./app/user-manage
+	./app/video-service
+	./app/visitor-service
+	./app/workorder-service
+	./common
+	./gateway
+	./proto
+)

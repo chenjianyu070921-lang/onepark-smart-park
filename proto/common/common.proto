@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package onepark.common;
+
+option go_package = "onepark/proto/common;commonpb";
+
+// 公共 message, 跨服务复用
+
+// 分页请求
+message PageRequest {
+  int64 page = 1;
+  int64 page_size = 2;
+}
+
+// 分页响应
+message PageResponse {
+  int64 total = 1;
+  int64 page = 2;
+  int64 page_size = 3;
+}
+
+// 设备指令 (M1 下发到设备)
+message DeviceCommand {
+  string device_id = 1;
+  string command = 2;
+  bytes  payload = 3;
+}
+
+message CommandResult {
+  string device_id = 1;
+  bool   success = 2;
+  string message = 3;
+}
+
+// 告警事件 (M3 消费)
+message AlarmEvent {
+  string alarm_id = 1;
+  string device_id = 2;
+  int32  severity = 3;
+  string content = 4;
+  int64  timestamp = 5;
+}
+
+// 空响应
+message Empty {}

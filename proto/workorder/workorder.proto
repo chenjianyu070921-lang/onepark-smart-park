@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package onepark.workorder;
+
+option go_package = "onepark/proto/workorder;workorderpb";
+
+import "common/common.proto";
+
+service WorkorderService {
+  // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+  rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
+}

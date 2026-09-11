@@ -1,0 +1,32 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Go test
+*.test
+*.out
+coverage.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Env
+.env
+*.local
+
+# Docker
+deploy/.env
+
+# proto/ 下的 .pb.go 为统一契约生成物, 提交入库（与 XiaoLong 一致）
+
+# OS
+Thumbs.db
+.DS_Store

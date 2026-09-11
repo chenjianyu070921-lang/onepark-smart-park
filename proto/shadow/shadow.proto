@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package shadow;
+
+// Go 包名为 shadow（非 shadowpb），与 goctl 已生成的 zrpc 骨架保持一致
+option go_package = "onepark/proto/shadow;shadow";
+
+message Request {
+  string ping = 1;
+}
+
+message Response {
+  string pong = 1;
+}
+
+service Shadow {
+  rpc Ping(Request) returns (Response);
+}

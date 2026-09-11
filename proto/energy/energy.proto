@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package onepark.energy;
+
+option go_package = "onepark/proto/energy;energypb";
+
+import "common/common.proto";
+
+service EnergyDataService {
+  // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+  rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
+}

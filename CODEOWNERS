@@ -1,0 +1,43 @@
+# OnePark 智慧园区 - 模块归属
+# 代码审查规则：每个模块由对应负责人审查
+
+# M1 物联接入底座 - 陈建羽
+app/device-service/        @JianYu
+app/gateway-service/      @JianYu
+app/shadow-service/        @JianYu
+app/event-dispatcher/     @JianYu
+proto/device/             @JianYu
+proto/shadow/             @JianYu
+
+# M2 物业管理 - 成员3
+app/workorder-service/    @member3
+app/visitor-service/      @member3
+app/parking-service/      @member3
+app/notice-service/       @member3
+
+# M3 园区安防 - 成员4
+app/alarm-service/        @member4
+app/access-control-service/ @member4
+app/video-service/        @member4
+
+# M4 能源管控 - 成员5
+app/energy-data-service/  @member5
+app/energy-analysis-service/ @member5
+app/billing-service/      @member5
+
+# M5 运营招商+指挥调度 - 成员6
+app/leasing-service/      @member6
+app/dashboard-service/    @member6
+app/dispatch-service/     @member6
+
+# M6 公共基础服务+DevOps - 成员2
+app/auth-service/         @member2
+app/user-manage/          @member2
+
+# 对外入口（根目录独立, 与 app/gateway-service 设备网关区分）
+gateway/                  @member2
+
+# 公共目录 - 全员
+common/                   @JianYu @member2
+proto/                    @JianYu @member2
+deploy/                   @member2
