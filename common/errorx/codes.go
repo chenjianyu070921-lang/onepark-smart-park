@@ -60,3 +60,14 @@ const (
 	ErrVideoCameraNotFound = "M3-E-3002" // 摄像头不存在
 	ErrVideoStream         = "M3-E-3003" // 视频流地址获取失败
 )
+
+// M1 物联接入底座错误码
+const (
+	ErrProductNotFound   = "M1-E-1001" // 产品不存在
+	ErrDeviceDuplicate    = "M1-E-1002" // 设备名重复
+	ErrDeviceCreateFail   = "M1-E-1003" // 设备写入失败
+	ErrShadowCreateFail   = "M1-E-1004" // 影子创建失败
+	ErrDeviceNotFound     = "M1-E-1005" // 设备不存在
+	ErrDeviceOffline      = "M1-E-1006" // 设备离线
+	ErrCommandSendFail    = "M1-E-1007" // 指令下发失败
+)
