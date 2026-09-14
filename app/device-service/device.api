@@ -1,15 +1,174 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+info (
+	title:   "OnePark M1 设备服务"
+	desc:    "设备注册/详情/列表/删除/指令下发 + 产品CRUD"
+	author:  "陈建羽"
+	version: "v1"
+)
+
+// ==================== 通用 ====================
+type PageReq {
+	Page int `form:"page,default=1" json:"page"`
+	Size int `form:"size,default=20" json:"size"`
 }
 
-type Response {
-	Message string `json:"message"`
+type DeviceStatusReq {
+	DeviceID string `path:"id"`
+	Status   int8   `json:"status"`
 }
 
+// ==================== 设备管理 ====================
+// 1. 设备注册
+type DeviceRegisterReq {
+	ProductKey string `json:"productKey"`
+	DeviceName string `json:"deviceName,optional"`
+	ParkID     string `json:"parkId,optional"`
+	BuildingID string `json:"buildingId,optional"`
+	Floor      string `json:"floor,optional"`
+	Location   string `json:"location,optional"`
+}
+
+type DeviceRegisterResp {
+	DeviceID     string `json:"deviceId"`
+	DeviceSecret string `json:"deviceSecret"`
+}
+
+// 2. 设备详情
+type DeviceDetailReq {
+	DeviceID string `path:"id"`
+}
+
+type DeviceDetailResp {
+	DeviceID     string `json:"deviceId"`
+	DeviceName   string `json:"deviceName"`
+	ProductKey   string `json:"productKey"`
+	ParkID       string `json:"parkId"`
+	BuildingID   string `json:"buildingId"`
+	Floor        string `json:"floor"`
+	Location     string `json:"location"`
+	Status       int8   `json:"status"`
+	LastOnlineAt string `json:"lastOnlineAt,optional"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+// 3. 设备列表
+type DeviceListReq {
+	Page       int    `form:"page,default=1"`
+	Size       int    `form:"size,default=20"`
+	ProductKey string `form:"productKey,optional"`
+	Status     int    `form:"status,default=-1"`
+}
+
+type DeviceListItem {
+	DeviceID   string `json:"deviceId"`
+	DeviceName string `json:"deviceName"`
+	ProductKey string `json:"productKey"`
+	Status     int8   `json:"status"`
+	Location   string `json:"location"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+type DeviceListResp {
+	Total int              `json:"total"`
+	List  []DeviceListItem `json:"list"`
+}
+
+// 4. 设备删除
+type DeviceDeleteReq {
+	DeviceID string `path:"id"`
+}
+
+// 5. 指令下发
+type DeviceCommandReq {
+	DeviceID    string `path:"id"`
+	CommandType string `json:"commandType"`
+	Payload     string `json:"payload"`
+	Mode        int8   `json:"mode,default=1"`
+}
+
+type DeviceCommandResp {
+	RequestID string `json:"requestId"`
+	Status    int8   `json:"status"`
+}
+
+// ==================== 产品/物模型 ====================
+// 6. 创建产品
+type ProductCreateReq {
+	ProductKey  string `json:"productKey"`
+	ProductName string `json:"productName"`
+	Description string `json:"description,optional"`
+	ThingModel  string `json:"thingModel,optional"`
+}
+
+// 7. 查询产品
+type ProductDetailReq {
+	ProductKey string `path:"key"`
+}
+
+type ProductDetailResp {
+	ProductKey  string `json:"productKey"`
+	ProductName string `json:"productName"`
+	Description string `json:"description"`
+	ThingModel  string `json:"thingModel,optional"`
+	Status      int8   `json:"status"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+// 8. 产品列表
+type ProductListReq {
+	Page   int `form:"page,default=1"`
+	Size   int `form:"size,default=20"`
+	Status int `form:"status,default=-1"`
+}
+
+type ProductListItem {
+	ProductKey  string `json:"productKey"`
+	ProductName string `json:"productName"`
+	Status      int8   `json:"status"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+type ProductListResp {
+	Total int               `json:"total"`
+	List  []ProductListItem `json:"list"`
+}
+
+// 9. 更新产品
+type ProductUpdateReq {
+	ProductKey  string `path:"key"`
+	ProductName string `json:"productName,optional"`
+	Description string `json:"description,optional"`
+	ThingModel  string `json:"thingModel,optional"`
+}
+
+// ==================== 路由 ====================
 service device-api {
-	@handler DeviceHandler
-	get /from/:name (Request) returns (Response)
+	@handler DeviceRegister
+	post /api/device/register (DeviceRegisterReq) returns (DeviceRegisterResp)
+
+	@handler DeviceDetail
+	get /api/device/:id (DeviceDetailReq) returns (DeviceDetailResp)
+
+	@handler DeviceList
+	get /api/devices (DeviceListReq) returns (DeviceListResp)
+
+	@handler DeviceDelete
+	delete /api/device/:id (DeviceDeleteReq)
+
+	@handler DeviceCommand
+	post /api/device/:id/command (DeviceCommandReq) returns (DeviceCommandResp)
+
+	@handler ProductCreate
+	post /api/product (ProductCreateReq)
+
+	@handler ProductDetail
+	get /api/product/:key (ProductDetailReq) returns (ProductDetailResp)
+
+	@handler ProductList
+	get /api/products (ProductListReq) returns (ProductListResp)
+
+	@handler ProductUpdate
+	put /api/product/:key (ProductUpdateReq)
 }
 
