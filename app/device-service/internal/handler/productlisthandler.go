@@ -3,22 +3,22 @@ package handler
 import (
 	"net/http"
 
+	"github.com/zeromicro/go-zero/rest/httpx"
 	"onepark/app/device-service/internal/logic"
 	"onepark/app/device-service/internal/svc"
 	"onepark/app/device-service/internal/types"
-	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
-func DeviceHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+func ProductListHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req types.Request
+		var req types.ProductListReq
 		if err := httpx.Parse(r, &req); err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 			return
 		}
 
-		l := logic.NewDeviceLogic(r.Context(), svcCtx)
-		resp, err := l.Device(&req)
+		l := logic.NewProductListLogic(r.Context(), svcCtx)
+		resp, err := l.ProductList(&req)
 		if err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 		} else {

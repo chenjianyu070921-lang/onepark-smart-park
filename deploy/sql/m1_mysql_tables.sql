@@ -1,15 +1,13 @@
 -- ============================================================
 -- OnePark M1 物联接入底座 - MySQL 业务表
--- 适用数据库：device_db (3张) + shadow_db (1张)
--- 执行方式：Navicat 直接执行（已自动 USE 对应库）
--- 约定：不建物理外键（服务独立库禁跨库 JOIN），仅逻辑关联
+-- 适用数据库：onepark-smart-park（4张表全放一个库）
+-- 执行方式：Navicat 直接执行
+-- 约定：不建物理外键，仅逻辑关联
 -- ============================================================
 
 -- ############################################################
--- 1. product 产品表（device_db）
+-- 1. product 产品表
 -- ############################################################
-USE device_db;
-
 DROP TABLE IF EXISTS `product`;
 CREATE TABLE `product` (
   `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
@@ -34,7 +32,7 @@ CREATE TABLE `product` (
 -- }
 
 -- ############################################################
--- 2. device 设备表（device_db）
+-- 2. device 设备表
 -- ############################################################
 DROP TABLE IF EXISTS `device`;
 CREATE TABLE `device` (
@@ -60,7 +58,7 @@ CREATE TABLE `device` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备表(设备主数据, 软删除)';
 
 -- ############################################################
--- 3. command_log 指令下发日志表（device_db）
+-- 3. command_log 指令下发日志表
 -- ############################################################
 DROP TABLE IF EXISTS `command_log`;
 CREATE TABLE `command_log` (
@@ -82,11 +80,9 @@ CREATE TABLE `command_log` (
   KEY `idx_timeout` (`status`, `timeout_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='指令下发日志(幂等+超时扫描)';
 
--- ============================================================
--- 4. shadow 设备影子表（shadow_db）
--- ============================================================
-USE shadow_db;
-
+-- ############################################################
+-- 4. shadow 设备影子表
+-- ############################################################
 DROP TABLE IF EXISTS `shadow`;
 CREATE TABLE `shadow` (
   `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
@@ -103,7 +99,4 @@ CREATE TABLE `shadow` (
 -- ============================================================
 -- 验证
 -- ============================================================
-USE device_db;
-SHOW TABLES;
-USE shadow_db;
 SHOW TABLES;
