@@ -20,15 +20,19 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	WorkorderService_Ping_FullMethodName = "/onepark.workorder.WorkorderService/Ping"
+	WorkorderService_Ping_FullMethodName           = "/onepark.workorder.WorkorderService/Ping"
+	WorkorderService_ListWorkOrders_FullMethodName = "/onepark.workorder.WorkorderService/ListWorkOrders"
 )
 
 // WorkorderServiceClient is the client API for WorkorderService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WorkorderServiceClient interface {
-	// TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+	// Ping 探活
 	Ping(ctx context.Context, in *common.Empty, opts ...grpc.CallOption) (*common.Empty, error)
+	// ListWorkOrders 供 M5 运营调度大屏聚合查询工单(支持按状态/园区过滤与分页)
+	// 返回工单摘要列表、总数以及"待处理(待派单+处理中)工单数"
+	ListWorkOrders(ctx context.Context, in *ListWorkOrdersReq, opts ...grpc.CallOption) (*ListWorkOrdersResp, error)
 }
 
 type workorderServiceClient struct {
@@ -49,12 +53,25 @@ func (c *workorderServiceClient) Ping(ctx context.Context, in *common.Empty, opt
 	return out, nil
 }
 
+func (c *workorderServiceClient) ListWorkOrders(ctx context.Context, in *ListWorkOrdersReq, opts ...grpc.CallOption) (*ListWorkOrdersResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListWorkOrdersResp)
+	err := c.cc.Invoke(ctx, WorkorderService_ListWorkOrders_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WorkorderServiceServer is the server API for WorkorderService service.
 // All implementations must embed UnimplementedWorkorderServiceServer
 // for forward compatibility.
 type WorkorderServiceServer interface {
-	// TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+	// Ping 探活
 	Ping(context.Context, *common.Empty) (*common.Empty, error)
+	// ListWorkOrders 供 M5 运营调度大屏聚合查询工单(支持按状态/园区过滤与分页)
+	// 返回工单摘要列表、总数以及"待处理(待派单+处理中)工单数"
+	ListWorkOrders(context.Context, *ListWorkOrdersReq) (*ListWorkOrdersResp, error)
 	mustEmbedUnimplementedWorkorderServiceServer()
 }
 
@@ -67,6 +84,9 @@ type UnimplementedWorkorderServiceServer struct{}
 
 func (UnimplementedWorkorderServiceServer) Ping(context.Context, *common.Empty) (*common.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
+}
+func (UnimplementedWorkorderServiceServer) ListWorkOrders(context.Context, *ListWorkOrdersReq) (*ListWorkOrdersResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListWorkOrders not implemented")
 }
 func (UnimplementedWorkorderServiceServer) mustEmbedUnimplementedWorkorderServiceServer() {}
 func (UnimplementedWorkorderServiceServer) testEmbeddedByValue()                          {}
@@ -107,6 +127,24 @@ func _WorkorderService_Ping_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WorkorderService_ListWorkOrders_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWorkOrdersReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WorkorderServiceServer).ListWorkOrders(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WorkorderService_ListWorkOrders_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WorkorderServiceServer).ListWorkOrders(ctx, req.(*ListWorkOrdersReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WorkorderService_ServiceDesc is the grpc.ServiceDesc for WorkorderService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -117,6 +155,10 @@ var WorkorderService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Ping",
 			Handler:    _WorkorderService_Ping_Handler,
+		},
+		{
+			MethodName: "ListWorkOrders",
+			Handler:    _WorkorderService_ListWorkOrders_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

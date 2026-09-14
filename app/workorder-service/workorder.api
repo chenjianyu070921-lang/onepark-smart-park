@@ -1,15 +1,106 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+// workorder-service 工单服务 API 契约
+// 对齐 docs/M2物业管理服务模块设计文档(V1.1) 第三节 / 第十一节 / 第八章确认状态机.
+// 统一响应体见 common/response {code,msg,data}, 成功 code="0"; 各 handler 通过 response.Ok/Fail 回包.
+// 说明: 以下 returns 类型均为 data 载荷, 由 handler 二次包装为统一响应体.
+// CreateWorkOrderReq 创建工单请求(报修/投诉/巡检/保洁/装修/搬运/其他)
+type CreateWorkOrderReq {
+	Type        int8   `json:"type"` // 工单类型: 1报修 2投诉 3巡检 4保洁 5装修 6搬运 7其他
+	Title       string `json:"title"` // 标题
+	Description string `json:"description"` // 详细描述
+	Priority    int8   `json:"priority"` // 优先级: 1紧急 2普通 3低
+	Location    string `json:"location"` // 位置/楼栋房号
 }
 
-type Response {
-	Message string `json:"message"`
+// AssignWorkOrderReq 派单请求: 分配处理人与处理部门, 触发 待派单→处理中
+type AssignWorkOrderReq {
+	Id           int64 `path:"id"` // 工单ID(路径参数)
+	AssigneeID   int64 `json:"assignee_id"` // 处理人ID
+	DepartmentID int64 `json:"department_id,optional"` // 处理部门ID(可选)
+}
+
+// UpdateWorkOrderStatusReq 状态流转请求: submit/approve/reject/close
+type UpdateWorkOrderStatusReq {
+	Id     int64  `path:"id"` // 工单ID(路径参数)
+	Action string `json:"action"` // 动作: submit(处理中→待验收) approve(待验收→已完成) reject(待验收→处理中) close(任意活跃态→已关闭)
+	Remark string `json:"remark,optional"` // 流转备注(验收意见/驳回原因等)
+}
+
+// IdReq 按ID查询请求
+type IdReq {
+	Id int64 `path:"id"` // 主键ID(路径参数)
+}
+
+// ListWorkOrderReq 工单分页列表请求
+type ListWorkOrderReq {
+	Status     int8  `form:"status,optional"` // 状态筛选(可选)
+	Type       int8  `form:"type,optional"` // 类型筛选(可选)
+	AssigneeID int64 `form:"assignee_id,optional"` // 处理人筛选(可选)
+	Page       int64 `form:"page"` // 页码(从1开始)
+	PageSize   int64 `form:"page_size"` // 每页大小
+}
+
+// WorkOrderResp 工单简要响应(创建/流转后返回)
+type WorkOrderResp {
+	Id      int64  `json:"id"` // 主键ID
+	OrderNo string `json:"order_no"` // 工单号
+	Status  int8   `json:"status"` // 当前状态
+}
+
+// WorkOrderDetailResp 工单详情响应
+type WorkOrderDetailResp {
+	Id           int64  `json:"id"`
+	TenantID     int64  `json:"tenant_id"` // 园区ID(RBAC 隔离)
+	OrderNo      string `json:"order_no"`
+	Type         int8   `json:"type"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	ReporterID   int64  `json:"reporter_id"` // 报修/发起人
+	AssigneeID   int64  `json:"assignee_id"` // 处理人
+	DepartmentID int64  `json:"department_id"` // 处理部门
+	Status       int8   `json:"status"`
+	Priority     int8   `json:"priority"`
+	Location     string `json:"location"`
+	Attachments  string `json:"attachments"` // MinIO 对象Key列表(JSON)
+	Version      int64  `json:"version"` // 乐观锁版本
+	CreatedAt    int64  `json:"created_at"` // 创建时间(秒级时间戳)
+	UpdatedAt    int64  `json:"updated_at"` // 更新时间(秒级时间戳)
+	FinishedAt   int64  `json:"finished_at,optional"` // 完成/关闭时间(秒级时间戳)
+}
+
+// WorkOrderItem 工单列表项
+type WorkOrderItem {
+	Id         int64  `json:"id"`
+	OrderNo    string `json:"order_no"`
+	Type       int8   `json:"type"`
+	Title      string `json:"title"`
+	Status     int8   `json:"status"`
+	Priority   int8   `json:"priority"`
+	AssigneeID int64  `json:"assignee_id"`
+	CreatedAt  int64  `json:"created_at"` // 创建时间(秒级时间戳)
+}
+
+// WorkOrderListResp 工单分页响应
+type WorkOrderListResp {
+	Total int64           `json:"total"` // 总数
+	List  []WorkOrderItem `json:"list"` // 当前页数据
 }
 
 service workorder-api {
-	@handler WorkorderHandler
-	get /from/:name (Request) returns (Response)
+	@handler CreateWorkOrder
+	post /api/workorder (CreateWorkOrderReq) returns (WorkOrderResp)
+
+	@handler AssignWorkOrder
+	put /api/workorder/:id/assign (AssignWorkOrderReq) returns (WorkOrderResp)
+
+	@handler UpdateWorkOrderStatus
+	put /api/workorder/:id/status (UpdateWorkOrderStatusReq) returns (WorkOrderResp)
+
+	@handler GetWorkOrder
+	get /api/workorder/:id (IdReq) returns (WorkOrderDetailResp)
+
+	@handler ListWorkOrders
+	get /api/workorders (ListWorkOrderReq) returns (WorkOrderListResp)
 }
 

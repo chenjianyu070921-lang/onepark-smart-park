@@ -13,9 +13,29 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				Method:  http.MethodPost,
+				Path:    "/api/workorder",
+				Handler: CreateWorkOrderHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: WorkorderHandler(serverCtx),
+				Path:    "/api/workorder/:id",
+				Handler: GetWorkOrderHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/api/workorder/:id/assign",
+				Handler: AssignWorkOrderHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/api/workorder/:id/status",
+				Handler: UpdateWorkOrderStatusHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/workorders",
+				Handler: ListWorkOrdersHandler(serverCtx),
 			},
 		},
 	)

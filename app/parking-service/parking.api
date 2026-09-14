@@ -1,15 +1,74 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+// parking-service 停车管理服务 API 契约
+// 对齐 docs/M2物业管理服务模块设计文档(V1.1) 第三节 / 第十一节.
+// 核心: 车辆入场记录、离场计费、记录分页、在场列表(数据来自 M1 Kafka 地磁事件).
+// 说明: returns 类型均为 data 载荷, 由 handler 经 response.Ok/Fail 包装为统一响应体.
+// ParkingEntryReq 车辆入场请求(实际由 Kafka 地磁事件驱动, 亦提供 HTTP 入口便于联调)
+type ParkingEntryReq {
+	PlateNo     string `json:"plate_no"` // 车牌号
+	VehicleType int8   `json:"vehicle_type"` // 1月卡 2临时 3VIP 4异常
+	DeviceIDIn  string `json:"device_id_in"` // 入场设备(地磁)ID
 }
 
-type Response {
-	Message string `json:"message"`
+// ParkingRecordResp 停车记录响应
+type ParkingRecordResp {
+	Id          int64  `json:"id"`
+	PlateNo     string `json:"plate_no"`
+	EntryTime   int64  `json:"entry_time"` // 入场时间(秒级时间戳)
+	ExitTime    int64  `json:"exit_time,optional"`
+	DurationMin int64  `json:"duration_min,optional"` // 停车时长(分钟)
+	Fee         string `json:"fee,optional"` // 停车费(decimal 字符串, 避免浮点误差)
+	Status      int8   `json:"status"` // 1停车中 2已完成
+}
+
+// ParkingExitReq 车辆离场请求(触发计费)
+type ParkingExitReq {
+	PlateNo     string `json:"plate_no"`
+	DeviceIDOut string `json:"device_id_out"` // 出场设备(地磁)ID
+}
+
+// ListParkingReq 停车记录分页请求
+type ListParkingReq {
+	Status   int8   `form:"status,optional"`
+	PlateNo  string `form:"plate_no,optional"`
+	Page     int64  `form:"page"`
+	PageSize int64  `form:"page_size"`
+}
+
+// ParkingItem 停车列表项
+type ParkingItem {
+	Id        int64  `json:"id"`
+	PlateNo   string `json:"plate_no"`
+	EntryTime int64  `json:"entry_time"`
+	ExitTime  int64  `json:"exit_time,optional"`
+	Status    int8   `json:"status"`
+	Fee       string `json:"fee,optional"`
+}
+
+// ParkingListResp 停车分页响应(记录列表与在场列表共用)
+type ParkingListResp {
+	Total int64         `json:"total"`
+	List  []ParkingItem `json:"list"`
+}
+
+// ActiveParkingReq 在场车辆查询请求
+type ActiveParkingReq {
+	Page     int64 `form:"page"`
+	PageSize int64 `form:"page_size"`
 }
 
 service parking-api {
-	@handler ParkingHandler
-	get /from/:name (Request) returns (Response)
+	@handler ParkingEntry
+	post /api/parking/entry (ParkingEntryReq) returns (ParkingRecordResp)
+
+	@handler ParkingExit
+	post /api/parking/exit (ParkingExitReq) returns (ParkingRecordResp)
+
+	@handler ListParking
+	get /api/parking/records (ListParkingReq) returns (ParkingListResp)
+
+	@handler ActiveParking
+	get /api/parking/active (ActiveParkingReq) returns (ParkingListResp)
 }
 

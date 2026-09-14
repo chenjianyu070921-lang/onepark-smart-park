@@ -11,6 +11,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	common "onepark/proto/common"
 	reflect "reflect"
+	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -21,25 +22,287 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ListWorkOrdersReq 工单列表查询请求
+type ListWorkOrdersReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      int64                  `protobuf:"varint,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"` // 园区ID(RBAC 隔离), 0 表示不限
+	Status        int32                  `protobuf:"varint,2,opt,name=status,proto3" json:"status,omitempty"`                     // 状态过滤: 0不限, 其它见 work_order.status 取值
+	Page          int64                  `protobuf:"varint,3,opt,name=page,proto3" json:"page,omitempty"`                         // 页码(从1开始)
+	PageSize      int64                  `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"` // 每页大小
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorkOrdersReq) Reset() {
+	*x = ListWorkOrdersReq{}
+	mi := &file_workorder_workorder_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkOrdersReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkOrdersReq) ProtoMessage() {}
+
+func (x *ListWorkOrdersReq) ProtoReflect() protoreflect.Message {
+	mi := &file_workorder_workorder_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkOrdersReq.ProtoReflect.Descriptor instead.
+func (*ListWorkOrdersReq) Descriptor() ([]byte, []int) {
+	return file_workorder_workorder_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ListWorkOrdersReq) GetTenantId() int64 {
+	if x != nil {
+		return x.TenantId
+	}
+	return 0
+}
+
+func (x *ListWorkOrdersReq) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *ListWorkOrdersReq) GetPage() int64 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *ListWorkOrdersReq) GetPageSize() int64 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+// WorkOrderSummary 工单摘要(大屏展示用, 避免传输大字段)
+type WorkOrderSummary struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`                                   // 工单ID
+	OrderNo       string                 `protobuf:"bytes,2,opt,name=order_no,json=orderNo,proto3" json:"order_no,omitempty"`           // 工单号
+	Type          int32                  `protobuf:"varint,3,opt,name=type,proto3" json:"type,omitempty"`                               // 工单类型
+	Status        int32                  `protobuf:"varint,4,opt,name=status,proto3" json:"status,omitempty"`                           // 当前状态
+	Priority      int32                  `protobuf:"varint,5,opt,name=priority,proto3" json:"priority,omitempty"`                       // 优先级
+	AssigneeId    int64                  `protobuf:"varint,6,opt,name=assignee_id,json=assigneeId,proto3" json:"assignee_id,omitempty"` // 处理人
+	CreatedAt     int64                  `protobuf:"varint,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`    // 创建时间(秒级时间戳)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkOrderSummary) Reset() {
+	*x = WorkOrderSummary{}
+	mi := &file_workorder_workorder_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkOrderSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkOrderSummary) ProtoMessage() {}
+
+func (x *WorkOrderSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_workorder_workorder_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkOrderSummary.ProtoReflect.Descriptor instead.
+func (*WorkOrderSummary) Descriptor() ([]byte, []int) {
+	return file_workorder_workorder_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *WorkOrderSummary) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *WorkOrderSummary) GetOrderNo() string {
+	if x != nil {
+		return x.OrderNo
+	}
+	return ""
+}
+
+func (x *WorkOrderSummary) GetType() int32 {
+	if x != nil {
+		return x.Type
+	}
+	return 0
+}
+
+func (x *WorkOrderSummary) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *WorkOrderSummary) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
+}
+
+func (x *WorkOrderSummary) GetAssigneeId() int64 {
+	if x != nil {
+		return x.AssigneeId
+	}
+	return 0
+}
+
+func (x *WorkOrderSummary) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+// ListWorkOrdersResp 工单列表响应
+type ListWorkOrdersResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Total         int64                  `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`                                   // 符合条件总数
+	List          []*WorkOrderSummary    `protobuf:"bytes,2,rep,name=list,proto3" json:"list,omitempty"`                                      // 当前页数据
+	PendingCount  int64                  `protobuf:"varint,3,opt,name=pending_count,json=pendingCount,proto3" json:"pending_count,omitempty"` // 待处理(待派单+处理中)工单总数
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorkOrdersResp) Reset() {
+	*x = ListWorkOrdersResp{}
+	mi := &file_workorder_workorder_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkOrdersResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkOrdersResp) ProtoMessage() {}
+
+func (x *ListWorkOrdersResp) ProtoReflect() protoreflect.Message {
+	mi := &file_workorder_workorder_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkOrdersResp.ProtoReflect.Descriptor instead.
+func (*ListWorkOrdersResp) Descriptor() ([]byte, []int) {
+	return file_workorder_workorder_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListWorkOrdersResp) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *ListWorkOrdersResp) GetList() []*WorkOrderSummary {
+	if x != nil {
+		return x.List
+	}
+	return nil
+}
+
+func (x *ListWorkOrdersResp) GetPendingCount() int64 {
+	if x != nil {
+		return x.PendingCount
+	}
+	return 0
+}
+
 var File_workorder_workorder_proto protoreflect.FileDescriptor
 
 const file_workorder_workorder_proto_rawDesc = "" +
 	"\n" +
-	"\x19workorder/workorder.proto\x12\x11onepark.workorder\x1a\x13common/common.proto2H\n" +
+	"\x19workorder/workorder.proto\x12\x11onepark.workorder\x1a\x13common/common.proto\"y\n" +
+	"\x11ListWorkOrdersReq\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\x03R\btenantId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\x05R\x06status\x12\x12\n" +
+	"\x04page\x18\x03 \x01(\x03R\x04page\x12\x1b\n" +
+	"\tpage_size\x18\x04 \x01(\x03R\bpageSize\"\xc5\x01\n" +
+	"\x10WorkOrderSummary\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
+	"\border_no\x18\x02 \x01(\tR\aorderNo\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\x05R\x04type\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\x05R\x06status\x12\x1a\n" +
+	"\bpriority\x18\x05 \x01(\x05R\bpriority\x12\x1f\n" +
+	"\vassignee_id\x18\x06 \x01(\x03R\n" +
+	"assigneeId\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\a \x01(\x03R\tcreatedAt\"\x88\x01\n" +
+	"\x12ListWorkOrdersResp\x12\x14\n" +
+	"\x05total\x18\x01 \x01(\x03R\x05total\x127\n" +
+	"\x04list\x18\x02 \x03(\v2#.onepark.workorder.WorkOrderSummaryR\x04list\x12#\n" +
+	"\rpending_count\x18\x03 \x01(\x03R\fpendingCount2\xa7\x01\n" +
 	"\x10WorkorderService\x124\n" +
-	"\x04Ping\x12\x15.onepark.common.Empty\x1a\x15.onepark.common.EmptyB%Z#onepark/proto/workorder;workorderpbb\x06proto3"
+	"\x04Ping\x12\x15.onepark.common.Empty\x1a\x15.onepark.common.Empty\x12]\n" +
+	"\x0eListWorkOrders\x12$.onepark.workorder.ListWorkOrdersReq\x1a%.onepark.workorder.ListWorkOrdersRespB%Z#onepark/proto/workorder;workorderpbb\x06proto3"
 
+var (
+	file_workorder_workorder_proto_rawDescOnce sync.Once
+	file_workorder_workorder_proto_rawDescData []byte
+)
+
+func file_workorder_workorder_proto_rawDescGZIP() []byte {
+	file_workorder_workorder_proto_rawDescOnce.Do(func() {
+		file_workorder_workorder_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_workorder_workorder_proto_rawDesc), len(file_workorder_workorder_proto_rawDesc)))
+	})
+	return file_workorder_workorder_proto_rawDescData
+}
+
+var file_workorder_workorder_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_workorder_workorder_proto_goTypes = []any{
-	(*common.Empty)(nil), // 0: onepark.common.Empty
+	(*ListWorkOrdersReq)(nil),  // 0: onepark.workorder.ListWorkOrdersReq
+	(*WorkOrderSummary)(nil),   // 1: onepark.workorder.WorkOrderSummary
+	(*ListWorkOrdersResp)(nil), // 2: onepark.workorder.ListWorkOrdersResp
+	(*common.Empty)(nil),       // 3: onepark.common.Empty
 }
 var file_workorder_workorder_proto_depIdxs = []int32{
-	0, // 0: onepark.workorder.WorkorderService.Ping:input_type -> onepark.common.Empty
-	0, // 1: onepark.workorder.WorkorderService.Ping:output_type -> onepark.common.Empty
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: onepark.workorder.ListWorkOrdersResp.list:type_name -> onepark.workorder.WorkOrderSummary
+	3, // 1: onepark.workorder.WorkorderService.Ping:input_type -> onepark.common.Empty
+	0, // 2: onepark.workorder.WorkorderService.ListWorkOrders:input_type -> onepark.workorder.ListWorkOrdersReq
+	3, // 3: onepark.workorder.WorkorderService.Ping:output_type -> onepark.common.Empty
+	2, // 4: onepark.workorder.WorkorderService.ListWorkOrders:output_type -> onepark.workorder.ListWorkOrdersResp
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_workorder_workorder_proto_init() }
@@ -53,12 +316,13 @@ func file_workorder_workorder_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_workorder_workorder_proto_rawDesc), len(file_workorder_workorder_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   0,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_workorder_workorder_proto_goTypes,
 		DependencyIndexes: file_workorder_workorder_proto_depIdxs,
+		MessageInfos:      file_workorder_workorder_proto_msgTypes,
 	}.Build()
 	File_workorder_workorder_proto = out.File
 	file_workorder_workorder_proto_goTypes = nil

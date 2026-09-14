@@ -20,15 +20,22 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DeviceService_Ping_FullMethodName = "/onepark.device.DeviceService/Ping"
+	DeviceService_Ping_FullMethodName        = "/onepark.device.DeviceService/Ping"
+	DeviceService_SendCommand_FullMethodName = "/onepark.device.DeviceService/SendCommand"
+	DeviceService_GetDevice_FullMethodName   = "/onepark.device.DeviceService/GetDevice"
 )
 
 // DeviceServiceClient is the client API for DeviceService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DeviceServiceClient interface {
-	// TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+	// Ping 探活
 	Ping(ctx context.Context, in *common.Empty, opts ...grpc.CallOption) (*common.Empty, error)
+	// SendCommand 向设备下发指令(访客签入开门、停车道闸等)
+	// 请求复用公共 DeviceCommand, 响应复用公共 CommandResult
+	SendCommand(ctx context.Context, in *common.DeviceCommand, opts ...grpc.CallOption) (*common.CommandResult, error)
+	// GetDevice 查询设备详情(停车地磁/门禁等), 供 parking-service 校验设备与获取状态
+	GetDevice(ctx context.Context, in *GetDeviceReq, opts ...grpc.CallOption) (*GetDeviceResp, error)
 }
 
 type deviceServiceClient struct {
@@ -49,12 +56,37 @@ func (c *deviceServiceClient) Ping(ctx context.Context, in *common.Empty, opts .
 	return out, nil
 }
 
+func (c *deviceServiceClient) SendCommand(ctx context.Context, in *common.DeviceCommand, opts ...grpc.CallOption) (*common.CommandResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.CommandResult)
+	err := c.cc.Invoke(ctx, DeviceService_SendCommand_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceServiceClient) GetDevice(ctx context.Context, in *GetDeviceReq, opts ...grpc.CallOption) (*GetDeviceResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDeviceResp)
+	err := c.cc.Invoke(ctx, DeviceService_GetDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DeviceServiceServer is the server API for DeviceService service.
 // All implementations must embed UnimplementedDeviceServiceServer
 // for forward compatibility.
 type DeviceServiceServer interface {
-	// TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+	// Ping 探活
 	Ping(context.Context, *common.Empty) (*common.Empty, error)
+	// SendCommand 向设备下发指令(访客签入开门、停车道闸等)
+	// 请求复用公共 DeviceCommand, 响应复用公共 CommandResult
+	SendCommand(context.Context, *common.DeviceCommand) (*common.CommandResult, error)
+	// GetDevice 查询设备详情(停车地磁/门禁等), 供 parking-service 校验设备与获取状态
+	GetDevice(context.Context, *GetDeviceReq) (*GetDeviceResp, error)
 	mustEmbedUnimplementedDeviceServiceServer()
 }
 
@@ -67,6 +99,12 @@ type UnimplementedDeviceServiceServer struct{}
 
 func (UnimplementedDeviceServiceServer) Ping(context.Context, *common.Empty) (*common.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
+}
+func (UnimplementedDeviceServiceServer) SendCommand(context.Context, *common.DeviceCommand) (*common.CommandResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method SendCommand not implemented")
+}
+func (UnimplementedDeviceServiceServer) GetDevice(context.Context, *GetDeviceReq) (*GetDeviceResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetDevice not implemented")
 }
 func (UnimplementedDeviceServiceServer) mustEmbedUnimplementedDeviceServiceServer() {}
 func (UnimplementedDeviceServiceServer) testEmbeddedByValue()                       {}
@@ -107,6 +145,42 @@ func _DeviceService_Ping_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeviceService_SendCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(common.DeviceCommand)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceServiceServer).SendCommand(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceService_SendCommand_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceServiceServer).SendCommand(ctx, req.(*common.DeviceCommand))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceService_GetDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeviceReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceServiceServer).GetDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceService_GetDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceServiceServer).GetDevice(ctx, req.(*GetDeviceReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DeviceService_ServiceDesc is the grpc.ServiceDesc for DeviceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -117,6 +191,14 @@ var DeviceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Ping",
 			Handler:    _DeviceService_Ping_Handler,
+		},
+		{
+			MethodName: "SendCommand",
+			Handler:    _DeviceService_SendCommand_Handler,
+		},
+		{
+			MethodName: "GetDevice",
+			Handler:    _DeviceService_GetDevice_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

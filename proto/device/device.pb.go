@@ -11,6 +11,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	common "onepark/proto/common"
 	reflect "reflect"
+	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -21,22 +22,184 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// GetDeviceReq 设备查询请求
+type GetDeviceReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"` // 设备ID(地磁/门禁)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDeviceReq) Reset() {
+	*x = GetDeviceReq{}
+	mi := &file_device_device_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDeviceReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDeviceReq) ProtoMessage() {}
+
+func (x *GetDeviceReq) ProtoReflect() protoreflect.Message {
+	mi := &file_device_device_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDeviceReq.ProtoReflect.Descriptor instead.
+func (*GetDeviceReq) Descriptor() ([]byte, []int) {
+	return file_device_device_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *GetDeviceReq) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+// GetDeviceResp 设备详情响应
+type GetDeviceResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`  // 设备ID
+	Type          int32                  `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`                         // 设备类型: 1地磁 2门禁 3摄像头 ...
+	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`                      // 设备状态: online/offline/fault
+	Latitude      float64                `protobuf:"fixed64,4,opt,name=latitude,proto3" json:"latitude,omitempty"`                // 纬度
+	Longitude     float64                `protobuf:"fixed64,5,opt,name=longitude,proto3" json:"longitude,omitempty"`              // 经度
+	LastSeen      int64                  `protobuf:"varint,6,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"` // 最近上报时间(秒级时间戳)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDeviceResp) Reset() {
+	*x = GetDeviceResp{}
+	mi := &file_device_device_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDeviceResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDeviceResp) ProtoMessage() {}
+
+func (x *GetDeviceResp) ProtoReflect() protoreflect.Message {
+	mi := &file_device_device_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDeviceResp.ProtoReflect.Descriptor instead.
+func (*GetDeviceResp) Descriptor() ([]byte, []int) {
+	return file_device_device_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *GetDeviceResp) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *GetDeviceResp) GetType() int32 {
+	if x != nil {
+		return x.Type
+	}
+	return 0
+}
+
+func (x *GetDeviceResp) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *GetDeviceResp) GetLatitude() float64 {
+	if x != nil {
+		return x.Latitude
+	}
+	return 0
+}
+
+func (x *GetDeviceResp) GetLongitude() float64 {
+	if x != nil {
+		return x.Longitude
+	}
+	return 0
+}
+
+func (x *GetDeviceResp) GetLastSeen() int64 {
+	if x != nil {
+		return x.LastSeen
+	}
+	return 0
+}
+
 var File_device_device_proto protoreflect.FileDescriptor
 
 const file_device_device_proto_rawDesc = "" +
 	"\n" +
-	"\x13device/device.proto\x12\x0eonepark.device\x1a\x13common/common.proto2E\n" +
+	"\x13device/device.proto\x12\x0eonepark.device\x1a\x13common/common.proto\"+\n" +
+	"\fGetDeviceReq\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\"\xaf\x01\n" +
+	"\rGetDeviceResp\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\x05R\x04type\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12\x1a\n" +
+	"\blatitude\x18\x04 \x01(\x01R\blatitude\x12\x1c\n" +
+	"\tlongitude\x18\x05 \x01(\x01R\tlongitude\x12\x1b\n" +
+	"\tlast_seen\x18\x06 \x01(\x03R\blastSeen2\xdc\x01\n" +
 	"\rDeviceService\x124\n" +
-	"\x04Ping\x12\x15.onepark.common.Empty\x1a\x15.onepark.common.EmptyB\x1fZ\x1donepark/proto/device;devicepbb\x06proto3"
+	"\x04Ping\x12\x15.onepark.common.Empty\x1a\x15.onepark.common.Empty\x12K\n" +
+	"\vSendCommand\x12\x1d.onepark.common.DeviceCommand\x1a\x1d.onepark.common.CommandResult\x12H\n" +
+	"\tGetDevice\x12\x1c.onepark.device.GetDeviceReq\x1a\x1d.onepark.device.GetDeviceRespB\x1fZ\x1donepark/proto/device;devicepbb\x06proto3"
 
+var (
+	file_device_device_proto_rawDescOnce sync.Once
+	file_device_device_proto_rawDescData []byte
+)
+
+func file_device_device_proto_rawDescGZIP() []byte {
+	file_device_device_proto_rawDescOnce.Do(func() {
+		file_device_device_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_device_device_proto_rawDesc), len(file_device_device_proto_rawDesc)))
+	})
+	return file_device_device_proto_rawDescData
+}
+
+var file_device_device_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_device_device_proto_goTypes = []any{
-	(*common.Empty)(nil), // 0: onepark.common.Empty
+	(*GetDeviceReq)(nil),         // 0: onepark.device.GetDeviceReq
+	(*GetDeviceResp)(nil),        // 1: onepark.device.GetDeviceResp
+	(*common.Empty)(nil),         // 2: onepark.common.Empty
+	(*common.DeviceCommand)(nil), // 3: onepark.common.DeviceCommand
+	(*common.CommandResult)(nil), // 4: onepark.common.CommandResult
 }
 var file_device_device_proto_depIdxs = []int32{
-	0, // 0: onepark.device.DeviceService.Ping:input_type -> onepark.common.Empty
-	0, // 1: onepark.device.DeviceService.Ping:output_type -> onepark.common.Empty
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	2, // 0: onepark.device.DeviceService.Ping:input_type -> onepark.common.Empty
+	3, // 1: onepark.device.DeviceService.SendCommand:input_type -> onepark.common.DeviceCommand
+	0, // 2: onepark.device.DeviceService.GetDevice:input_type -> onepark.device.GetDeviceReq
+	2, // 3: onepark.device.DeviceService.Ping:output_type -> onepark.common.Empty
+	4, // 4: onepark.device.DeviceService.SendCommand:output_type -> onepark.common.CommandResult
+	1, // 5: onepark.device.DeviceService.GetDevice:output_type -> onepark.device.GetDeviceResp
+	3, // [3:6] is the sub-list for method output_type
+	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -53,12 +216,13 @@ func file_device_device_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_device_device_proto_rawDesc), len(file_device_device_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   0,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_device_device_proto_goTypes,
 		DependencyIndexes: file_device_device_proto_depIdxs,
+		MessageInfos:      file_device_device_proto_msgTypes,
 	}.Build()
 	File_device_device_proto = out.File
 	file_device_device_proto_goTypes = nil

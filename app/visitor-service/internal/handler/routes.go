@@ -13,9 +13,24 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				Method:  http.MethodPost,
+				Path:    "/api/visitor/checkin",
+				Handler: VisitorCheckinHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/visitor/checkout",
+				Handler: VisitorCheckoutHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/visitor/invite",
+				Handler: VisitorInviteHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: VisitorHandler(serverCtx),
+				Path:    "/api/visitors",
+				Handler: ListVisitorsHandler(serverCtx),
 			},
 		},
 	)

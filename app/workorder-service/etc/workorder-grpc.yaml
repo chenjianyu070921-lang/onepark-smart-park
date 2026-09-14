@@ -1,0 +1,6 @@
+# workorder gRPC 服务配置 (端口 9091, 供 M5 大屏聚合)
+ListenOn: 0.0.0.0:9091
+
+# MySQL 连接(未配置时 gRPC 仍启动, 聚合返回空)
+MySQL:
+  DataSource: ""

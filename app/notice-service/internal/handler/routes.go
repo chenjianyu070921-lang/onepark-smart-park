@@ -13,9 +13,14 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				Method:  http.MethodPost,
+				Path:    "/api/notice",
+				Handler: CreateNoticeHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: NoticeHandler(serverCtx),
+				Path:    "/api/notices",
+				Handler: ListNoticesHandler(serverCtx),
 			},
 		},
 	)
