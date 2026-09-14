@@ -2,7 +2,10 @@ module onepark/app/access-control-service
 
 go 1.25.2
 
-require github.com/zeromicro/go-zero v1.10.3
+require (
+	github.com/zeromicro/go-zero v1.10.3
+	onepark/common v0.0.0
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -50,3 +53,5 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+replace onepark/common => ../../common

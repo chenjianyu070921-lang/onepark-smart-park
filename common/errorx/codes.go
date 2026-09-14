@@ -30,12 +30,35 @@ const SuccessCode = "0"
 
 // 通用错误码 (M6 前缀, 公共部分)
 const (
-	ErrBadRequest    = "M6-E-0001" // 请求参数错误
-	ErrUnauthorized  = "M6-E-0002" // 未登录/Token 失效
-	ErrForbidden     = "M6-E-0003" // 无权限
-	ErrNotFound      = "M6-E-0004" // 资源不存在
-	ErrInternal      = "M6-E-0005" // 服务器内部错误
-	ErrDepConnect    = "M6-E-0006" // 依赖中间件连接失败
+	ErrBadRequest   = "M6-E-0001" // 请求参数错误
+	ErrUnauthorized = "M6-E-0002" // 未登录/Token 失效
+	ErrForbidden    = "M6-E-0003" // 无权限
+	ErrNotFound     = "M6-E-0004" // 资源不存在
+	ErrInternal     = "M6-E-0005" // 服务器内部错误
+	ErrDepConnect   = "M6-E-0006" // 依赖中间件连接失败
+)
+
+// M3 园区安防错误码: 1xxx 告警 / 2xxx 门禁 / 3xxx 视频.
+// 注意: 参数校验类务必用 M3-W-xxxx 才返回 400 (KI-2).
+const (
+	// 告警 (alarm-service)
+	ErrAlarmRuleCreate   = "M3-E-1001" // 告警规则创建失败
+	ErrAlarmRuleNotFound = "M3-E-1002" // 告警规则不存在
+	ErrAlarmNotFound     = "M3-E-1003" // 告警记录不存在
+	ErrAlarmAck          = "M3-E-1004" // 告警确认失败
+	ErrAlarmResolve      = "M3-E-1005" // 告警解决失败
+	ErrAlarmQuery        = "M3-E-1006" // 告警查询失败
+
+	// 门禁 (access-control-service)
+	ErrAccessGrant      = "M3-E-2001" // 门禁授权失败
+	ErrAccessRevoke     = "M3-E-2002" // 门禁撤销失败
+	ErrAccessRemoteOpen = "M3-E-2003" // 远程开门失败
+	ErrAccessRecord     = "M3-E-2004" // 通行记录查询失败
+
+	// 视频 (video-service)
+	ErrVideoCameraCreate   = "M3-E-3001" // 摄像头添加失败
+	ErrVideoCameraNotFound = "M3-E-3002" // 摄像头不存在
+	ErrVideoStream         = "M3-E-3003" // 视频流地址获取失败
 )
 
 // M1 物联接入底座错误码

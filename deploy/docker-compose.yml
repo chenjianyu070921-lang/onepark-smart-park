@@ -145,7 +145,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:${MINIO_VERSION}
+    image: coollabsio/minio:latest
     container_name: onepark-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

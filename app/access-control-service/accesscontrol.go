@@ -7,6 +7,7 @@ import (
 	"onepark/app/access-control-service/internal/config"
 	"onepark/app/access-control-service/internal/handler"
 	"onepark/app/access-control-service/internal/svc"
+	"onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
@@ -22,6 +23,10 @@ func main() {
 
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()
+
+	// 全链路 RequestId 透传 + 开发环境跨域
+	server.Use(middleware.RequestIdMiddleware)
+	server.Use(middleware.Cors)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
