@@ -14,8 +14,23 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 		[]rest.Route{
 			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: ParkingHandler(serverCtx),
+				Path:    "/api/parking/active",
+				Handler: ActiveParkingHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/parking/entry",
+				Handler: ParkingEntryHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/parking/exit",
+				Handler: ParkingExitHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/parking/records",
+				Handler: ListParkingHandler(serverCtx),
 			},
 		},
 	)

@@ -37,3 +37,27 @@ const (
 	ErrInternal      = "M6-E-0005" // 服务器内部错误
 	ErrDepConnect    = "M6-E-0006" // 依赖中间件连接失败
 )
+
+// M2 物业管理服务业务错误码
+const (
+	// 工单域 1001~1999
+	ErrWorkOrderNotFound      = "M2-E-1001" // 工单不存在
+	ErrWorkOrderStatusInvalid = "M2-E-1002" // 工单状态非法或流转被禁止
+	ErrWorkOrderAssignFailed  = "M2-E-1003" // 工单派单失败（并发冲突或处理人不合法）
+
+	// 访客域 2001~2999
+	ErrVisitorQRCodeExpired = "M2-E-2001" // 访客二维码已过期
+	ErrVisitorQRCodeUsed    = "M2-E-2002" // 访客二维码已被核销
+	ErrVisitorCheckinFailed = "M2-E-2003" // 访客签入失败（gRPC 开门失败等）
+
+	// 停车域 3001~3999
+	ErrParkingRecordNotFound = "M2-E-3001" // 停车记录不存在
+	ErrParkingCalcFeeFailed  = "M2-E-3002" // 停车计费失败
+	ErrParkingDeviceNotFound = "M2-E-3003" // 停车设备不存在或未接入
+
+	// 公告域 4001~4999
+	ErrNoticeNotFound = "M2-E-4001" // 公告不存在
+
+	// 公共域 5001~5999
+	ErrM2Internal = "M2-E-5001" // M2 服务内部错误兜底
+)

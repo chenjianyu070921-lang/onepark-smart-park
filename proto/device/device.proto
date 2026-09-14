@@ -7,6 +7,28 @@ option go_package = "onepark/proto/device;devicepb";
 import "common/common.proto";
 
 service DeviceService {
-  // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+  // Ping 探活
   rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
+
+  // SendCommand 向设备下发指令(访客签入开门、停车道闸等)
+  // 请求复用公共 DeviceCommand, 响应复用公共 CommandResult
+  rpc SendCommand(onepark.common.DeviceCommand) returns (onepark.common.CommandResult);
+
+  // GetDevice 查询设备详情(停车地磁/门禁等), 供 parking-service 校验设备与获取状态
+  rpc GetDevice(GetDeviceReq) returns (GetDeviceResp);
+}
+
+// GetDeviceReq 设备查询请求
+message GetDeviceReq {
+  string device_id = 1; // 设备ID(地磁/门禁)
+}
+
+// GetDeviceResp 设备详情响应
+message GetDeviceResp {
+  string  device_id = 1; // 设备ID
+  int32   type      = 2; // 设备类型: 1地磁 2门禁 3摄像头 ...
+  string  status    = 3; // 设备状态: online/offline/fault
+  double  latitude  = 4; // 纬度
+  double  longitude = 5; // 经度
+  int64   last_seen = 6; // 最近上报时间(秒级时间戳)
 }

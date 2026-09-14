@@ -7,6 +7,36 @@ option go_package = "onepark/proto/workorder;workorderpb";
 import "common/common.proto";
 
 service WorkorderService {
-  // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+  // Ping 探活
   rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
+
+  // ListWorkOrders 供 M5 运营调度大屏聚合查询工单(支持按状态/园区过滤与分页)
+  // 返回工单摘要列表、总数以及"待处理(待派单+处理中)工单数"
+  rpc ListWorkOrders(ListWorkOrdersReq) returns (ListWorkOrdersResp);
+}
+
+// ListWorkOrdersReq 工单列表查询请求
+message ListWorkOrdersReq {
+  int64 tenant_id = 1; // 园区ID(RBAC 隔离), 0 表示不限
+  int32 status    = 2; // 状态过滤: 0不限, 其它见 work_order.status 取值
+  int64 page      = 3; // 页码(从1开始)
+  int64 page_size = 4; // 每页大小
+}
+
+// WorkOrderSummary 工单摘要(大屏展示用, 避免传输大字段)
+message WorkOrderSummary {
+  int64  id          = 1; // 工单ID
+  string order_no    = 2; // 工单号
+  int32  type        = 3; // 工单类型
+  int32  status      = 4; // 当前状态
+  int32  priority    = 5; // 优先级
+  int64  assignee_id = 6; // 处理人
+  int64  created_at  = 7; // 创建时间(秒级时间戳)
+}
+
+// ListWorkOrdersResp 工单列表响应
+message ListWorkOrdersResp {
+  int64                total         = 1; // 符合条件总数
+  repeated WorkOrderSummary list      = 2; // 当前页数据
+  int64                pending_count = 3; // 待处理(待派单+处理中)工单总数
 }

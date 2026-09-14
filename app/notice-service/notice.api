@@ -1,15 +1,58 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+// notice-service 公告通知服务 API 契约
+// 对齐 docs/M2物业管理服务模块设计文档(V1.1) 第三节 / 第十一节.
+// 核心: 发布公告/通知, 公告列表查询, 已读统计(Redis PubSub 推送).
+// 说明: returns 类型均为 data 载荷, 由 handler 经 response.Ok/Fail 包装为统一响应体.
+// CreateNoticeReq 发布公告请求
+type CreateNoticeReq {
+	Title     string `json:"title"`
+	Content   string `json:"content"`
+	Type      int8   `json:"type"` // 1通知 2公告 3活动 4停水 5停电
+	Top       bool   `json:"top,optional"` // 是否置顶
+	PublishAt int64  `json:"publish_at,optional"` // 定时发布(秒级时间戳), 0=立即发布
 }
 
-type Response {
-	Message string `json:"message"`
+// NoticeResp 公告响应
+type NoticeResp {
+	Id        int64  `json:"id"`
+	Title     string `json:"title"`
+	Type      int8   `json:"type"`
+	Status    int8   `json:"status"` // 1草稿 2已发布 3已撤回
+	Top       bool   `json:"top"`
+	PublishAt int64  `json:"publish_at,optional"`
+}
+
+// ListNoticeReq 公告分页请求
+type ListNoticeReq {
+	Type     int8  `form:"type,optional"`
+	Status   int8  `form:"status,optional"`
+	Page     int64 `form:"page"`
+	PageSize int64 `form:"page_size"`
+}
+
+// NoticeItem 公告列表项
+type NoticeItem {
+	Id        int64  `json:"id"`
+	Title     string `json:"title"`
+	Type      int8   `json:"type"`
+	Status    int8   `json:"status"`
+	Top       bool   `json:"top"`
+	PublishAt int64  `json:"publish_at,optional"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// NoticeListResp 公告分页响应
+type NoticeListResp {
+	Total int64        `json:"total"`
+	List  []NoticeItem `json:"list"`
 }
 
 service notice-api {
-	@handler NoticeHandler
-	get /from/:name (Request) returns (Response)
+	@handler CreateNotice
+	post /api/notice (CreateNoticeReq) returns (NoticeResp)
+
+	@handler ListNotices
+	get /api/notices (ListNoticeReq) returns (NoticeListResp)
 }
 

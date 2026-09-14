@@ -1,15 +1,85 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+// visitor-service 访客通行服务 API 契约
+// 对齐 docs/M2物业管理服务模块设计文档(V1.1) 第三节 / 第十一节.
+// 核心: 业主/物业发起邀请生成二维码, 访客扫码签入(核销+调M1开门), 签出, 记录分页.
+// 说明: returns 类型均为 data 载荷, 由 handler 经 response.Ok/Fail 包装为统一响应体.
+// VisitorInviteReq 发起访客邀请请求
+type VisitorInviteReq {
+	VisitorName  string `json:"visitor_name"` // 访客姓名
+	VisitorPhone string `json:"visitor_phone"` // 访客手机号
+	VisitTime    int64  `json:"visit_time"` // 预期到访时间(秒级时间戳)
+	ExpireTime   int64  `json:"expire_time"` // 二维码过期时间(秒级时间戳)
+	Reason       string `json:"reason,optional"` // 来访原因
 }
 
-type Response {
-	Message string `json:"message"`
+// VisitorInviteResp 邀请响应(返回加密二维码内容)
+type VisitorInviteResp {
+	Id       int64  `json:"id"`
+	QRCode   string `json:"qr_code"` // 加密二维码内容(含签名+有效期)
+	ExpireAt int64  `json:"expire_at"` // 过期时间(秒级时间戳)
+}
+
+// VisitorCheckinReq 访客扫码签入请求(带二维码内容)
+type VisitorCheckinReq {
+	QRCode string `json:"qr_code"`
+}
+
+// VisitorCheckinResp 签入响应
+type VisitorCheckinResp {
+	Id        int64 `json:"id"`
+	Status    int8  `json:"status"` // 1待使用 2已签入 3已签出 4已过期
+	CheckinAt int64 `json:"checkin_at"` // 签入时间(秒级时间戳)
+}
+
+// VisitorCheckoutReq 访客签出请求(按Id或二维码)
+type VisitorCheckoutReq {
+	Id     int64  `json:"id,optional"`
+	QRCode string `json:"qr_code,optional"`
+}
+
+// VisitorCheckoutResp 签出响应
+type VisitorCheckoutResp {
+	Id         int64 `json:"id"`
+	Status     int8  `json:"status"`
+	CheckoutAt int64 `json:"checkout_at"` // 签出时间(秒级时间戳)
+}
+
+// ListVisitorReq 访客记录分页请求
+type ListVisitorReq {
+	Status   int8  `form:"status,optional"`
+	Page     int64 `form:"page"`
+	PageSize int64 `form:"page_size"`
+}
+
+// VisitorItem 访客列表项
+type VisitorItem {
+	Id           int64  `json:"id"`
+	VisitorName  string `json:"visitor_name"`
+	VisitorPhone string `json:"visitor_phone"`
+	Status       int8   `json:"status"`
+	VisitTime    int64  `json:"visit_time"`
+	CheckinAt    int64  `json:"checkin_at,optional"`
+	CheckoutAt   int64  `json:"checkout_at,optional"`
+}
+
+// VisitorListResp 访客分页响应
+type VisitorListResp {
+	Total int64         `json:"total"`
+	List  []VisitorItem `json:"list"`
 }
 
 service visitor-api {
-	@handler VisitorHandler
-	get /from/:name (Request) returns (Response)
+	@handler VisitorInvite
+	post /api/visitor/invite (VisitorInviteReq) returns (VisitorInviteResp)
+
+	@handler VisitorCheckin
+	post /api/visitor/checkin (VisitorCheckinReq) returns (VisitorCheckinResp)
+
+	@handler VisitorCheckout
+	post /api/visitor/checkout (VisitorCheckoutReq) returns (VisitorCheckoutResp)
+
+	@handler ListVisitors
+	get /api/visitors (ListVisitorReq) returns (VisitorListResp)
 }
 

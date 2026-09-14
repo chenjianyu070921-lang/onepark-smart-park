@@ -1,3 +1,17 @@
 Name: workorder-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8091
+
+# MySQL 连接配置 (DSN 由环境变量注入)
+MySQL:
+  DataSource: ${WORKORDER_MYSQL_DSN}
+
+# Redis 连接配置
+Redis:
+  Addr: ${REDIS_ADDR}
+  Pass: ${REDIS_PASS}
+  DB: ${REDIS_DB}
+
+# Kafka 连接配置 (预留, 用于工单状态变更事件投递)
+Kafka:
+  Brokers: ${KAFKA_BROKERS}

@@ -82,10 +82,10 @@ go run device.go -f etc/device-api.yaml
 |------|------|------|------|------|------|
 | device | 8001 | 9001 | energy-data | 8012 | 9012 |
 | shadow | — | 9002 | energy-analysis | 8013 | 9013 |
-| workorder | 8005 | 9005 | billing | 8014 | 9014 |
-| visitor | 8006 | — | leasing | 8015 | 9015 |
-| parking | 8007 | — | dashboard | 8016 | 9016 |
-| notice | 8008 | — | dispatch | 8017 | 9017 |
+| workorder | 8091 | 9091 | billing | 8014 | 9014 |
+| visitor | 8092 | — | leasing | 8015 | 9015 |
+| parking | 8093 | — | dashboard | 8016 | 9016 |
+| notice | 8094 | — | dispatch | 8017 | 9017 |
 | alarm | 8009 | 9009 | auth | 8018 | 9018 |
 | access-control | 8010 | 9010 | user-manage | 8019 | 9019 |
 | video | 8011 | 9011 | gateway（对外入口） | 8080 | — |

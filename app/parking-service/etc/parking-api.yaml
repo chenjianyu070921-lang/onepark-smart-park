@@ -1,3 +1,17 @@
 Name: parking-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8093
+
+# MySQL 连接配置 (DSN 由环境变量注入)
+MySQL:
+  DataSource: ${PARKING_MYSQL_DSN}
+
+# Redis 连接配置
+Redis:
+  Addr: ${REDIS_ADDR}
+  Pass: ${REDIS_PASS}
+  DB: ${REDIS_DB}
+
+# Kafka 连接配置 (预留, 用于消费地磁停车事件)
+Kafka:
+  Brokers: ${KAFKA_BROKERS}
