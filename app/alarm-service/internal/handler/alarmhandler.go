@@ -3,10 +3,10 @@ package handler
 import (
 	"net/http"
 
+	"github.com/zeromicro/go-zero/rest/httpx"
 	"onepark/app/alarm-service/internal/logic"
 	"onepark/app/alarm-service/internal/svc"
 	"onepark/app/alarm-service/internal/types"
-	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
 func AlarmHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
