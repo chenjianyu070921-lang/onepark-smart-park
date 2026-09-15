@@ -1,24 +1,27 @@
-package handler
+// Code scaffolded by goctl. Safe to edit.
+// goctl 1.10.2
+
+package dashboard
 
 import (
 	"net/http"
 
-	"onepark/app/dashboard-service/internal/logic"
+	"github.com/zeromicro/go-zero/rest/httpx"
+	"onepark/app/dashboard-service/internal/logic/dashboard"
 	"onepark/app/dashboard-service/internal/svc"
 	"onepark/app/dashboard-service/internal/types"
-	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
-func DashboardHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+func HomeHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req types.Request
+		var req types.HomeReq
 		if err := httpx.Parse(r, &req); err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 			return
 		}
 
-		l := logic.NewDashboardLogic(r.Context(), svcCtx)
-		resp, err := l.Dashboard(&req)
+		l := dashboard.NewHomeLogic(r.Context(), svcCtx)
+		resp, err := l.Home(&req)
 		if err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 		} else {
