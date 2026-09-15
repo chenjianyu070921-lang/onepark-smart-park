@@ -29,6 +29,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			},
 			{
 				Method:  http.MethodPost,
+				Path:    "/api/device/event",
+				Handler: DeviceEventHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
 				Path:    "/api/device/register",
 				Handler: DeviceRegisterHandler(serverCtx),
 			},

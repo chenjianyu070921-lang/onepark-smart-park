@@ -2,9 +2,14 @@ package logic
 
 import (
 	"context"
+	"errors"
+	"time"
+
+	"gorm.io/gorm"
 
 	"onepark/app/device-service/internal/svc"
 	"onepark/app/device-service/internal/types"
+	"onepark/common/errorx"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -24,7 +29,28 @@ func NewDeviceDetailLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Devi
 }
 
 func (l *DeviceDetailLogic) DeviceDetail(req *types.DeviceDetailReq) (resp *types.DeviceDetailResp, err error) {
-	// todo: add your logic here and delete this line
+	d, err := l.svcCtx.DeviceModel.FindByDeviceID(l.ctx, req.DeviceID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errorx.NewError(errorx.ErrDeviceNotFound, "设备不存在")
+		}
+		l.Errorf("查询设备失败: %v", err)
+		return nil, errorx.NewError(errorx.ErrInternal, "查询设备失败")
+	}
 
-	return
+	resp = &types.DeviceDetailResp{
+		DeviceID:   d.DeviceID,
+		DeviceName: d.DeviceName,
+		ProductKey: d.ProductKey,
+		ParkID:     d.ParkID,
+		BuildingID: d.BuildingID,
+		Floor:      d.Floor,
+		Location:   d.Location,
+		Status:     d.Status,
+		CreatedAt:  d.CreatedAt.Format(time.DateTime),
+	}
+	if d.LastOnlineAt != nil {
+		resp.LastOnlineAt = d.LastOnlineAt.Format(time.DateTime)
+	}
+	return resp, nil
 }

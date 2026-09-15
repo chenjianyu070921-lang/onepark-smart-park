@@ -12,16 +12,16 @@ import (
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
-func DeviceListHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+func DeviceEventHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req types.DeviceListReq
+		var req types.DeviceEventReq
 		if err := httpx.Parse(r, &req); err != nil {
 			response.FailWith(w, errorx.ErrBadRequest, err.Error())
 			return
 		}
 
-		l := logic.NewDeviceListLogic(r.Context(), svcCtx)
-		resp, err := l.DeviceList(&req)
+		l := logic.NewDeviceEventLogic(r.Context(), svcCtx)
+		resp, err := l.DeviceEvent(&req)
 		if err != nil {
 			if ce, ok := err.(*errorx.CodeError); ok {
 				response.Fail(w, ce)
