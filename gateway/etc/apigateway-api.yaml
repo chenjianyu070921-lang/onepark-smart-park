@@ -1,3 +1,25 @@
 Name: apigateway-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8080
+
+# 无鉴权联调默认园区ID(生产由 M6 鉴权后经 Header 注入 x-tenant-id 覆盖)
+DefaultTenantId: 1
+DefaultUserId: 0
+
+# 路由前缀 -> 上游服务(最长前缀优先匹配)
+# 说明: /api/workorder 前缀同时覆盖 /api/workorders 与 /api/workorder/:id
+Upstreams:
+  - Prefix: /api/workorder
+    Target: http://127.0.0.1:8091
+  - Prefix: /api/visitor
+    Target: http://127.0.0.1:8092
+  - Prefix: /api/parking
+    Target: http://127.0.0.1:8093
+  - Prefix: /api/notice
+    Target: http://127.0.0.1:8094
+  - Prefix: /api/leasing
+    Target: http://127.0.0.1:8015
+  - Prefix: /api/dashboard
+    Target: http://127.0.0.1:8016
+  - Prefix: /api/dispatch
+    Target: http://127.0.0.1:8017

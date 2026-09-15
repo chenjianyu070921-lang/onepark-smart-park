@@ -10,11 +10,13 @@ const (
 	TopicParkingExit     = "parking-exit"     // 车辆离场事件(parking-service 发布)
 	TopicAlarm           = "alarm-event"      // 告警事件(M3 安防消费)
 	TopicNotice          = "notice-event"     // 公告发布事件(通知类消费)
+	TopicWorkorder       = "workorder-event"  // 工单状态事件(workorder-service 发布, M5/通知类消费)
 )
 
 // 消费者组常量(同一服务多实例共享消费位移).
 const (
-	GroupParking = "parking-service"
-	GroupAlarm   = "alarm-service"
-	GroupNotice  = "notice-service"
+	GroupParking   = "parking-service"
+	GroupAlarm     = "alarm-service"
+	GroupNotice    = "notice-service"
+	GroupWorkorder = "workorder-service"
 )
