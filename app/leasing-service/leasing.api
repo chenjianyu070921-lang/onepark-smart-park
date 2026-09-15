@@ -1,15 +1,35 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+type LeaseContract {
+	Id         int64  `json:"id"`
+	TenantId   int64  `json:"tenant_id"`
+	ContractNo string `json:"contract_no"`
+	Title      string `json:"title"`
+	Lessor     string `json:"lessor"`
+	Lessee     string `json:"lessee"`
+	Area       int64  `json:"area"`
+	StartDate  string `json:"start_date"`
+	EndDate    string `json:"end_date"`
+	Rent       int64  `json:"rent"`
+	Status     int32  `json:"status"`
 }
 
-type Response {
-	Message string `json:"message"`
+type ListLeaseReq {
+	TenantId int64 `form:"tenant_id,optional"`
+	Page     int64 `form:"page,optional"`
+	PageSize int64 `form:"page_size,optional"`
 }
 
+type ListLeaseResp {
+	Total int64            `json:"total"`
+	List  []*LeaseContract `json:"list"`
+}
+
+@server (
+	prefix: /api/leasing
+)
 service leasing-api {
-	@handler LeasingHandler
-	get /from/:name (Request) returns (Response)
+	@handler ListLeaseContracts
+	get /contracts (ListLeaseReq) returns (ListLeaseResp)
 }
 

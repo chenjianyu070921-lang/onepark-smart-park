@@ -27,9 +27,10 @@ type VisitorCheckinReq {
 
 // VisitorCheckinResp 签入响应
 type VisitorCheckinResp {
-	Id        int64 `json:"id"`
-	Status    int8  `json:"status"` // 1待使用 2已签入 3已签出 4已过期
-	CheckinAt int64 `json:"checkin_at"` // 签入时间(秒级时间戳)
+	Id        int64  `json:"id"`
+	Status    int8   `json:"status"` // 1待使用 2已签入 3已签出 4已过期
+	CheckinAt int64  `json:"checkin_at"` // 签入时间(秒级时间戳)
+	DeviceID  string `json:"device_id,optional"` // 开门设备ID(M1 开门成功回填)
 }
 
 // VisitorCheckoutReq 访客签出请求(按Id或二维码)
@@ -61,6 +62,7 @@ type VisitorItem {
 	VisitTime    int64  `json:"visit_time"`
 	CheckinAt    int64  `json:"checkin_at,optional"`
 	CheckoutAt   int64  `json:"checkout_at,optional"`
+	DeviceID     string `json:"device_id,optional"` // 开门设备ID
 }
 
 // VisitorListResp 访客分页响应

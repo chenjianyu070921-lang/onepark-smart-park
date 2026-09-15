@@ -9,21 +9,21 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-type LeasingLogic struct {
+type ListLeaseContractsLogic struct {
 	logx.Logger
 	ctx    context.Context
 	svcCtx *svc.ServiceContext
 }
 
-func NewLeasingLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LeasingLogic {
-	return &LeasingLogic{
+func NewListLeaseContractsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListLeaseContractsLogic {
+	return &ListLeaseContractsLogic{
 		Logger: logx.WithContext(ctx),
 		ctx:    ctx,
 		svcCtx: svcCtx,
 	}
 }
 
-func (l *LeasingLogic) Leasing(req *types.Request) (resp *types.Response, err error) {
+func (l *ListLeaseContractsLogic) ListLeaseContracts(req *types.ListLeaseReq) (resp *types.ListLeaseResp, err error) {
 	// todo: add your logic here and delete this line
 
 	return

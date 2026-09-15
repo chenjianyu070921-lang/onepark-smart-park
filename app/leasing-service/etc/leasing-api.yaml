@@ -1,3 +1,11 @@
 Name: leasing-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8015
+
+MySQL:
+  DataSource: "${LEASING_MYSQL_DSN}"
+
+Redis:
+  Addr: "${LEASING_REDIS_ADDR:127.0.0.1:6379}"
+  Pass: "${LEASING_REDIS_PASSWORD}"
+  DB: 0

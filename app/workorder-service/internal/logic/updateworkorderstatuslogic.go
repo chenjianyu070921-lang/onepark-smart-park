@@ -84,5 +84,19 @@ func (l *UpdateWorkOrderStatusLogic) UpdateWorkOrderStatus(req *types.UpdateWork
 	flow.UpdatedAt = now
 	_ = l.svcCtx.DB.WithContext(l.ctx).Create(flow).Error
 
+	// 发布状态流转事件(workorder-event); 失败仅记日志不阻断流转.
+	publishWorkOrderEvent(l.ctx, l.svcCtx, l.Logger, WorkOrderEvent{
+		Event:       "status_changed",
+		Action:      req.Action,
+		TenantId:    tenantID,
+		WorkOrderId: wo.ID,
+		OrderNo:     wo.OrderNo,
+		FromStatus:  wo.Status,
+		ToStatus:    next,
+		OperatorId:  operatorID,
+		AssigneeId:  wo.AssigneeID,
+		Timestamp:   now.Unix(),
+	})
+
 	return &types.WorkOrderResp{Id: wo.ID, OrderNo: wo.OrderNo, Status: next}, nil
 }

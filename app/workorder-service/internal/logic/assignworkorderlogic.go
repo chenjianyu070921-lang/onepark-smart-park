@@ -81,5 +81,19 @@ func (l *AssignWorkOrderLogic) AssignWorkOrder(req *types.AssignWorkOrderReq) (r
 	flow.UpdatedAt = now
 	_ = l.svcCtx.DB.WithContext(l.ctx).Create(flow).Error
 
+	// 发布派单事件(workorder-event); 失败仅记日志不阻断派单.
+	publishWorkOrderEvent(l.ctx, l.svcCtx, l.Logger, WorkOrderEvent{
+		Event:       "assigned",
+		Action:      state.ActionAssign,
+		TenantId:    tenantID,
+		WorkOrderId: wo.ID,
+		OrderNo:     wo.OrderNo,
+		FromStatus:  wo.Status,
+		ToStatus:    next,
+		OperatorId:  operatorID,
+		AssigneeId:  req.AssigneeID,
+		Timestamp:   now.Unix(),
+	})
+
 	return &types.WorkOrderResp{Id: wo.ID, OrderNo: wo.OrderNo, Status: next}, nil
 }

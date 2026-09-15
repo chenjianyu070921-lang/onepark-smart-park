@@ -1,3 +1,11 @@
 Name: dispatch-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8017
+
+MySQL:
+  DataSource: "${DISPATCH_MYSQL_DSN}"
+
+Redis:
+  Addr: "${DISPATCH_REDIS_ADDR:127.0.0.1:6379}"
+  Pass: "${DISPATCH_REDIS_PASSWORD}"
+  DB: 0

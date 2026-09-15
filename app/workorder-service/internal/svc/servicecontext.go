@@ -5,15 +5,17 @@ import (
 
 	"onepark/app/workorder-service/internal/config"
 	"onepark/common/gormx"
+	"onepark/common/kafka"
 	"onepark/common/redisx"
 )
 
 // ServiceContext 持有 workorder-service 运行时的全局依赖.
-// 包括配置、GORM 数据库连接和 Redis 客户端, 供 logic 层使用.
+// 包括配置、GORM 数据库连接、Redis 客户端与 Kafka 生产者, 供 logic 层使用.
 type ServiceContext struct {
-	Config config.Config
-	DB     *gormx.DB      // GORM MySQL 连接
-	Redis  *redisx.Client // Redis 客户端
+	Config   config.Config
+	DB       *gormx.DB       // GORM MySQL 连接
+	Redis    *redisx.Client  // Redis 客户端
+	Producer *kafka.Producer // Kafka 生产者(发布工单状态事件 workorder-event)
 }
 
 // NewServiceContext 根据配置初始化全局依赖.
@@ -29,9 +31,19 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	} else {
 		log.Printf("[warn] workorder-service mysql data source is empty, db not initialized")
 	}
+
+	// Kafka 生产者: 未配置 broker 时为 nil, logic 层发事件前判空跳过.
+	var producer *kafka.Producer
+	if c.Kafka.Brokers != "" {
+		producer = kafka.NewProducer(c.Kafka.Brokers)
+	} else {
+		log.Printf("[warn] workorder-service kafka brokers empty, producer not initialized")
+	}
+
 	return &ServiceContext{
-		Config: c,
-		DB:     db,
-		Redis:  redisx.NewClient(&c.Redis),
+		Config:   c,
+		DB:       db,
+		Redis:    redisx.NewClient(&c.Redis),
+		Producer: producer,
 	}
 }

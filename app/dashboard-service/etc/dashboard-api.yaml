@@ -1,3 +1,19 @@
 Name: dashboard-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8016
+
+# MySQL 连接(预留, 后续看板本地聚合可用; 为空则 DB 不初始化)
+MySQL:
+  DataSource: "${DASHBOARD_MYSQL_DSN}"
+
+# Redis 概览缓存
+Redis:
+  Addr: "${DASHBOARD_REDIS_ADDR:127.0.0.1:6379}"
+  Pass: "${DASHBOARD_REDIS_PASSWORD}"
+  DB: 0
+
+# workorder gRPC 客户端(M2 工单数据源), NonBlock 允许 gRPC 未就绪时启动
+WorkorderRPC:
+  Endpoints:
+    - "127.0.0.1:9091"
+  NonBlock: true

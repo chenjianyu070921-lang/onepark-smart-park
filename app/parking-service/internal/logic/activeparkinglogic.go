@@ -13,16 +13,16 @@ import (
 // ActiveParkingLogic 在场车辆查询逻辑(强制 status=1 停车中, 复用 ListParking 分页).
 type ActiveParkingLogic struct {
 	logx.Logger
-	ctx    context.Context
-	svcCtx *svc.ServiceContext
+	ctx               context.Context
+	svcCtx            *svc.ServiceContext
 	*ListParkingLogic // 复用 ListParkingLogic.query 分页能力
 }
 
 func NewActiveParkingLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ActiveParkingLogic {
 	return &ActiveParkingLogic{
-		Logger:          logx.WithContext(ctx),
-		ctx:             ctx,
-		svcCtx:          svcCtx,
+		Logger:           logx.WithContext(ctx),
+		ctx:              ctx,
+		svcCtx:           svcCtx,
 		ListParkingLogic: NewListParkingLogic(ctx, svcCtx),
 	}
 }

@@ -85,12 +85,12 @@ func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry
 	fee := CalcFee(rec.EntryTime, &now, rec.VehicleType)
 
 	updates := map[string]interface{}{
-		"status":         model.ParkingStatusDone,
-		"exit_time":      now,
-		"duration_min":   dur,
-		"fee":            fee,
-		"device_id_out":  t.DeviceID,
-		"updated_at":     now,
+		"status":        model.ParkingStatusDone,
+		"exit_time":     now,
+		"duration_min":  dur,
+		"fee":           fee,
+		"device_id_out": t.DeviceID,
+		"updated_at":    now,
 	}
 	if err := s.DB.WithContext(ctx).Model(&rec).Updates(updates).Error; err != nil {
 		return err
