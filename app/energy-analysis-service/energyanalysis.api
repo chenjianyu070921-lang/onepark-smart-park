@@ -1,15 +1,87 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+// ============ 接口 56: 能耗日报 ============
+// GET /api/energy/daily?date=2026-09-15
+// 按区域汇总当天的用量, date 不传默认今天
+type DailyRequest {
+	Date string `form:"date,optional"`
 }
 
-type Response {
-	Message string `json:"message"`
+// ZoneUsage 一个区域当天的用量
+type ZoneUsage {
+	ZoneId      string  `json:"zoneId"`
+	Usage       float64 `json:"usage"` // 该区域当天用量(度)
+	DeviceCount int64   `json:"deviceCount"` // 该区域有数据的设备数
+	Percent     float64 `json:"percent"` // 占全园区用量的百分比, 如 20 表示 20%
+}
+
+type DailyResponse {
+	Date        string      `json:"date"`
+	TotalUsage  float64     `json:"totalUsage"` // 全园区当天总用量
+	DeviceCount int64       `json:"deviceCount"`
+	Zones       []ZoneUsage `json:"zones"` // 按用量从高到低排
+}
+
+// ============ 接口 57: 能耗月报 ============
+// GET /api/energy/monthly?month=2026-09
+// 月度汇总 + 每日明细 + 同比/环比, month 不传默认本月
+type MonthlyRequest {
+	Month string `form:"month,optional"`
+}
+
+// DayUsage 某一天的用量
+type DayUsage {
+	Date  string  `json:"date"`
+	Usage float64 `json:"usage"`
+}
+
+type MonthlyResponse {
+	Month          string     `json:"month"`
+	TotalUsage     float64    `json:"totalUsage"` // 本月总用量
+	AvgDailyUsage  float64    `json:"avgDailyUsage"` // 日均用量
+	Days           []DayUsage `json:"days"` // 每天一条, 没数据的日子不出现
+	LastYearUsage  *float64   `json:"lastYearUsage"` // 去年同月用量, 没有历史数据则为 null
+	LastMonthUsage *float64   `json:"lastMonthUsage"` // 上月用量, 没有则为 null
+	Yoy            *float64   `json:"yoy"` // 同比 = (本月-去年同月)/去年同月, 小数形式
+	Mom            *float64   `json:"mom"` // 环比 = (本月-上月)/上月
+}
+
+// ============ 接口 58: 指定区域能耗详情 ============
+// GET /api/energy/zone?zoneId=A栋&start=2026-09-01&end=2026-09-15
+// 该区域的总用量 + 每台设备的用量(含占比) + 按天趋势
+type ZoneDetailRequest {
+	ZoneId string `form:"zoneId"`
+	Start  string `form:"start,optional"` // 不传默认今天 0 点
+	End    string `form:"end,optional"` // 不传默认明天 0 点
+}
+
+// DeviceUsage 一台设备在查询区间内的用量
+type DeviceUsage {
+	DeviceId       string  `json:"deviceId"`
+	Usage          float64 `json:"usage"`
+	Percent        float64 `json:"percent"` // 占该区域总用量的百分比
+	LastReading    float64 `json:"lastReading"` // 区间内最后一次的累计读数
+	LastReportedAt string  `json:"lastReportedAt"` // 最后一次读数的时间
+}
+
+type ZoneDetailResponse {
+	ZoneId      string        `json:"zoneId"`
+	Start       string        `json:"start"`
+	End         string        `json:"end"`
+	TotalUsage  float64       `json:"totalUsage"`
+	DeviceCount int64         `json:"deviceCount"`
+	Devices     []DeviceUsage `json:"devices"` // 按用量从高到低排
+	Days        []DayUsage    `json:"days"` // 按天趋势, 给前端画柱状图
 }
 
 service energyanalysis-api {
-	@handler EnergyanalysisHandler
-	get /from/:name (Request) returns (Response)
+	@handler DailyHandler
+	get /api/energy/daily (DailyRequest) returns (DailyResponse)
+
+	@handler MonthlyHandler
+	get /api/energy/monthly (MonthlyRequest) returns (MonthlyResponse)
+
+	@handler ZoneHandler
+	get /api/energy/zone (ZoneDetailRequest) returns (ZoneDetailResponse)
 }
 
