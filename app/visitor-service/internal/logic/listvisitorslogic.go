@@ -67,6 +67,7 @@ func (l *ListVisitorsLogic) ListVisitors(req *types.ListVisitorReq) (resp *types
 			VisitTime:    timeOrZero(v.VisitTime),
 			CheckinAt:    timeOrZero(v.CheckinAt),
 			CheckoutAt:   timeOrZero(v.CheckoutAt),
+			DeviceID:     v.DeviceID,
 		})
 	}
 

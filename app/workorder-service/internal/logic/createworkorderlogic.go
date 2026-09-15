@@ -81,6 +81,19 @@ func (l *CreateWorkOrderLogic) CreateWorkOrder(req *types.CreateWorkOrderReq) (r
 	flow.UpdatedAt = now
 	_ = l.svcCtx.DB.WithContext(l.ctx).Create(flow).Error
 
+	// 发布建单事件(workorder-event), 供 M5 大屏/通知类消费; 失败仅记日志不阻断建单.
+	publishWorkOrderEvent(l.ctx, l.svcCtx, l.Logger, WorkOrderEvent{
+		Event:       "created",
+		Action:      "create",
+		TenantId:    tenantID,
+		WorkOrderId: wo.ID,
+		OrderNo:     wo.OrderNo,
+		FromStatus:  -1,
+		ToStatus:    state.StatusPendingDispatch,
+		OperatorId:  reporterID,
+		Timestamp:   now.Unix(),
+	})
+
 	return &types.WorkOrderResp{
 		Id:      wo.ID,
 		OrderNo: wo.OrderNo,

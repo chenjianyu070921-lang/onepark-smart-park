@@ -13,10 +13,10 @@ import (
 // ServiceContext 持有 parking-service 运行时的全局依赖.
 // 包括配置、GORM 数据库连接、Redis 客户端与 Kafka 生产者, 供 logic 层使用.
 type ServiceContext struct {
-	Config    config.Config
-	DB        *gormx.DB       // GORM MySQL 连接
-	Redis     *redisx.Client  // Redis 客户端
-	Producer  *kafka.Producer // Kafka 生产者(发布停车/告警事件)
+	Config   config.Config
+	DB       *gormx.DB       // GORM MySQL 连接
+	Redis    *redisx.Client  // Redis 客户端
+	Producer *kafka.Producer // Kafka 生产者(发布停车/告警事件)
 }
 
 // NewServiceContext 根据配置初始化全局依赖.

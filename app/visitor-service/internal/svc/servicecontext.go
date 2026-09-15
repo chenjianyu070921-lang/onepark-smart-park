@@ -6,14 +6,18 @@ import (
 	"onepark/app/visitor-service/internal/config"
 	"onepark/common/gormx"
 	"onepark/common/redisx"
+	devicepb "onepark/proto/device"
+
+	"github.com/zeromicro/go-zero/zrpc"
 )
 
 // ServiceContext 持有 visitor-service 运行时的全局依赖.
-// 包括配置、GORM 数据库连接和 Redis 客户端, 供 logic 层使用.
+// 包括配置、GORM 数据库连接、Redis 客户端与 M1 设备 gRPC 客户端(访客开门联动).
 type ServiceContext struct {
-	Config config.Config
-	DB     *gormx.DB      // GORM MySQL 连接
-	Redis  *redisx.Client // Redis 客户端
+	Config    config.Config
+	DB        *gormx.DB                    // GORM MySQL 连接
+	Redis     *redisx.Client               // Redis 客户端
+	DeviceRPC devicepb.DeviceServiceClient // M1 device gRPC(签入开门); 未配置时为 nil
 }
 
 // NewServiceContext 根据配置初始化全局依赖.
@@ -29,9 +33,19 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	} else {
 		log.Printf("[warn] visitor-service mysql data source is empty, db not initialized")
 	}
+
+	// M1 设备 gRPC 客户端: 未配置 Endpoints/Target/Etcd 时为 nil, 签入开门降级跳过.
+	var deviceCli devicepb.DeviceServiceClient
+	if len(c.DeviceRPC.Endpoints) > 0 || c.DeviceRPC.Target != "" || len(c.DeviceRPC.Etcd.Hosts) > 0 {
+		deviceCli = devicepb.NewDeviceServiceClient(zrpc.MustNewClient(c.DeviceRPC).Conn())
+	} else {
+		log.Printf("[warn] visitor-service device rpc not configured, M1 door open disabled")
+	}
+
 	return &ServiceContext{
-		Config: c,
-		DB:     db,
-		Redis:  redisx.NewClient(&c.Redis),
+		Config:    c,
+		DB:        db,
+		Redis:     redisx.NewClient(&c.Redis),
+		DeviceRPC: deviceCli,
 	}
 }

@@ -34,9 +34,13 @@ message WorkOrderSummary {
   int64  created_at  = 7; // 创建时间(秒级时间戳)
 }
 
-// ListWorkOrdersResp 工单列表响应
+// ListWorkOrdersResp 工单列表响应(同时承载大屏聚合统计字段)
 message ListWorkOrdersResp {
   int64                total         = 1; // 符合条件总数
   repeated WorkOrderSummary list      = 2; // 当前页数据
   int64                pending_count = 3; // 待处理(待派单+处理中)工单总数
+  int64                today_count   = 4; // 今日新建工单数(按 created_at 当天)
+  int64                completed_today = 5; // 今日完成(已完成状态)工单数
+  double               avg_process_minutes = 6; // 已完成工单平均处理时长(分钟)
+  double               completion_rate = 7; // 完成率(0~100, 已完成/总数)
 }
