@@ -1,15 +1,74 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
-}
+info (
+	title:   "M5 指挥大屏聚合 API"
+	desc:    "OnePark 智慧园区 M5 运营招商+指挥调度 - dashboard-service"
+	version: "1.0"
+)
 
-type Response {
-	Message string `json:"message"`
-}
+type (
+	// ==================== 卡片(按数据源拆分, 便于逐源降级) ====================
+	// WorkOrderCard 工单卡片, 数据源: M2 workorder-service ListWorkOrders
+	WorkOrderCard {
+		Available    bool     `json:"available"` // 该路数据是否可用(false = 降级)
+		TodayTotal   int64    `json:"today_total"` // 今日新增工单数
+		Unfinished   int64    `json:"unfinished"` // 未完成(待派单 + 处理中)
+		AvgHandleSec *float64 `json:"avg_handle_sec"` // 平均处理时长(秒); M2 契约未暴露 finished_at 时为 null
+		CompleteRate float64  `json:"complete_rate"` // 完成率, 取值 0~1
+	}
+	// AlarmCard 告警卡片, 数据源: M3 alarm-service GetActiveAlarms
+	AlarmCard {
+		Total    int64 `json:"total"`
+		Critical int64 `json:"critical"`
+		Major    int64 `json:"major"`
+		Minor    int64 `json:"minor"`
+	}
+	// DeviceCard 设备卡片, 数据源: M1 device-service
+	DeviceCard {
+		Total   int64 `json:"total"`
+		Online  int64 `json:"online"`
+		Offline int64 `json:"offline"`
+	}
+	// EnergyCard 能耗卡片, 数据源: M4 energy-data-service GetDailyReport
+	EnergyCard {
+		TotalKwh   float64 `json:"total_kwh"`
+		TotalWater float64 `json:"total_water"`
+	}
+	// ==================== 首页概览 ====================
+	HomeReq {
+		TenantId int64 `header:"X-Tenant-Id,default=0"`
+	}
+	HomeResp {
+		WorkOrder WorkOrderCard `json:"work_order"`
+		UpdatedAt int64         `json:"updated_at"`
+		ElapsedMs int64         `json:"elapsed_ms"`
+	}
+	// ==================== 综合查询 ====================
+	OverviewReq {
+		TenantId int64 `header:"X-Tenant-Id,default=0"`
+	}
+	OverviewResp {
+		// 每一路失败时对应字段为 null, 并在 degraded 中列出, 保证接口整体不返回 5xx
+		WorkOrder *WorkOrderCard `json:"work_order"`
+		Alarm     *AlarmCard     `json:"alarm"`
+		Device    *DeviceCard    `json:"device"`
+		Energy    *EnergyCard    `json:"energy"`
+		Degraded  []string       `json:"degraded"` // 降级的数据源标识列表
+		Cached    bool           `json:"cached"` // 是否命中 Redis 缓存
+		UpdatedAt int64          `json:"updated_at"`
+		ElapsedMs int64          `json:"elapsed_ms"`
+	}
+)
 
+@server (
+	prefix: /api/dashboard
+	group:  dashboard
+)
 service dashboard-api {
-	@handler DashboardHandler
-	get /from/:name (Request) returns (Response)
+	@handler Home
+	get /home (HomeReq) returns (HomeResp)
+
+	@handler Overview
+	get /overview (OverviewReq) returns (OverviewResp)
 }
 

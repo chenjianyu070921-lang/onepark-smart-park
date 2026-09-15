@@ -1,3 +1,16 @@
 Name: leasing-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8051
+
+# ===== MySQL =====
+# 本地开发默认值(leasing_db)。部署环境请改回 ${LEASING_MYSQL_DSN} 形式由环境变量注入。
+MySQL:
+  DataSource: "root:onepark123@tcp(127.0.0.1:3306)/leasing_db?charset=utf8mb4&parseTime=True&loc=Local"
+
+# ===== Redis =====
+# 本地开发默认值。部署环境请改回 ${REDIS_ADDR} / ${REDIS_PASS} 形式。
+# 注意: DB 必须是数字字面量, 写成 ${REDIS_DB} 会被展开成字符串导致 int 字段类型不匹配。
+Redis:
+  Addr: "127.0.0.1:6380"
+  Pass: "onepark123"
+  DB: 0
