@@ -36,6 +36,8 @@ const (
 	ErrNotFound     = "M6-E-0004" // 资源不存在
 	ErrInternal     = "M6-E-0005" // 服务器内部错误
 	ErrDepConnect   = "M6-E-0006" // 依赖中间件连接失败
+	ErrRateLimited  = "M6-E-0007" // 请求过于频繁(限流)
+	ErrBadGateway   = "M6-E-0008" // 网关上游服务不可用
 )
 
 // M3 园区安防错误码: 1xxx 告警 / 2xxx 门禁 / 3xxx 视频.
@@ -94,4 +96,13 @@ const (
 
 	// 公共域 5001~5999
 	ErrM2Internal = "M2-E-5001" // M2 服务内部错误兜底
+
+	// 用户管理域 6001~6099
+	ErrUserNotFound     = "M2-E-6001" // 用户不存在
+	ErrUserDuplicate    = "M2-E-6002" // 用户名重复
+	ErrRoleNotFound     = "M2-E-6003" // 角色不存在
+	ErrRoleDuplicate    = "M2-E-6004" // 角色标识重复
+	ErrMenuNotFound     = "M2-E-6005" // 菜单不存在
+	ErrPermissionDenied = "M2-E-6006" // 无权限(角色未分配该菜单权限)
+	ErrMenuDuplicate    = "M2-E-6007" // 菜单标识重复
 )

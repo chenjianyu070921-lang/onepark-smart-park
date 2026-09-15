@@ -32,7 +32,7 @@ type KafkaConf struct {
 type ESConf struct {
 	Addresses []string `json:",default=[]"`
 	Username  string   `json:",default="`
-	Password  string   `json:",default=""`
+	Password  string   `json:",default="`
 }
 
 // NacosConf 注册/配置中心 (可选).

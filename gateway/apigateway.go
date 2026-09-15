@@ -3,13 +3,16 @@ package main
 import (
 	"flag"
 	"fmt"
-
-	"onepark/gateway/internal/config"
-	"onepark/gateway/internal/handler"
-	"onepark/gateway/internal/svc"
+	"net/http"
 
 	"github.com/zeromicro/go-zero/core/conf"
-	"github.com/zeromicro/go-zero/rest"
+	"github.com/zeromicro/go-zero/core/logx"
+
+	commonmw "onepark/common/middleware"
+	"onepark/gateway/internal/config"
+	"onepark/gateway/internal/middleware"
+	"onepark/gateway/internal/proxy"
+	"onepark/gateway/internal/svc"
 )
 
 var configFile = flag.String("f", "etc/apigateway-api.yaml", "the config file")
@@ -18,14 +21,26 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
+	svcCtx := svc.NewServiceContext(c)
 
-	server := rest.MustNewServer(c.RestConf)
-	defer server.Stop()
+	// middleware 链(由外到内执行): RequestId -> AccessLog -> Auth -> RateLimit -> proxy
+	handler := proxy.NewHandler(c.Upstreams)
+	handler = middleware.RateLimit(svcCtx.Redis, c.RateLimit.Capacity, c.RateLimit.RatePerSec)(handler)
+	skip := make(map[string]bool, len(c.AuthSkipPaths))
+	for _, p := range c.AuthSkipPaths {
+		skip[p] = true
+	}
+	handler = middleware.Auth(c.JwtSecret, skip)(handler)
+	handler = middleware.AccessLog(handler)
+	handler = commonmw.RequestIdMiddleware(handler)
 
-	ctx := svc.NewServiceContext(c)
-	handler.RegisterHandlers(server, ctx)
+	addr := fmt.Sprintf("%s:%d", c.Host, c.Port)
+	logx.Infof("apigateway listening on %s", addr)
 
-	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
-	server.Start()
+	server := &http.Server{
+		Addr:    addr,
+		Handler: handler,
+	}
+	logx.Must(server.ListenAndServe())
 }

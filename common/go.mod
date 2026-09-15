@@ -3,7 +3,9 @@ module onepark/common
 go 1.25
 
 require (
+	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/redis/go-redis/v9 v9.21.0
+	github.com/segmentio/kafka-go v0.4.51
 	github.com/zeromicro/go-zero v1.10.3
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
@@ -23,7 +25,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
-	github.com/segmentio/kafka-go v0.4.51 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/titanous/json5 v1.0.0 // indirect
 	go.opentelemetry.io/otel v1.40.0 // indirect

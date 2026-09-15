@@ -144,11 +144,11 @@ genproto:
 	energy/energy.proto billing/billing.proto auth/auth.proto user/user.proto \
 	leasing/leasing.proto dispatch/dispatch.proto dashboard/dashboard.proto
 
+# app/* 下每个子目录编译为 bin/<目录名>; Windows(cmd) 与 sh 均兼容的写法
 build:
-	@mkdir -p bin
-	@for d in $$(ls app); do echo "building $$d..."; (cd app/$$d && go build -o ../../bin/$$d .) || exit 1; done
-	@echo "building gateway..."
-	@(cd gateway && go build -o ../bin/gateway .)
+	@if not exist bin mkdir bin
+	@for /d %%d in (app\*) do (echo building %%~nd... && go build -o bin\%%~nd .\%%d) || exit /b 1
+	@echo building gateway... && go build -o bin\gateway .\gateway
 
 test:
 	go test ./...
@@ -160,7 +160,7 @@ down:
 	docker compose -f deploy/docker-compose.yml down
 
 clean:
-	rm -rf bin/
+	@if exist bin rd /s /q bin
 
 .PHONY: device-goctl workorder-goctl visitor-goctl parking-goctl notice-goctl alarm-goctl accesscontrol-goctl video-goctl energydata-goctl energyanalysis-goctl billing-goctl leasing-goctl dashboard-goctl dispatch-goctl auth-goctl usermanage-goctl apigateway-goctl shadow-goctl run-device run-workorder run-visitor run-parking run-notice run-alarm run-accesscontrol run-video run-energydata run-energyanalysis run-billing run-leasing run-dashboard run-dispatch run-auth run-usermanage run-apigateway run-shadow run-gateway-service run-event-dispatcher install-tools genproto build test up down clean
 

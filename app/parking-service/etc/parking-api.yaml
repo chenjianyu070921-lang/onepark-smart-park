@@ -1,6 +1,6 @@
 Name: parking-api
 Host: 0.0.0.0
-Port: 8093
+Port: 8084
 
 # MySQL 连接配置 (DSN 由环境变量注入)
 MySQL:

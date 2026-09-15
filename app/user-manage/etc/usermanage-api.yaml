@@ -1,3 +1,9 @@
 Name: usermanage-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8086
+
+MySQL:
+  # 容器内主机名由 docker-compose 注入(MYSQL_HOST=mysql), 本地未设置时回退 127.0.0.1; 库名 sys_db(见 deploy/sql/sys.sql).
+  DataSource: "root:${MYSQL_ROOT_PASSWORD}@tcp(${MYSQL_HOST}:${MYSQL_PORT})/${MYSQL_DATABASE}?charset=utf8mb4&parseTime=true&loc=Local"
+  MaxOpenConns: 20
+  MaxIdleConns: 10

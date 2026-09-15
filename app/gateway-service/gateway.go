@@ -20,7 +20,7 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(configFile, &c)
+	conf.MustLoad(configFile, &c, conf.UseEnv())
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port))
 	if err != nil {

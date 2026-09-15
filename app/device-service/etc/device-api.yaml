@@ -1,12 +1,14 @@
 Name: device-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8001
 
 MySQL:
-  DataSource: "root:onepark123@tcp(127.0.0.1:3306)/onepark-smart-park?charset=utf8mb4&parseTime=true&loc=Local"
+  # 容器内主机名由 docker-compose 注入(MYSQL_HOST=mysql), 本地未设置时回退 127.0.0.1; 库名对齐 deploy/sql/init.sql 的 device_db.
+  DataSource: "root:${MYSQL_ROOT_PASSWORD}@tcp(${MYSQL_HOST}:${MYSQL_PORT})/${MYSQL_DATABASE}?charset=utf8mb4&parseTime=true&loc=Local"
   MaxOpenConns: 20
   MaxIdleConns: 10
 
 Redis:
-  Host: 127.0.0.1:6379
+  Host: "${REDIS_HOST}:${REDIS_PORT}"
   Type: node
+  Pass: "${REDIS_PASSWORD}"

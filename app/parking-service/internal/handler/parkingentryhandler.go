@@ -31,6 +31,6 @@ func ParkingEntryHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			}
 			return
 		}
-		response.Ok(w, resp)
+		httpx.OkJsonCtx(r.Context(), w, resp)
 	}
 }

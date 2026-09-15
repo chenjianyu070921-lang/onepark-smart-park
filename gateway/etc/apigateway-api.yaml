@@ -1,3 +1,52 @@
 Name: apigateway-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8080
+
+# 业务服务 upstream: Name 匹配 URL 前缀 (/api/<svc>), Port 为服务监听端口.
+# 网关按 /api/<svc> 前缀反向代理到对应 127.0.0.1:Port, 路径原样透传.
+Upstreams:
+  - Name: device
+    Port: 8001
+  - Name: workorder
+    Port: 8082
+  - Name: visitor
+    Port: 8083
+  - Name: parking
+    Port: 8084
+  - Name: notice
+    Port: 8085
+  - Name: alarm
+    Port: 8009
+  - Name: access
+    Port: 8010
+  - Name: video
+    Port: 8011
+  - Name: energy
+    Port: 8012
+  - Name: billing
+    Port: 8014
+  - Name: dashboard
+    Port: 8015
+  - Name: leasing
+    Port: 8016
+  - Name: dispatch
+    Port: 8017
+
+# 限流 Redis: 本地开发连本机 Redis(容器 redis 已映射 REDIS_PORT:6379); 容器部署改服务名 redis:6379.
+# 未配置 Addr 时限流 middleware 自动放行(优雅降级).
+Redis:
+  Addr: "${REDIS_HOST}:${REDIS_PORT}"
+  Pass: "${REDIS_PASSWORD}"
+  DB: 0
+
+# 令牌桶限流: Capacity=桶容量(突发上限), RatePerSec=每秒补充令牌数. 按客户端 IP 限流.
+RateLimit:
+  Capacity: 200
+  RatePerSec: 50
+
+# JWT 签名密钥: 必须与 auth-service 共用同一环境变量 JWT_SECRET(禁止硬编码, 为空启动即失败).
+JwtSecret: ${JWT_SECRET}
+# 公开路径白名单(精确匹配), 不经过网关 JWT 校验.
+AuthSkipPaths:
+  - /api/auth/login
+  - /api/auth/refresh

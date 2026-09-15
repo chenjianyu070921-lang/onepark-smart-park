@@ -7,6 +7,7 @@ import (
 	"onepark/app/alarm-service/internal/config"
 	"onepark/app/alarm-service/internal/handler"
 	"onepark/app/alarm-service/internal/svc"
+	"onepark/common/response"
 	"onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
@@ -19,7 +20,10 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
+
+	// 统一 API 响应体为 {code,msg,data}
+	response.Init()
 
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()

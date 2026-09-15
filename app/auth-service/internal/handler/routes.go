@@ -5,18 +5,44 @@ import (
 	"net/http"
 
 	"onepark/app/auth-service/internal/svc"
+	"onepark/common/errorx"
+	"onepark/common/response"
 
 	"github.com/zeromicro/go-zero/rest"
+	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
-				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: AuthHandler(serverCtx),
+				Method:  http.MethodPost,
+				Path:    "/api/auth/login",
+				Handler: LoginHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/auth/refresh",
+				Handler: RefreshHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/auth/validate",
+				Handler: ValidateHandler(serverCtx),
 			},
 		},
 	)
+}
+
+// fail 统一错误响应: 鉴权类错误(M6-E-0002)返回 401, 其它 *CodeError 透传, 其余包装为内部错误.
+func fail(w http.ResponseWriter, err error) {
+	if ce, ok := err.(*errorx.CodeError); ok {
+		if ce.Code == errorx.ErrUnauthorized {
+			httpx.WriteJson(w, http.StatusUnauthorized, &response.Body{Code: ce.Code, Msg: ce.Msg})
+			return
+		}
+		response.Fail(w, ce)
+		return
+	}
+	response.Fail(w, errorx.NewError(errorx.ErrInternal, err.Error()))
 }

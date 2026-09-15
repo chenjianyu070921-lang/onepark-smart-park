@@ -2,7 +2,11 @@ module onepark/app/user-manage
 
 go 1.25.2
 
-require github.com/zeromicro/go-zero v1.10.3
+require (
+	github.com/zeromicro/go-zero v1.10.3
+	golang.org/x/crypto v0.48.0
+	gorm.io/gorm v1.31.2
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -16,6 +20,8 @@ require (
 	github.com/grafana/pyroscope-go v1.3.0 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.10 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.7 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
+	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

@@ -57,3 +57,19 @@ func GetRoleIds(ctx context.Context) string {
 	}
 	return ""
 }
+
+// CtxDataScope RBAC 数据范围(1全部 2本园区/租户 4本人), 由业务服务按角色写入, 供 datascope 使用.
+const CtxDataScope = "x-data-scope"
+
+// SetDataScope 向 context 写入数据范围级别.
+func SetDataScope(ctx context.Context, scope int8) context.Context {
+	return context.WithValue(ctx, CtxDataScope, scope)
+}
+
+// GetDataScope 从 context 读取数据范围级别, 未注入时返回 0(由 datascope 兜底为租户隔离).
+func GetDataScope(ctx context.Context) int8 {
+	if v, ok := ctx.Value(CtxDataScope).(int8); ok {
+		return v
+	}
+	return 0
+}

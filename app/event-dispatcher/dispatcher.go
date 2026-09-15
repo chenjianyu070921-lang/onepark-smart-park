@@ -20,7 +20,7 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(configFile, &c)
+	conf.MustLoad(configFile, &c, conf.UseEnv())
 
 	logx.Infof("event-dispatcher starting, broker=%s, kafka=%s", c.EMQXBroker, c.KafkaBrokers)
 

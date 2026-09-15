@@ -2,7 +2,10 @@ module onepark/gateway
 
 go 1.25.2
 
-require github.com/zeromicro/go-zero v1.10.3
+require (
+	github.com/alicebob/miniredis/v2 v2.38.0
+	github.com/zeromicro/go-zero v1.10.3
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -28,6 +31,7 @@ require (
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/titanous/json5 v1.0.0 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.40.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.40.0 // indirect
