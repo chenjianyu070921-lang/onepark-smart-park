@@ -1,3 +1,13 @@
 Name: billing-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8063
+
+# MySQL: 组内公用库 onepark-smart-park(计费规则表 billing_rule、账单表 bill 都在里面)
+MySQL:
+  DataSource: root:4ay1nkal3u8ed77y@tcp(115.191.16.159:3306)/onepark-smart-park?charset=utf8mb4&parseTime=true&loc=Local
+
+# Redis: 缓存规则列表
+Redis:
+  Host: 127.0.0.1:6379
+  Type: node
+  Pass: ""

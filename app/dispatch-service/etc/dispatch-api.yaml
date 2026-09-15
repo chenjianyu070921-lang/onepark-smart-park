@@ -1,11 +1,30 @@
 Name: dispatch-api
 Host: 0.0.0.0
-Port: 8017
+Port: 8053
 
+# ===== MySQL =====
+# 本地开发默认值(dispatch_db)。部署环境请改回 ${DISPATCH_MYSQL_DSN} 形式由环境变量注入。
 MySQL:
-  DataSource: "${DISPATCH_MYSQL_DSN}"
+  DataSource: "root:onepark123@tcp(127.0.0.1:3306)/dispatch_db?charset=utf8mb4&parseTime=True&loc=Local"
 
+# ===== Redis =====
+# 本地开发默认值。部署环境请改回 ${REDIS_ADDR} / ${REDIS_PASS} 形式。
+# 注意: DB 必须是数字字面量, 写成 ${REDIS_DB} 会被展开成字符串导致 int 字段类型不匹配。
 Redis:
-  Addr: "${DISPATCH_REDIS_ADDR:127.0.0.1:6379}"
-  Pass: "${DISPATCH_REDIS_PASSWORD}"
+  Addr: "127.0.0.1:6380"
+  Pass: "onepark123"
   DB: 0
+
+# ===== Kafka: 告警事件消费(清单 #74) =====
+# ⚠️ 消费者默认关闭(Enabled: false)。开启前必须确认四件事:
+#   0) **先经组长授权** —— 若 broker 开启了 auto.create.topics.enable, 消费一个不存在的 topic
+#      会**隐式创建 topic**, 这属于向共享基础设施写入, 需先获得同意
+#   1) 目标 topic 存在, 且属于 onepark 体系 —— 共享 broker 上还有其它项目的 topic, 禁止跨项目读写
+#   2) 消费组带「项目-服务-环境-负责人」, 避免与队友/其它项目互相提交位移
+#   3) common/kafka 的 NewConsumer 固定 StartOffset=FirstOffset —— 新消费组会**从最早位移开始消费**,
+#      若 broker 上已有积压消息会被一次性全部处理(本消费者会据此自动建单), 开启前先确认影响面
+Kafka:
+  Brokers: "115.191.16.159:9092"
+  Topic: "alarm-event"
+  Group: "m5-dispatch-dev-hjy"
+  Enabled: false

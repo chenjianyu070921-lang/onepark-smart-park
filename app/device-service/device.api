@@ -92,8 +92,23 @@ type DeviceCommandResp {
 	Status    int8   `json:"status"`
 }
 
+// 6. 设备事件上报（EMQX 不可用时的 HTTP 降级通道，直接投递 Kafka）
+type DeviceEventReq {
+	DeviceID   string `json:"deviceId"`
+	DeviceType string `json:"deviceType,optional"`
+	EventType  string `json:"eventType"`
+	RequestID  string `json:"requestId,optional"`
+	OccurredAt int64  `json:"occurredAt,optional"`
+	Payload    string `json:"payload,optional"`
+}
+
+type DeviceEventResp {
+	RequestID string `json:"requestId"`
+	Accepted  bool   `json:"accepted"`
+}
+
 // ==================== 产品/物模型 ====================
-// 6. 创建产品
+// 7. 创建产品
 type ProductCreateReq {
 	ProductKey  string `json:"productKey"`
 	ProductName string `json:"productName"`
@@ -101,7 +116,7 @@ type ProductCreateReq {
 	ThingModel  string `json:"thingModel,optional"`
 }
 
-// 7. 查询产品
+// 8. 查询产品
 type ProductDetailReq {
 	ProductKey string `path:"key"`
 }
@@ -115,7 +130,7 @@ type ProductDetailResp {
 	CreatedAt   string `json:"createdAt"`
 }
 
-// 8. 产品列表
+// 9. 产品列表
 type ProductListReq {
 	Page   int `form:"page,default=1"`
 	Size   int `form:"size,default=20"`
@@ -134,7 +149,7 @@ type ProductListResp {
 	List  []ProductListItem `json:"list"`
 }
 
-// 9. 更新产品
+// 10. 更新产品
 type ProductUpdateReq {
 	ProductKey  string `path:"key"`
 	ProductName string `json:"productName,optional"`
@@ -158,6 +173,9 @@ service device-api {
 
 	@handler DeviceCommand
 	post /api/device/:id/command (DeviceCommandReq) returns (DeviceCommandResp)
+
+	@handler DeviceEvent
+	post /api/device/event (DeviceEventReq) returns (DeviceEventResp)
 
 	@handler ProductCreate
 	post /api/product (ProductCreateReq)

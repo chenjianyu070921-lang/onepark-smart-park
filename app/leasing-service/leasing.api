@@ -1,35 +1,139 @@
 syntax = "v1"
 
-type LeaseContract {
-	Id         int64  `json:"id"`
-	TenantId   int64  `json:"tenant_id"`
-	ContractNo string `json:"contract_no"`
-	Title      string `json:"title"`
-	Lessor     string `json:"lessor"`
-	Lessee     string `json:"lessee"`
-	Area       int64  `json:"area"`
-	StartDate  string `json:"start_date"`
-	EndDate    string `json:"end_date"`
-	Rent       int64  `json:"rent"`
-	Status     int32  `json:"status"`
-}
+info (
+	title:   "M5 招商租赁 API"
+	desc:    "OnePark 智慧园区 M5 运营招商 - leasing-service"
+	version: "1.0"
+)
 
-type ListLeaseReq {
-	TenantId int64 `form:"tenant_id,optional"`
-	Page     int64 `form:"page,optional"`
-	PageSize int64 `form:"page_size,optional"`
-}
-
-type ListLeaseResp {
-	Total int64            `json:"total"`
-	List  []*LeaseContract `json:"list"`
-}
+type (
+	// Contract 租赁合同。金额字段一律用字符串传输, 避免 JSON 浮点精度丢失
+	Contract {
+		Id          int64   `json:"id"`
+		ContractNo  string  `json:"contract_no"`
+		TenantId    int64   `json:"tenant_id"`
+		TenantName  string  `json:"tenant_name"`
+		ZoneCode    string  `json:"zone_code"` // 房间/区域编码, 如 A-3F-301
+		AreaSqm     float64 `json:"area_sqm"` // 租赁面积(平方米)
+		MonthlyRent string  `json:"monthly_rent"` // 月租金
+		Deposit     string  `json:"deposit"` // 押金
+		StartDate   string  `json:"start_date"` // 起租日 yyyy-MM-dd
+		EndDate     string  `json:"end_date"` // 终止日 yyyy-MM-dd
+		Status      int32   `json:"status"` // 1待生效 2生效中 3已到期 4已终止
+		CreatedAt   int64   `json:"created_at"`
+		UpdatedAt   int64   `json:"updated_at"`
+	}
+	// ==================== 合同创建 ====================
+	ContractCreateReq {
+		TenantId    int64   `json:"tenant_id"`
+		TenantName  string  `json:"tenant_name"`
+		ZoneCode    string  `json:"zone_code"`
+		AreaSqm     float64 `json:"area_sqm"`
+		MonthlyRent string  `json:"monthly_rent"`
+		Deposit     string  `json:"deposit,optional"`
+		StartDate   string  `json:"start_date"`
+		EndDate     string  `json:"end_date"`
+	}
+	ContractCreateResp {
+		Id         int64  `json:"id"`
+		ContractNo string `json:"contract_no"`
+		Status     int32  `json:"status"`
+	}
+	// ==================== 合同详情 ====================
+	ContractDetailReq {
+		Id int64 `path:"id"`
+	}
+	ContractDetailResp {
+		Contract Contract `json:"contract"`
+	}
+	// ==================== 合同分页列表 ====================
+	ContractListReq {
+		Status   int32 `form:"status,default=0"` // 0 表示不限
+		TenantId int64 `form:"tenant_id,default=0"` // 0 表示不限
+		Page     int64 `form:"page,default=1"`
+		PageSize int64 `form:"page_size,default=10"`
+	}
+	ContractListResp {
+		Total int64      `json:"total"`
+		List  []Contract `json:"list"`
+	}
+	// ==================== 合同更新 / 续签 / 终止 / 到期 ====================
+	ContractUpdateReq {
+		Id          int64  `path:"id"`
+		Action      string `json:"action"` // activate 生效 | renew 续签 | terminate 终止 | expire 到期 | update 变更
+		NewEndDate  string `json:"new_end_date,optional"` // action=renew 时必填
+		MonthlyRent string `json:"monthly_rent,optional"` // action=renew 时可调整租金
+		Reason      string `json:"reason,optional"` // 终止/到期原因
+	}
+	ContractUpdateResp {
+		Id     int64 `json:"id"`
+		Status int32 `json:"status"`
+	}
+	// ==================== 入驻率统计 ====================
+	OccupancyReq {
+		TenantId int64 `form:"tenant_id,default=0"`
+	}
+	OccupancyResp {
+		TotalAreaSqm  float64 `json:"total_area_sqm"`
+		LeasedAreaSqm float64 `json:"leased_area_sqm"`
+		OccupancyRate float64 `json:"occupancy_rate"` // 入驻率, 取值 0~1
+	}
+	// ==================== 到期提醒 ====================
+	ContractExpiringReq {
+		Days     int64 `form:"days,default=30"` // 未来 N 天内到期; 已逾期未处理的也会返回(days_left 为负)
+		Page     int64 `form:"page,default=1"`
+		PageSize int64 `form:"page_size,default=10"`
+	}
+	ExpiringContract {
+		Id          int64  `json:"id"`
+		ContractNo  string `json:"contract_no"`
+		TenantId    int64  `json:"tenant_id"`
+		TenantName  string `json:"tenant_name"`
+		ZoneCode    string `json:"zone_code"`
+		MonthlyRent string `json:"monthly_rent"`
+		EndDate     string `json:"end_date"` // 终止日 yyyy-MM-dd
+		DaysLeft    int64  `json:"days_left"` // 距终止日剩余天数; 负数表示已逾期
+		Status      int32  `json:"status"`
+	}
+	ContractExpiringResp {
+		Total int64              `json:"total"`
+		List  []ExpiringContract `json:"list"`
+	}
+	// ==================== 自动生成月度租金账单 ====================
+	BillAutoReq {
+		Period string `json:"period,optional"` // yyyy-MM, 为空取上一自然月
+	}
+	BillAutoResp {
+		Period  string `json:"period"`
+		Created int64  `json:"created"` // 新生成账单数
+		Skipped int64  `json:"skipped"` // 幂等跳过数
+	}
+)
 
 @server (
-	prefix: /api/leasing
+	prefix: /api/lease
+	group:  lease
 )
 service leasing-api {
-	@handler ListLeaseContracts
-	get /contracts (ListLeaseReq) returns (ListLeaseResp)
+	@handler ContractCreate
+	post /contract (ContractCreateReq) returns (ContractCreateResp)
+
+	@handler ContractDetail
+	get /contract/:id (ContractDetailReq) returns (ContractDetailResp)
+
+	@handler ContractList
+	get /contracts (ContractListReq) returns (ContractListResp)
+
+	@handler ContractUpdate
+	put /contract/:id (ContractUpdateReq) returns (ContractUpdateResp)
+
+	@handler ContractExpiring
+	get /contracts/expiring (ContractExpiringReq) returns (ContractExpiringResp)
+
+	@handler Occupancy
+	get /occupancy (OccupancyReq) returns (OccupancyResp)
+
+	@handler BillAuto
+	post /bill/auto (BillAutoReq) returns (BillAutoResp)
 }
 

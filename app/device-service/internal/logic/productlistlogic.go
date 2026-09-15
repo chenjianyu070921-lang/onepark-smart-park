@@ -2,9 +2,11 @@ package logic
 
 import (
 	"context"
+	"time"
 
 	"onepark/app/device-service/internal/svc"
 	"onepark/app/device-service/internal/types"
+	"onepark/common/errorx"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -24,7 +26,23 @@ func NewProductListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Produ
 }
 
 func (l *ProductListLogic) ProductList(req *types.ProductListReq) (resp *types.ProductListResp, err error) {
-	// todo: add your logic here and delete this line
+	page, size := normalizePage(req.Page, req.Size)
 
-	return
+	list, total, err := l.svcCtx.ProductModel.FindList(l.ctx, page, size, int8(req.Status))
+	if err != nil {
+		l.Errorf("查询产品列表失败: %v", err)
+		return nil, errorx.NewError(errorx.ErrInternal, "查询产品列表失败")
+	}
+
+	items := make([]types.ProductListItem, 0, len(list))
+	for _, p := range list {
+		items = append(items, types.ProductListItem{
+			ProductKey:  p.ProductKey,
+			ProductName: p.ProductName,
+			Status:      p.Status,
+			CreatedAt:   p.CreatedAt.Format(time.DateTime),
+		})
+	}
+
+	return &types.ProductListResp{Total: int(total), List: items}, nil
 }

@@ -34,6 +34,20 @@ type DeviceDetailResp struct {
 	CreatedAt    string `json:"createdAt"`
 }
 
+type DeviceEventReq struct {
+	DeviceID   string `json:"deviceId"`
+	DeviceType string `json:"deviceType,optional"`
+	EventType  string `json:"eventType"`
+	RequestID  string `json:"requestId,optional"`
+	OccurredAt int64  `json:"occurredAt,optional"`
+	Payload    string `json:"payload,optional"`
+}
+
+type DeviceEventResp struct {
+	RequestID string `json:"requestId"`
+	Accepted  bool   `json:"accepted"`
+}
+
 type DeviceListItem struct {
 	DeviceID   string `json:"deviceId"`
 	DeviceName string `json:"deviceName"`

@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"net/http"
 
 	"onepark/app/dashboard-service/internal/config"
 	"onepark/app/dashboard-service/internal/handler"
-	dmw "onepark/app/dashboard-service/internal/middleware"
 	"onepark/app/dashboard-service/internal/svc"
-	cmw "onepark/common/middleware"
+	"onepark/app/dashboard-service/internal/wshub"
+	"onepark/app/dashboard-service/internal/wsserver"
+	"onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
@@ -20,19 +23,33 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c, conf.UseEnv())
+	conf.MustLoad(*configFile, &c)
 
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()
 
-	// 中间件: 租户注入(供 RBAC 隔离/缓存维度) + CORS + RequestId 透传.
-	server.Use(dmw.Tenant)
-	server.Use(cmw.Cors)
-	server.Use(cmw.RequestIdMiddleware)
+	// 全链路 RequestId 透传 + 开发环境跨域
+	server.Use(middleware.RequestIdMiddleware)
+	server.Use(middleware.Cors)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
 
-	fmt.Printf("Starting dashboard-service at %s:%d...\n", c.Host, c.Port)
+	// 大屏 WebSocket 实时推送(清单 #73):
+	// 路由用 AddRoute 程序化注册而非写进 .api —— goctl 不支持 WS 升级,
+	// 且不改动 routes.go, 重新生成不会互相覆盖。
+	hub := wshub.NewHub()
+	server.AddRoute(rest.Route{
+		Method:  http.MethodGet,
+		Path:    "/ws/dashboard",
+		Handler: wsserver.Handler(hub),
+	})
+
+	// 周期快照广播; 随进程退出
+	wsCtx, cancelWs := context.WithCancel(context.Background())
+	defer cancelWs()
+	go wsserver.StartSnapshotPush(wsCtx, ctx, hub)
+
+	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()
 }

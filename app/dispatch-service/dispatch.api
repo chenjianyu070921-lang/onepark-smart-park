@@ -1,30 +1,100 @@
 syntax = "v1"
 
-type DispatchTask {
-	Id         int64  `json:"id"`
-	TenantId   int64  `json:"tenant_id"`
-	Title      string `json:"title"`
-	AssigneeId int64  `json:"assignee_id"`
-	Priority   int32  `json:"priority"`
-	Status     int32  `json:"status"`
-	CreatedAt  int64  `json:"created_at"`
-}
+info (
+	title:   "M5 指挥调度 API"
+	desc:    "OnePark 智慧园区 M5 指挥调度 - dispatch-service"
+	version: "1.0"
+)
 
-type ListDispatchReq {
-	TenantId int64 `form:"tenant_id,optional"`
-	Status   int32 `form:"status,optional"`
-}
-
-type ListDispatchResp {
-	Total int64           `json:"total"`
-	List  []*DispatchTask `json:"list"`
-}
+type (
+	// DispatchTask 调度工单
+	DispatchTask {
+		Id           int64  `json:"id"`
+		TaskNo       string `json:"task_no"`
+		Title        string `json:"title"`
+		Source       int32  `json:"source"` // 1 人工创建 2 告警自动创建
+		AlarmId      string `json:"alarm_id"` // 来源告警 ID(自动创建时非空)
+		ZoneCode     string `json:"zone_code"` // 事发区域, 用于就近指派
+		Priority     int32  `json:"priority"` // 1 紧急 2 高 3 普通
+		Status       int32  `json:"status"` // 1 待指派 2 已指派 3 处理中 4 已完成 5 已关闭
+		AssigneeId   int64  `json:"assignee_id"`
+		AssigneeName string `json:"assignee_name"`
+		Description  string `json:"description"`
+		CreatedAt    int64  `json:"created_at"`
+		UpdatedAt    int64  `json:"updated_at"`
+	}
+	// ==================== 创建调度工单 ====================
+	TaskCreateReq {
+		Title       string `json:"title"`
+		Source      int32  `json:"source,default=1"`
+		ZoneCode    string `json:"zone_code"`
+		Priority    int32  `json:"priority,default=3"`
+		Description string `json:"description,optional"`
+	}
+	TaskCreateResp {
+		Id     int64  `json:"id"`
+		TaskNo string `json:"task_no"`
+		Status int32  `json:"status"`
+	}
+	// ==================== 工单详情 ====================
+	TaskDetailReq {
+		Id int64 `path:"id"`
+	}
+	TaskDetailResp {
+		Task DispatchTask `json:"task"`
+	}
+	// ==================== 工单分页列表 ====================
+	TaskListReq {
+		Status   int32 `form:"status,default=0"` // 0 表示不限
+		Priority int32 `form:"priority,default=0"` // 0 表示不限
+		Page     int64 `form:"page,default=1"`
+		PageSize int64 `form:"page_size,default=10"`
+	}
+	TaskListResp {
+		Total int64          `json:"total"`
+		List  []DispatchTask `json:"list"`
+	}
+	// ==================== 指派人员 ====================
+	TaskAssignReq {
+		Id         int64 `path:"id"`
+		AssigneeId int64 `json:"assignee_id,default=0"` // 0 = 走自动指派(值班+技能+就近+负载)
+	}
+	TaskAssignResp {
+		Id           int64  `json:"id"`
+		Status       int32  `json:"status"`
+		AssigneeId   int64  `json:"assignee_id"`
+		AssigneeName string `json:"assignee_name"`
+	}
+	// TaskStatusReq 状态回写: start 开始处理 | finish 完成 | close 关闭
+	TaskStatusReq {
+		Id     int64  `path:"id"`
+		Action string `json:"action"`
+		Remark string `json:"remark,optional"`
+	}
+	TaskStatusResp {
+		Id     int64 `json:"id"`
+		Status int32 `json:"status"`
+	}
+)
 
 @server (
-	prefix: /api/dispatch
+	prefix: /api
+	group:  dispatch
 )
 service dispatch-api {
-	@handler ListDispatchTasks
-	get /tasks (ListDispatchReq) returns (ListDispatchResp)
+	@handler TaskCreate
+	post /dispatch (TaskCreateReq) returns (TaskCreateResp)
+
+	@handler TaskDetail
+	get /dispatch/:id (TaskDetailReq) returns (TaskDetailResp)
+
+	@handler TaskList
+	get /dispatches (TaskListReq) returns (TaskListResp)
+
+	@handler TaskAssign
+	put /dispatch/:id/assign (TaskAssignReq) returns (TaskAssignResp)
+
+	@handler TaskStatus
+	put /dispatch/:id/status (TaskStatusReq) returns (TaskStatusResp)
 }
 

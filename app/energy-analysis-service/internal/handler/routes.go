@@ -14,8 +14,18 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 		[]rest.Route{
 			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: EnergyanalysisHandler(serverCtx),
+				Path:    "/api/energy/daily",
+				Handler: DailyHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/energy/monthly",
+				Handler: MonthlyHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/energy/zone",
+				Handler: ZoneHandler(serverCtx),
 			},
 		},
 	)

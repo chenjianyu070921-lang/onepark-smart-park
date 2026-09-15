@@ -1,6 +1,10 @@
 Name: shadow.rpc
-ListenOn: 0.0.0.0:8080
-Etcd:
-  Hosts:
-  - 127.0.0.1:2379
-  Key: shadow.rpc
+# 直连模式: 不配置 Etcd, 调用方通过 127.0.0.1:9002 直连
+ListenOn: 0.0.0.0:9002
+Mode: dev
+
+# 环境变量占位, 由 ServiceContext 通过 os.ExpandEnv 注入, 禁止写明文密码
+MySQL:
+  DataSource: "${MYSQL_DSN}"
+  MaxOpenConns: 20
+  MaxIdleConns: 10

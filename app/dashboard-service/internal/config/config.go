@@ -3,15 +3,18 @@ package config
 import (
 	"github.com/zeromicro/go-zero/rest"
 	"github.com/zeromicro/go-zero/zrpc"
+
 	"onepark/common/gormx"
 	"onepark/common/redisx"
 )
 
-// Config 定义 dashboard-service 运行配置.
-// 包含 go-zero REST 基础配置、MySQL、Redis 与 workorder gRPC 客户端配置.
+// Config 定义 dashboard-service 的运行配置.
 type Config struct {
 	rest.RestConf
-	MySQL       gormx.MySQLConf  // MySQL 连接配置(预留, 后续看板本地聚合可用)
-	Redis       redisx.RedisConf // Redis 连接配置(概览缓存)
-	WorkorderRPC zrpc.RpcClientConf // workorder gRPC 客户端(M2 工单数据源)
+	MySQL gormx.MySQLConf  // MySQL 连接配置(dashboard_db)
+	Redis redisx.RedisConf // Redis 连接配置(聚合缓存)
+
+	// Workorder 是 M2 workorder-service 的 gRPC 客户端配置(大屏聚合数据源).
+	// 按 docs/服务协议规范, 服务间调用用 gRPC, 不走 HTTP.
+	Workorder zrpc.RpcClientConf
 }
