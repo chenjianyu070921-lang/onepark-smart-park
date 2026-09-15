@@ -2,28 +2,20 @@ package config
 
 import "github.com/zeromicro/go-zero/rest"
 
-// Config 网关配置: 监听端口 + 业务服务 upstream 列表 + 限流 Redis.
-// 注: 运行时使用原生 http.Server(RestConf 仅用于解析 Name/Host/Port), 不启用 go-zero rest 中间件机制.
+// Config 定义对外网关(apigateway)运行配置.
+// 网关职责: 路由转发(按前缀到各业务服务) + RequestId 注入 + RBAC 上下文透传.
 type Config struct {
 	rest.RestConf
-	Upstreams []Upstream `json:",optional"`
-	Redis      struct {
-		Addr string `json:",optional"`
-		Pass string `json:",optional"`
-		DB   int    `json:",default=0"`
-	} `json:",optional"`
-	RateLimit struct {
-		Capacity   int64   `json:",default=100"` // 令牌桶容量(突发上限)
-		RatePerSec float64 `json:",default=20"`   // 每秒补充令牌数
-	} `json:",optional"`
-	// JwtSecret JWT 签名密钥, 必须与 auth-service 共用同一环境变量 JWT_SECRET(禁止硬编码).
-	JwtSecret string `json:",optional"`
-	// AuthSkipPaths 公开路径白名单(精确匹配), 不经过 JWT 校验, 如 /api/auth/login.
-	AuthSkipPaths []string `json:",optional"`
+	// Upstreams 路径前缀 -> 上游服务映射(最长前缀优先匹配).
+	Upstreams []UpstreamConf `json:",optional"`
+	// DefaultTenantId 无鉴权联调时的默认园区ID(生产由 M6 鉴权后经 Header 注入 x-tenant-id).
+	DefaultTenantId int64 `json:",default=1"`
+	// DefaultUserId 无鉴权联调时的默认用户ID(0 表示匿名).
+	DefaultUserId int64 `json:",default=0"`
 }
 
-// Upstream 业务服务地址: Name 用于匹配 URL 前缀, Port 为服务监听端口.
-type Upstream struct {
-	Name string `json:",optional"`
-	Port int    `json:",optional"`
+// UpstreamConf 单条上游路由配置.
+type UpstreamConf struct {
+	Prefix string // 路径前缀, 如 /api/workorder
+	Target string // 上游基址, 如 http://127.0.0.1:8091
 }

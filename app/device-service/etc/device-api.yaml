@@ -2,13 +2,19 @@ Name: device-api
 Host: 0.0.0.0
 Port: 8001
 
+# 环境变量占位, 由 ServiceContext 通过 os.ExpandEnv 注入, 禁止写明文密码/公网地址
 MySQL:
-  # 容器内主机名由 docker-compose 注入(MYSQL_HOST=mysql), 本地未设置时回退 127.0.0.1; 库名对齐 deploy/sql/init.sql 的 device_db.
-  DataSource: "root:${MYSQL_ROOT_PASSWORD}@tcp(${MYSQL_HOST}:${MYSQL_PORT})/${MYSQL_DATABASE}?charset=utf8mb4&parseTime=true&loc=Local"
+  DataSource: "${MYSQL_DSN}"
   MaxOpenConns: 20
   MaxIdleConns: 10
 
 Redis:
-  Host: "${REDIS_HOST}:${REDIS_PORT}"
+  Host: "${REDIS_HOST}"
   Type: node
-  Pass: "${REDIS_PASSWORD}"
+
+# M1 对外 gRPC (SendCommand / GetDevice), 直连模式, 不依赖 Etcd
+Rpc:
+  ListenOn: 0.0.0.0:9001
+  Timeout: 3000
+
+KafkaBrokers: "${KAFKA_BROKERS}"

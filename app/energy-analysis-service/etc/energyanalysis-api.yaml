@@ -1,3 +1,13 @@
 Name: energyanalysis-api
 Host: 0.0.0.0
-Port: 8087
+Port: 8062
+
+# MySQL: 组内公用库 onepark-smart-park
+MySQL:
+  DataSource: root:4ay1nkal3u8ed77y@tcp(115.191.16.159:3306)/onepark-smart-park?charset=utf8mb4&parseTime=true&loc=Local
+
+# Redis: 缓存日报/月报查询结果
+Redis:
+  Host: 127.0.0.1:6379
+  Type: node
+  Pass: ""

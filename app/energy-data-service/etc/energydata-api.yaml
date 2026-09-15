@@ -1,3 +1,28 @@
 Name: energydata-api
 Host: 0.0.0.0
-Port: 8012
+Port: 8061
+
+# gRPC: 接口54 给 M5 大屏调用(GetDailyReport)
+RPC:
+  Name: energydata-rpc
+  ListenOn: 0.0.0.0:9061
+  Mode: dev
+
+# MySQL: 组内公用库 onepark-smart-park(本机 Navicat 连的那个)
+# 若改用 docker 环境, 把 127.0.0.1:3306 换成 mysql:3306, 密码换成 .env 里的 MYSQL_ROOT_PASSWORD
+MySQL:
+  DataSource: root:4ay1nkal3u8ed77y@tcp(115.191.16.159:3306)/onepark-smart-park?charset=utf8mb4&parseTime=true&loc=Local
+
+# Redis: 缓存实时能耗(接口52)
+Redis:
+  Host: 127.0.0.1:6379
+  Type: node
+  Pass: ""
+
+# Kafka: 消费 M1 上报的设备遥测数据(接口55)
+# TODO: topic 名待与 M1 同学确认后定稿
+Kafka:
+  Brokers:
+    - 127.0.0.1:9092
+  Topic: onepark.device.telemetry
+  Group: energy-data-group

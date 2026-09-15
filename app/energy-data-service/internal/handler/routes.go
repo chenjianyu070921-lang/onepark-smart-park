@@ -14,8 +14,13 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 		[]rest.Route{
 			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: EnergydataHandler(serverCtx),
+				Path:    "/api/energy/history",
+				Handler: HistoryHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/energy/realtime/:deviceId",
+				Handler: RealtimeHandler(serverCtx),
 			},
 		},
 	)

@@ -1,3 +1,26 @@
 Name: dashboard-api
 Host: 0.0.0.0
-Port: 8015
+Port: 8052
+
+# ===== MySQL =====
+# 本地开发默认值(dashboard_db)。部署环境请改回 ${DASHBOARD_MYSQL_DSN} 形式由环境变量注入。
+MySQL:
+  DataSource: "root:onepark123@tcp(127.0.0.1:3306)/dashboard_db?charset=utf8mb4&parseTime=True&loc=Local"
+
+# ===== Redis (聚合缓存) =====
+# 本地开发默认值。部署环境请改回 ${REDIS_ADDR} / ${REDIS_PASS} 形式。
+# 注意: DB 必须是数字字面量, 写成 ${REDIS_DB} 会被展开成字符串导致 int 字段类型不匹配。
+# 注意: 宿主机 6379 被原生 redis-server 占用, 这里用 6380 指向 onepark-redis 容器。
+Redis:
+  Addr: "127.0.0.1:6380"
+  Pass: "onepark123"
+  DB: 0
+
+# ===== 上游 gRPC 依赖: M2 workorder-service =====
+# 直连 Endpoints(与 M2 的 etc/workorder-grpc.yaml 端口一致, 无 Etcd 注册)。
+# NonBlock=true: 上游未启动时不阻塞本服务启动, 调用失败由聚合层降级处理。
+Workorder:
+  Endpoints:
+    - 127.0.0.1:9091
+  NonBlock: true
+  Timeout: 600

@@ -8,7 +8,7 @@ import (
 	"onepark/app/parking-service/internal/config"
 	"onepark/app/parking-service/internal/handler"
 	"onepark/app/parking-service/internal/svc"
-	"onepark/common/response"
+	cmw "onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
@@ -22,11 +22,13 @@ func main() {
 	var c config.Config
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
 
-	// 统一 API 响应体为 {code,msg,data}
-	response.Init()
-
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()
+
+	// 中间件: CORS + RequestId 透传 + RBAC 上下文(网关注入 x-tenant-id/x-user-id/x-role-ids).
+	server.Use(cmw.Cors)
+	server.Use(cmw.RequestIdMiddleware)
+	server.Use(cmw.Tenant)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)

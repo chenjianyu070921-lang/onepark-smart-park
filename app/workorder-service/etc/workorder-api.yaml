@@ -10,7 +10,7 @@ MySQL:
 Redis:
   Addr: ${REDIS_ADDR}
   Pass: ${REDIS_PASS}
-  DB: ${REDIS_DB}
+  DB: 0
 
 # Kafka 连接配置 (预留, 用于工单状态变更事件投递)
 Kafka:

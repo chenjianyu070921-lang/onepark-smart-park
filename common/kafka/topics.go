@@ -4,20 +4,19 @@
 package kafka
 
 // 主题常量: 统一命名, 避免散落硬编码.
-// 命名规范对齐 M2/M3 设计文档, 业务事件类 topic 统一采用 onepark. 前缀, 确保生产者与消费者一致.
 const (
-	TopicDeviceTelemetry        = "onepark.device.event"             // M1 设备事件(M2 parking / M3 安防消费)
-	TopicParkingEntry           = "parking-entry"                    // 车辆入场事件(parking-service 发布)
-	TopicParkingExit            = "parking-exit"                     // 车辆离场事件(parking-service 发布)
-	TopicAlarm                  = "alarm-event"                      // 告警事件(M3 安防消费)
-	TopicNotice                 = "notice-event"                     // 公告发布事件(通知类消费)
-	TopicWorkorderStatusChanged = "onepark.workorder.status_changed" // 工单状态变更(M2 workorder-service 发布, M5 运营大屏消费)
-	TopicDeviceCommandResult    = "onepark.device.command.result"    // 设备命令结果回传(M1 发布, M3 门禁/视频消费)
+	TopicDeviceTelemetry = "device-telemetry" // M1 设备遥测(地磁/门禁上报)
+	TopicParkingEntry    = "parking-entry"    // 车辆入场事件(parking-service 发布)
+	TopicParkingExit     = "parking-exit"     // 车辆离场事件(parking-service 发布)
+	TopicAlarm           = "alarm-event"      // 告警事件(M3 安防消费)
+	TopicNotice          = "notice-event"     // 公告发布事件(通知类消费)
+	TopicWorkorder       = "workorder-event"  // 工单状态事件(workorder-service 发布, M5/通知类消费)
 )
 
 // 消费者组常量(同一服务多实例共享消费位移).
 const (
-	GroupParking = "parking-service"
-	GroupAlarm   = "alarm-service"
-	GroupNotice  = "notice-service"
+	GroupParking   = "parking-service"
+	GroupAlarm     = "alarm-service"
+	GroupNotice    = "notice-service"
+	GroupWorkorder = "workorder-service"
 )
