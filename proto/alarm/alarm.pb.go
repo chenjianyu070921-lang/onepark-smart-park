@@ -11,6 +11,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	common "onepark/proto/common"
 	reflect "reflect"
+	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -21,25 +22,170 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// GetActiveAlarmsReq 活跃告警聚合查询请求
+type GetActiveAlarmsReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      int64                  `protobuf:"varint,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"` // 园区ID(RBAC 数据隔离), 0 表示不过滤
+	AreaId        int64                  `protobuf:"varint,2,opt,name=area_id,json=areaId,proto3" json:"area_id,omitempty"`       // 区域ID, 0 表示全部区域
+	Levels        []int32                `protobuf:"varint,3,rep,packed,name=levels,proto3" json:"levels,omitempty"`              // 告警等级过滤(1-4), 为空表示全部等级
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetActiveAlarmsReq) Reset() {
+	*x = GetActiveAlarmsReq{}
+	mi := &file_alarm_alarm_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetActiveAlarmsReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetActiveAlarmsReq) ProtoMessage() {}
+
+func (x *GetActiveAlarmsReq) ProtoReflect() protoreflect.Message {
+	mi := &file_alarm_alarm_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetActiveAlarmsReq.ProtoReflect.Descriptor instead.
+func (*GetActiveAlarmsReq) Descriptor() ([]byte, []int) {
+	return file_alarm_alarm_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *GetActiveAlarmsReq) GetTenantId() int64 {
+	if x != nil {
+		return x.TenantId
+	}
+	return 0
+}
+
+func (x *GetActiveAlarmsReq) GetAreaId() int64 {
+	if x != nil {
+		return x.AreaId
+	}
+	return 0
+}
+
+func (x *GetActiveAlarmsReq) GetLevels() []int32 {
+	if x != nil {
+		return x.Levels
+	}
+	return nil
+}
+
+// GetActiveAlarmsResp 活跃告警聚合响应
+type GetActiveAlarmsResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Total         int64                  `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`                                                                                                        // 活跃告警总数
+	LevelCount    map[int32]int64        `protobuf:"bytes,2,rep,name=level_count,json=levelCount,proto3" json:"level_count,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"` // 按等级分布, 如 {3: 5, 4: 2}
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetActiveAlarmsResp) Reset() {
+	*x = GetActiveAlarmsResp{}
+	mi := &file_alarm_alarm_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetActiveAlarmsResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetActiveAlarmsResp) ProtoMessage() {}
+
+func (x *GetActiveAlarmsResp) ProtoReflect() protoreflect.Message {
+	mi := &file_alarm_alarm_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetActiveAlarmsResp.ProtoReflect.Descriptor instead.
+func (*GetActiveAlarmsResp) Descriptor() ([]byte, []int) {
+	return file_alarm_alarm_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *GetActiveAlarmsResp) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *GetActiveAlarmsResp) GetLevelCount() map[int32]int64 {
+	if x != nil {
+		return x.LevelCount
+	}
+	return nil
+}
+
 var File_alarm_alarm_proto protoreflect.FileDescriptor
 
 const file_alarm_alarm_proto_rawDesc = "" +
 	"\n" +
-	"\x11alarm/alarm.proto\x12\ronepark.alarm\x1a\x13common/common.proto2D\n" +
+	"\x11alarm/alarm.proto\x12\ronepark.alarm\x1a\x13common/common.proto\"b\n" +
+	"\x12GetActiveAlarmsReq\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\x03R\btenantId\x12\x17\n" +
+	"\aarea_id\x18\x02 \x01(\x03R\x06areaId\x12\x16\n" +
+	"\x06levels\x18\x03 \x03(\x05R\x06levels\"\xbf\x01\n" +
+	"\x13GetActiveAlarmsResp\x12\x14\n" +
+	"\x05total\x18\x01 \x01(\x03R\x05total\x12S\n" +
+	"\vlevel_count\x18\x02 \x03(\v22.onepark.alarm.GetActiveAlarmsResp.LevelCountEntryR\n" +
+	"levelCount\x1a=\n" +
+	"\x0fLevelCountEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\x05R\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x012\x9e\x01\n" +
 	"\fAlarmService\x124\n" +
-	"\x04Ping\x12\x15.onepark.common.Empty\x1a\x15.onepark.common.EmptyB\x1dZ\x1bonepark/proto/alarm;alarmpbb\x06proto3"
+	"\x04Ping\x12\x15.onepark.common.Empty\x1a\x15.onepark.common.Empty\x12X\n" +
+	"\x0fGetActiveAlarms\x12!.onepark.alarm.GetActiveAlarmsReq\x1a\".onepark.alarm.GetActiveAlarmsRespB\x1dZ\x1bonepark/proto/alarm;alarmpbb\x06proto3"
 
+var (
+	file_alarm_alarm_proto_rawDescOnce sync.Once
+	file_alarm_alarm_proto_rawDescData []byte
+)
+
+func file_alarm_alarm_proto_rawDescGZIP() []byte {
+	file_alarm_alarm_proto_rawDescOnce.Do(func() {
+		file_alarm_alarm_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_alarm_alarm_proto_rawDesc), len(file_alarm_alarm_proto_rawDesc)))
+	})
+	return file_alarm_alarm_proto_rawDescData
+}
+
+var file_alarm_alarm_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_alarm_alarm_proto_goTypes = []any{
-	(*common.Empty)(nil), // 0: onepark.common.Empty
+	(*GetActiveAlarmsReq)(nil),  // 0: onepark.alarm.GetActiveAlarmsReq
+	(*GetActiveAlarmsResp)(nil), // 1: onepark.alarm.GetActiveAlarmsResp
+	nil,                         // 2: onepark.alarm.GetActiveAlarmsResp.LevelCountEntry
+	(*common.Empty)(nil),        // 3: onepark.common.Empty
 }
 var file_alarm_alarm_proto_depIdxs = []int32{
-	0, // 0: onepark.alarm.AlarmService.Ping:input_type -> onepark.common.Empty
-	0, // 1: onepark.alarm.AlarmService.Ping:output_type -> onepark.common.Empty
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2, // 0: onepark.alarm.GetActiveAlarmsResp.level_count:type_name -> onepark.alarm.GetActiveAlarmsResp.LevelCountEntry
+	3, // 1: onepark.alarm.AlarmService.Ping:input_type -> onepark.common.Empty
+	0, // 2: onepark.alarm.AlarmService.GetActiveAlarms:input_type -> onepark.alarm.GetActiveAlarmsReq
+	3, // 3: onepark.alarm.AlarmService.Ping:output_type -> onepark.common.Empty
+	1, // 4: onepark.alarm.AlarmService.GetActiveAlarms:output_type -> onepark.alarm.GetActiveAlarmsResp
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_alarm_alarm_proto_init() }
@@ -53,12 +199,13 @@ func file_alarm_alarm_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_alarm_alarm_proto_rawDesc), len(file_alarm_alarm_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   0,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_alarm_alarm_proto_goTypes,
 		DependencyIndexes: file_alarm_alarm_proto_depIdxs,
+		MessageInfos:      file_alarm_alarm_proto_msgTypes,
 	}.Build()
 	File_alarm_alarm_proto = out.File
 	file_alarm_alarm_proto_goTypes = nil

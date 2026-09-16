@@ -14,8 +14,18 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 		[]rest.Route{
 			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: AlarmHandler(serverCtx),
+				Path:    "/api/alarms",
+				Handler: ListAlarmsHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/alarm/:id",
+				Handler: GetAlarmHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/api/alarm/:id/status",
+				Handler: UpdateAlarmStatusHandler(serverCtx),
 			},
 		},
 	)

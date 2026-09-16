@@ -20,15 +20,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AlarmService_Ping_FullMethodName = "/onepark.alarm.AlarmService/Ping"
+	AlarmService_Ping_FullMethodName            = "/onepark.alarm.AlarmService/Ping"
+	AlarmService_GetActiveAlarms_FullMethodName = "/onepark.alarm.AlarmService/GetActiveAlarms"
 )
 
 // AlarmServiceClient is the client API for AlarmService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AlarmServiceClient interface {
-	// TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
 	Ping(ctx context.Context, in *common.Empty, opts ...grpc.CallOption) (*common.Empty, error)
+	// GetActiveAlarms 供 M5 dashboard-service 大屏聚合查询活跃告警数(docs/m3/04 #43).
+	// 活跃告警 = alarm.status = 0(未处理); 建议响应时间 < 200ms.
+	GetActiveAlarms(ctx context.Context, in *GetActiveAlarmsReq, opts ...grpc.CallOption) (*GetActiveAlarmsResp, error)
 }
 
 type alarmServiceClient struct {
@@ -49,12 +52,24 @@ func (c *alarmServiceClient) Ping(ctx context.Context, in *common.Empty, opts ..
 	return out, nil
 }
 
+func (c *alarmServiceClient) GetActiveAlarms(ctx context.Context, in *GetActiveAlarmsReq, opts ...grpc.CallOption) (*GetActiveAlarmsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetActiveAlarmsResp)
+	err := c.cc.Invoke(ctx, AlarmService_GetActiveAlarms_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AlarmServiceServer is the server API for AlarmService service.
 // All implementations must embed UnimplementedAlarmServiceServer
 // for forward compatibility.
 type AlarmServiceServer interface {
-	// TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
 	Ping(context.Context, *common.Empty) (*common.Empty, error)
+	// GetActiveAlarms 供 M5 dashboard-service 大屏聚合查询活跃告警数(docs/m3/04 #43).
+	// 活跃告警 = alarm.status = 0(未处理); 建议响应时间 < 200ms.
+	GetActiveAlarms(context.Context, *GetActiveAlarmsReq) (*GetActiveAlarmsResp, error)
 	mustEmbedUnimplementedAlarmServiceServer()
 }
 
@@ -67,6 +82,9 @@ type UnimplementedAlarmServiceServer struct{}
 
 func (UnimplementedAlarmServiceServer) Ping(context.Context, *common.Empty) (*common.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
+}
+func (UnimplementedAlarmServiceServer) GetActiveAlarms(context.Context, *GetActiveAlarmsReq) (*GetActiveAlarmsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetActiveAlarms not implemented")
 }
 func (UnimplementedAlarmServiceServer) mustEmbedUnimplementedAlarmServiceServer() {}
 func (UnimplementedAlarmServiceServer) testEmbeddedByValue()                      {}
@@ -107,6 +125,24 @@ func _AlarmService_Ping_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AlarmService_GetActiveAlarms_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetActiveAlarmsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AlarmServiceServer).GetActiveAlarms(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AlarmService_GetActiveAlarms_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AlarmServiceServer).GetActiveAlarms(ctx, req.(*GetActiveAlarmsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AlarmService_ServiceDesc is the grpc.ServiceDesc for AlarmService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -117,6 +153,10 @@ var AlarmService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Ping",
 			Handler:    _AlarmService_Ping_Handler,
+		},
+		{
+			MethodName: "GetActiveAlarms",
+			Handler:    _AlarmService_GetActiveAlarms_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
