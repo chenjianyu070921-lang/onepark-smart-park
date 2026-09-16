@@ -31,6 +31,12 @@ func NewListWorkOrdersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Li
 func (l *ListWorkOrdersLogic) ListWorkOrders(req *types.ListWorkOrderReq) (resp *types.WorkOrderListResp, err error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 
+	// 防御: 部署环境未配置 MySQL 时 svcCtx.DB 为 nil, 直接访问会空指针 panic(500).
+	// 这里提前返回明确业务错误(M2-E-5001), 便于前端识别而非崩溃.
+	if l.svcCtx.DB == nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
+	}
+
 	// 统一在 WHERE 上追加 tenant_id, 保证 RBAC 行级隔离.
 	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.WorkOrder{}).Where("tenant_id=?", tenantID)
 	if req.Status != 0 {

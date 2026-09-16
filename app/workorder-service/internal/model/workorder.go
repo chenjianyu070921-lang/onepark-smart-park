@@ -31,7 +31,23 @@ type WorkOrder struct {
 	Attachments  string     `gorm:"column:attachments;type:varchar(1024)" json:"attachments"` // MinIO 对象Key列表(JSON)
 	Version      int64      `gorm:"column:version;not null;default:0" json:"version"`         // 乐观锁版本
 	FinishedAt   *time.Time `gorm:"column:finished_at" json:"finished_at"`                    // 完成/关闭时间
+	// AlarmID 来源告警ID: 仅告警自动建单时非空, 是消息幂等键.
+	// 指针+可空列是关键 —— MySQL 唯一索引 uk_alarm_id 允许多个 NULL,
+	// 因此人工创建的工单(为 NULL)之间互不冲突, 而同一告警重复投递只会落一张单.
+	AlarmID *string `gorm:"column:alarm_id;size:64;uniqueIndex:uk_alarm_id" json:"alarm_id,omitempty"`
 }
+
+// 工单类型码(与 work_order.type 含义一致, 由告警自动建单等场景共用).
+const (
+	WorkOrderTypeRepair int8 = 1 // 报修: 告警自动建单固定走此类型
+)
+
+// 工单优先级码(与 work_order.priority 含义一致).
+const (
+	PriorityUrgent int8 = 1 // 紧急
+	PriorityNormal int8 = 2 // 普通(默认)
+	PriorityLow    int8 = 3 // 低
+)
 
 // TableName 指定工单主表名(对齐 workorder_db 库).
 func (WorkOrder) TableName() string { return "work_order" }

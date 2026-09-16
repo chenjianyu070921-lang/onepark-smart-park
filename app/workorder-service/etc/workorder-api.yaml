@@ -12,6 +12,23 @@ Redis:
   Pass: ${REDIS_PASS}
   DB: 0
 
-# Kafka 连接配置 (预留, 用于工单状态变更事件投递)
+# Kafka 连接配置
+# 生产: 建单/派单/状态流转发 workorder-event
+# 消费: 消费 alarm-event 自动建报修工单(Topic/Group/Enabled)
+# ⚠️ 共享 broker 上 Group 严禁与其它项目/环境重名; Enabled 默认 false, 部署时显式开启.
+# 本期按部署要求显式置 true: 消费者会在消费到告警时自动建真实报修工单,
+# 仅在确认 Group(m2-workorder-dev-liu)不与其它项目/环境重名、且 KAFKA_BROKERS 已指向正确 broker 时开启.
 Kafka:
   Brokers: ${KAFKA_BROKERS}
+  Topic: alarm-event
+  Group: m2-workorder-dev-liu
+  Enabled: true
+  # 告警未携带 tenant_id 时的建单兜底园区
+  DefaultTenantId: 1
+
+# 工单超时升级定时任务(复用 leasing 的 Redis 锁防重模式).
+# 默认关闭, 部署时显式开启; 把超过 PendingTimeoutHours 小时仍活跃且非紧急的工单自动升级为紧急.
+EscalationCron:
+  Enabled: true
+  Spec: "*/30 * * * *"
+  PendingTimeoutHours: 24

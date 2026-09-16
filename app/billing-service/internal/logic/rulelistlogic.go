@@ -6,6 +6,7 @@ import (
 
 	"onepark/app/billing-service/internal/svc"
 	"onepark/app/billing-service/internal/types"
+	"onepark/common/errorx"
 )
 
 // RuleListLogic 接口60: 计费规则列表
@@ -19,8 +20,19 @@ func NewRuleListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *RuleList
 }
 
 func (l *RuleListLogic) RuleList(req *types.RuleListRequest) (*types.RuleListResponse, error) {
+	// 租户上下文: 只能看到本园区的规则
+	tenantID, err := tenantOf(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// 防御: 部署环境未配置 MySQL 时 svcCtx.DB 为 nil, 提前返回明确错误(M2-E-5001)避免空指针 panic.
+	if l.svcCtx.DB == nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
+	}
+
 	status := StatusOf(req.Status)
-	list, err := l.svcCtx.Billing.ListRule(l.ctx, req.ZoneId, status)
+	list, err := l.svcCtx.Billing.ListRule(l.ctx, tenantID, req.ZoneId, status)
 	if err != nil {
 		return nil, wrapErr("查询计费规则", err)
 	}
