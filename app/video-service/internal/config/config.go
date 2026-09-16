@@ -6,13 +6,14 @@ import (
 )
 
 // Config 服务配置 (M3 首个落地者, 见 KI-4).
+// Day2 各中间件均为可选: 未接入前 yaml 不配置对应段落也能启动(见 P0-6 三服务同时启动验收).
 type Config struct {
 	rest.RestConf
-	Redis redis.RedisConf
-	MySQL MySQLConf
-	Kafka KafkaConf
-	ES    ESConf
-	Nacos NacosConf
+	Redis redis.RedisConf `json:",optional"`
+	MySQL MySQLConf       `json:",optional"`
+	Kafka KafkaConf       `json:",optional"`
+	ES    ESConf          `json:",optional"`
+	Nacos NacosConf       `json:",optional"`
 }
 
 // MySQLConf GORM 数据源配置 (Day3 落地 model 层).

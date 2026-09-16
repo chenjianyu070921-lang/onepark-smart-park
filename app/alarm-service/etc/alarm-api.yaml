@@ -1,3 +1,19 @@
 Name: alarm-api
 Host: 0.0.0.0
 Port: 8009
+
+# MySQL 连接配置 (alarm_db, DSN 由环境变量注入)
+MySQL:
+  DataSource: ${ALARM_MYSQL_DSN}
+
+# Redis 连接配置 (告警冷却去重 / 幂等去重)
+Redis:
+  Addr: ${REDIS_ADDR}
+  Pass: ${REDIS_PASS}
+  # DB 是 int, 环境变量未注入时 ${REDIS_DB} 会解析为空串导致类型不匹配, 故直接给默认值
+  DB: 0
+
+# Kafka 连接配置 (消费 M1 设备遥测, 生成安防告警)
+Kafka:
+  Brokers: ${KAFKA_BROKERS}
+  GroupID: ${ALARM_KAFKA_GROUP}

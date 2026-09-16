@@ -1,3 +1,9 @@
 Name: accesscontrol-api
 Host: 0.0.0.0
 Port: 8010
+
+# Redis 连接配置 (Day2 预留占位, 门禁权限缓存业务尚未接入)
+Redis:
+  Host: ${REDIS_ADDR}
+  Type: node
+  Pass: ${REDIS_PASS}

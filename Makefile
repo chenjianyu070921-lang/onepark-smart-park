@@ -162,7 +162,7 @@ down:
 clean:
 	@if exist bin rd /s /q bin
 
-.PHONY: device-goctl workorder-goctl visitor-goctl parking-goctl notice-goctl alarm-goctl accesscontrol-goctl video-goctl energydata-goctl energyanalysis-goctl billing-goctl leasing-goctl dashboard-goctl dispatch-goctl auth-goctl usermanage-goctl apigateway-goctl shadow-goctl run-device run-workorder run-visitor run-parking run-notice run-alarm run-accesscontrol run-video run-energydata run-energyanalysis run-billing run-leasing run-dashboard run-dispatch run-auth run-usermanage run-apigateway run-shadow run-gateway-service run-event-dispatcher install-tools genproto build test up down clean
+.PHONY: device-goctl workorder-goctl visitor-goctl parking-goctl notice-goctl alarm-goctl accesscontrol-goctl video-goctl energydata-goctl energyanalysis-goctl billing-goctl leasing-goctl dashboard-goctl dispatch-goctl auth-goctl usermanage-goctl apigateway-goctl shadow-goctl run-device run-workorder run-visitor run-parking run-notice run-alarm run-accesscontrol run-video run-energydata run-energyanalysis run-billing run-leasing run-dashboard run-dispatch run-auth run-usermanage run-apigateway run-shadow run-alarm-grpc run-gateway-service run-event-dispatcher install-tools genproto build test up down clean
 
 
 
