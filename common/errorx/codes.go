@@ -42,12 +42,15 @@ const (
 // 注意: 参数校验类务必用 M3-W-xxxx 才返回 400 (KI-2).
 const (
 	// 告警 (alarm-service)
-	ErrAlarmRuleCreate   = "M3-E-1001" // 告警规则创建失败
-	ErrAlarmRuleNotFound = "M3-E-1002" // 告警规则不存在
-	ErrAlarmNotFound     = "M3-E-1003" // 告警记录不存在
-	ErrAlarmAck          = "M3-E-1004" // 告警确认失败
-	ErrAlarmResolve      = "M3-E-1005" // 告警解决失败
-	ErrAlarmQuery        = "M3-E-1006" // 告警查询失败
+	ErrAlarmRuleCreate    = "M3-E-1001" // 告警规则创建失败
+	ErrAlarmRuleNotFound  = "M3-E-1002" // 告警规则不存在
+	ErrAlarmNotFound      = "M3-E-1003" // 告警记录不存在
+	ErrAlarmAck           = "M3-E-1004" // 告警确认失败
+	ErrAlarmResolve       = "M3-E-1005" // 告警解决失败
+	ErrAlarmQuery         = "M3-E-1006" // 告警查询失败
+	ErrAlarmStatusInvalid = "M3-E-1007" // 告警状态不允许该操作
+	// 参数校验类错误必须用 W 级别才能返回 400, 见 KI-2 与 docs/m3/04 §6 注.
+	ErrAlarmParamInvalid = "M3-W-1001" // 告警参数非法(HTTP 400)
 
 	// 门禁 (access-control-service)
 	ErrAccessGrant      = "M3-E-2001" // 门禁授权失败
@@ -63,13 +66,13 @@ const (
 
 // M1 物联接入底座错误码
 const (
-	ErrProductNotFound   = "M1-E-1001" // 产品不存在
-	ErrDeviceDuplicate    = "M1-E-1002" // 设备名重复
-	ErrDeviceCreateFail   = "M1-E-1003" // 设备写入失败
-	ErrShadowCreateFail   = "M1-E-1004" // 影子创建失败
-	ErrDeviceNotFound     = "M1-E-1005" // 设备不存在
-	ErrDeviceOffline      = "M1-E-1006" // 设备离线
-	ErrCommandSendFail    = "M1-E-1007" // 指令下发失败
+	ErrProductNotFound  = "M1-E-1001" // 产品不存在
+	ErrDeviceDuplicate  = "M1-E-1002" // 设备名重复
+	ErrDeviceCreateFail = "M1-E-1003" // 设备写入失败
+	ErrShadowCreateFail = "M1-E-1004" // 影子创建失败
+	ErrDeviceNotFound   = "M1-E-1005" // 设备不存在
+	ErrDeviceOffline    = "M1-E-1006" // 设备离线
+	ErrCommandSendFail  = "M1-E-1007" // 指令下发失败
 )
 
 // M2 物业管理服务业务错误码
