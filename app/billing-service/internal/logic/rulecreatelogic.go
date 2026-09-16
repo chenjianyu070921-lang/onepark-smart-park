@@ -24,6 +24,12 @@ func NewRuleCreateLogic(ctx context.Context, svcCtx *svc.ServiceContext) *RuleCr
 }
 
 func (l *RuleCreateLogic) RuleCreate(req *types.RuleCreateRequest) (*types.RuleCreateResponse, error) {
+	// 0. 租户上下文: 规则按园区隔离, 缺租户直接拒绝(防止规则落到错误租户名下)
+	tenantID, err := tenantOf(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// 1. 按规则类型校验配置, 不合法就不让存(免得出账时才发现算不出来)
 	if err := validateRule(req); err != nil {
 		return nil, err
@@ -31,6 +37,7 @@ func (l *RuleCreateLogic) RuleCreate(req *types.RuleCreateRequest) (*types.RuleC
 
 	// 2. 规则明细整块存成 JSON, 以后加字段不用改表
 	rule := &model.BillingRule{
+		TenantID:   tenantID,
 		Name:       req.Name,
 		ZoneID:     req.ZoneId,
 		RuleType:   req.RuleType,

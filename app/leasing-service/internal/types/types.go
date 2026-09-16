@@ -15,30 +15,34 @@ type BillAutoResp struct {
 }
 
 type Contract struct {
-	Id          int64   `json:"id"`
-	ContractNo  string  `json:"contract_no"`
-	TenantId    int64   `json:"tenant_id"`
-	TenantName  string  `json:"tenant_name"`
-	ZoneCode    string  `json:"zone_code"`    // 房间/区域编码, 如 A-3F-301
-	AreaSqm     float64 `json:"area_sqm"`     // 租赁面积(平方米)
-	MonthlyRent string  `json:"monthly_rent"` // 月租金
-	Deposit     string  `json:"deposit"`      // 押金
-	StartDate   string  `json:"start_date"`   // 起租日 yyyy-MM-dd
-	EndDate     string  `json:"end_date"`     // 终止日 yyyy-MM-dd
-	Status      int32   `json:"status"`       // 1待生效 2生效中 3已到期 4已终止
-	CreatedAt   int64   `json:"created_at"`
-	UpdatedAt   int64   `json:"updated_at"`
+	Id              int64   `json:"id"`
+	ContractNo      string  `json:"contract_no"`
+	TenantId        int64   `json:"tenant_id"`
+	TenantName      string  `json:"tenant_name"`
+	ZoneCode        string  `json:"zone_code"`         // 房间/区域编码, 如 A-3F-301
+	AreaSqm         float64 `json:"area_sqm"`          // 租赁面积(平方米)
+	MonthlyRent     string  `json:"monthly_rent"`      // 月租金
+	Deposit         string  `json:"deposit"`           // 押金
+	StartDate       string  `json:"start_date"`        // 起租日 yyyy-MM-dd
+	EndDate         string  `json:"end_date"`          // 终止日 yyyy-MM-dd
+	Status          int32   `json:"status"`            // 1待生效 2生效中 3已到期 4已终止
+	AutoRenew       int32   `json:"auto_renew"`        // 1 约定自动续约 0 到期即止
+	RenewNoticeDays int64   `json:"renew_notice_days"` // 到期前多少天进入续签提醒窗口
+	CreatedAt       int64   `json:"created_at"`
+	UpdatedAt       int64   `json:"updated_at"`
 }
 
 type ContractCreateReq struct {
-	TenantId    int64   `json:"tenant_id"`
-	TenantName  string  `json:"tenant_name"`
-	ZoneCode    string  `json:"zone_code"`
-	AreaSqm     float64 `json:"area_sqm"`
-	MonthlyRent string  `json:"monthly_rent"`
-	Deposit     string  `json:"deposit,optional"`
-	StartDate   string  `json:"start_date"`
-	EndDate     string  `json:"end_date"`
+	TenantId        int64   `json:"tenant_id"`
+	TenantName      string  `json:"tenant_name"`
+	ZoneCode        string  `json:"zone_code"`
+	AreaSqm         float64 `json:"area_sqm"`
+	MonthlyRent     string  `json:"monthly_rent"`
+	Deposit         string  `json:"deposit,optional"`
+	StartDate       string  `json:"start_date"`
+	EndDate         string  `json:"end_date"`
+	AutoRenew       int32   `json:"auto_renew,default=0"`
+	RenewNoticeDays int64   `json:"renew_notice_days,default=30"`
 }
 
 type ContractCreateResp struct {
@@ -79,11 +83,13 @@ type ContractListResp struct {
 }
 
 type ContractUpdateReq struct {
-	Id          int64  `path:"id"`
-	Action      string `json:"action"`                // activate 生效 | renew 续签 | terminate 终止 | expire 到期 | update 变更
-	NewEndDate  string `json:"new_end_date,optional"` // action=renew 时必填
-	MonthlyRent string `json:"monthly_rent,optional"` // action=renew 时可调整租金
-	Reason      string `json:"reason,optional"`       // 终止/到期原因
+	Id              int64  `path:"id"`
+	Action          string `json:"action"`                // activate 生效 | renew 续签 | terminate 终止 | expire 到期 | update 变更
+	NewEndDate      string `json:"new_end_date,optional"` // action=renew 时必填
+	MonthlyRent     string `json:"monthly_rent,optional"` // action=renew 时可调整租金
+	Reason          string `json:"reason,optional"`       // 终止/到期原因
+	AutoRenew       int32  `json:"auto_renew,default=-1"`
+	RenewNoticeDays int64  `json:"renew_notice_days,default=-1"`
 }
 
 type ContractUpdateResp struct {
@@ -101,6 +107,8 @@ type ExpiringContract struct {
 	EndDate     string `json:"end_date"`  // 终止日 yyyy-MM-dd
 	DaysLeft    int64  `json:"days_left"` // 距终止日剩余天数; 负数表示已逾期
 	Status      int32  `json:"status"`
+	AutoRenew   int32  `json:"auto_renew"`
+	NeedNotice  bool   `json:"need_notice"`
 }
 
 type OccupancyReq struct {

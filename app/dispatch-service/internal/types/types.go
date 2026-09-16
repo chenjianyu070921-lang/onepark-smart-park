@@ -4,19 +4,56 @@
 package types
 
 type DispatchTask struct {
-	Id           int64  `json:"id"`
-	TaskNo       string `json:"task_no"`
-	Title        string `json:"title"`
-	Source       int32  `json:"source"`    // 1 人工创建 2 告警自动创建
-	AlarmId      string `json:"alarm_id"`  // 来源告警 ID(自动创建时非空)
-	ZoneCode     string `json:"zone_code"` // 事发区域, 用于就近指派
-	Priority     int32  `json:"priority"`  // 1 紧急 2 高 3 普通
-	Status       int32  `json:"status"`    // 1 待指派 2 已指派 3 处理中 4 已完成 5 已关闭
-	AssigneeId   int64  `json:"assignee_id"`
-	AssigneeName string `json:"assignee_name"`
-	Description  string `json:"description"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	Id            int64  `json:"id"`
+	TaskNo        string `json:"task_no"`
+	Title         string `json:"title"`
+	Source        int32  `json:"source"`         // 1 人工创建 2 告警自动创建
+	AlarmId       string `json:"alarm_id"`       // 来源告警 ID(自动创建时非空)
+	ZoneCode      string `json:"zone_code"`      // 事发区域, 用于就近指派
+	RequiredSkill string `json:"required_skill"` // 所需技能标签, 空表示不限
+	Priority      int32  `json:"priority"`       // 1 紧急 2 高 3 普通
+	Status        int32  `json:"status"`         // 1 待指派 2 已指派 3 处理中 4 已完成 5 已关闭
+	AssigneeId    int64  `json:"assignee_id"`
+	AssigneeName  string `json:"assignee_name"`
+	Description   string `json:"description"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
+type StaffItem struct {
+	StaffId   int64  `json:"staff_id"`
+	Name      string `json:"name"`
+	Phone     string `json:"phone"`
+	ZoneCode  string `json:"zone_code"`
+	Skills    string `json:"skills"`
+	OnDuty    int32  `json:"on_duty"`
+	Status    int32  `json:"status"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type StaffListReq struct {
+	OnDuty   int32 `form:"on_duty,default=-1"` // -1 不限, 1 只看在岗
+	Page     int64 `form:"page,default=1"`
+	PageSize int64 `form:"page_size,default=10"`
+}
+
+type StaffListResp struct {
+	Total int64       `json:"total"`
+	List  []StaffItem `json:"list"`
+}
+
+type StaffUpsertReq struct {
+	StaffId  int64  `json:"staff_id"` // 人员ID, 与 M6 用户体系对齐; 已存在则更新
+	Name     string `json:"name"`
+	Phone    string `json:"phone,optional"`
+	ZoneCode string `json:"zone_code"`         // 常驻区域, 如 A-3F
+	Skills   string `json:"skills,optional"`   // 逗号分隔, 如 fire,electrical,security
+	OnDuty   int32  `json:"on_duty,default=1"` // 1 在岗 0 不在岗
+	Status   int32  `json:"status,default=1"`  // 1 启用 0 停用
+}
+
+type StaffUpsertResp struct {
+	Id int64 `json:"id"`
 }
 
 type TaskAssignReq struct {
@@ -32,11 +69,12 @@ type TaskAssignResp struct {
 }
 
 type TaskCreateReq struct {
-	Title       string `json:"title"`
-	Source      int32  `json:"source,default=1"`
-	ZoneCode    string `json:"zone_code"`
-	Priority    int32  `json:"priority,default=3"`
-	Description string `json:"description,optional"`
+	Title         string `json:"title"`
+	Source        int32  `json:"source,default=1"`
+	ZoneCode      string `json:"zone_code"`
+	RequiredSkill string `json:"required_skill,optional"` // 所需技能, 如 fire/electrical/security; 空=不限
+	Priority      int32  `json:"priority,default=3"`
+	Description   string `json:"description,optional"`
 }
 
 type TaskCreateResp struct {

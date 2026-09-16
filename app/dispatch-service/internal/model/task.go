@@ -41,6 +41,7 @@ type DispatchTask struct {
 	Source         int8       `gorm:"column:source"`
 	AlarmId        *string    `gorm:"column:alarm_id;size:64"`
 	ZoneCode       string     `gorm:"column:zone_code;size:64"`
+	RequiredSkill  string     `gorm:"column:required_skill;size:32"` // 所需技能, 空=不限; 自动指派时作为硬优先项
 	Priority       int8       `gorm:"column:priority"`
 	Status         int8       `gorm:"column:status"`
 	AssigneeId     int64      `gorm:"column:assignee_id"`

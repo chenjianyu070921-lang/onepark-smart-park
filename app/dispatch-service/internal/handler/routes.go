@@ -36,6 +36,16 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: dispatch.TaskStatusHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodPost,
+				Path:    "/dispatch/staff",
+				Handler: dispatch.StaffUpsertHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/dispatch/staffs",
+				Handler: dispatch.StaffListHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodGet,
 				Path:    "/dispatches",
 				Handler: dispatch.TaskListHandler(serverCtx),

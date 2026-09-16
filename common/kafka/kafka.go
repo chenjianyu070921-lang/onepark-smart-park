@@ -20,6 +20,9 @@ const (
 	maxBackoff        = 10 * time.Second
 )
 
+// Message 复用底层消息类型, 业务层无需直接依赖 segmentio/kafka-go.
+type Message = kafka.Message
+
 // Producer Kafka 生产者封装, 复用一个 Writer 批量写入.
 type Producer struct {
 	writer *kafka.Writer

@@ -108,6 +108,9 @@ func toExpiringDTO(c *model.LeaseContract) types.ExpiringContract {
 		EndDate:     c.EndDate.Format(dateLayout),
 		DaysLeft:    daysLeft,
 		Status:      int32(c.Status),
+		AutoRenew:   int32(c.AutoRenew),
+		// 进入该合同自己的提醒窗口(而非请求的 days)才提示 —— 每份合同的谈判周期不同
+		NeedNotice: daysLeft <= c.RenewNoticeDays,
 	}
 }
 

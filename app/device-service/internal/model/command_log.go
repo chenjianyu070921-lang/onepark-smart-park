@@ -6,6 +6,15 @@ import (
 	"gorm.io/datatypes"
 )
 
+// 指令状态, 与 command_log.status 列保持一致.
+const (
+	CommandStatusPending int8 = 0 // 待发送
+	CommandStatusSent    int8 = 1 // 已下发
+	CommandStatusSuccess int8 = 2 // 执行成功
+	CommandStatusFailed  int8 = 3 // 执行失败
+	CommandStatusTimeout int8 = 4 // 超时
+)
+
 type CommandLog struct {
 	ID          uint64         `gorm:"primaryKey;autoIncrement" json:"id"`
 	RequestID   string         `gorm:"column:request_id;type:char(36);uniqueIndex:uk_request_id;not null" json:"request_id"`

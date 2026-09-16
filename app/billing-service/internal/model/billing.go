@@ -30,7 +30,10 @@ const (
 
 // BillingRule 对应表 billing_rule, 一条规则 = 某个区域一度电怎么算钱
 type BillingRule struct {
-	ID         uint64    `gorm:"primaryKey;autoIncrement;column:id" json:"id"`
+	ID uint64 `gorm:"primaryKey;autoIncrement;column:id" json:"id"`
+	// TenantID 园区ID, RBAC 行级隔离维度(网关注入 x-tenant-id).
+	// 历史/外部写入的数据为 0, 租户查询(>=1)天然看不到这批数据, 需要迁移脚本回填.
+	TenantID   uint64    `gorm:"column:tenant_id;not null;default:0" json:"tenantId"`
 	Name       string    `gorm:"column:name;type:varchar(64);not null" json:"name"`
 	ZoneID     string    `gorm:"column:zone_id;type:varchar(64);not null;default:''" json:"zoneId"`
 	RuleType   int64     `gorm:"column:rule_type;not null;default:1" json:"ruleType"`
@@ -44,7 +47,9 @@ func (BillingRule) TableName() string { return "billing_rule" }
 
 // Bill 对应表 bill, 一行 = 某区域某个月的一张账单
 type Bill struct {
-	ID           uint64     `gorm:"primaryKey;autoIncrement;column:id" json:"id"`
+	ID uint64 `gorm:"primaryKey;autoIncrement;column:id" json:"id"`
+	// TenantID 园区ID, RBAC 行级隔离维度; 账单唯一键 uk_zone_period 也按租户维度隔离.
+	TenantID     uint64     `gorm:"column:tenant_id;not null;default:0" json:"tenantId"`
 	BillNo       string     `gorm:"column:bill_no;type:varchar(32);not null;default:''" json:"billNo"`
 	ZoneID       string     `gorm:"column:zone_id;type:varchar(64);not null;default:''" json:"zoneId"`
 	RuleID       uint64     `gorm:"column:rule_id;not null;default:0" json:"ruleId"`
@@ -70,24 +75,25 @@ func NewBillingModel(db *gorm.DB) *BillingModel {
 	return &BillingModel{db: db}
 }
 
-// InsertRule 新增一条计费规则
+// InsertRule 新增一条计费规则. 租户由调用方写入 r.TenantID(来源于网关上下文).
 func (m *BillingModel) InsertRule(ctx context.Context, r *BillingRule) error {
 	return m.db.WithContext(ctx).Create(r).Error
 }
 
-// FindRule 按 id 查规则
-func (m *BillingModel) FindRule(ctx context.Context, id uint64) (*BillingRule, error) {
+// FindRule 按 id 查规则, 强制限定租户, 防止跨租户按 id 摸到别人的规则.
+func (m *BillingModel) FindRule(ctx context.Context, tenantID uint64, id uint64) (*BillingRule, error) {
 	var r BillingRule
-	err := m.db.WithContext(ctx).Where("id = ?", id).First(&r).Error
+	err := m.db.WithContext(ctx).Where("id = ? AND tenant_id = ?", id, tenantID).First(&r).Error
 	if err != nil {
 		return nil, err
 	}
 	return &r, nil
 }
 
-// ListRule 查规则列表, zoneID 为空表示不限区域, status 传 -1 表示不限状态
-func (m *BillingModel) ListRule(ctx context.Context, zoneID string, status int64) ([]BillingRule, error) {
-	q := m.db.WithContext(ctx)
+// ListRule 查规则列表, zoneID 为空表示不限区域, status 传 -1 表示不限状态.
+// 强制限定租户.
+func (m *BillingModel) ListRule(ctx context.Context, tenantID uint64, zoneID string, status int64) ([]BillingRule, error) {
+	q := m.db.WithContext(ctx).Where("tenant_id = ?", tenantID)
 	if zoneID != "" {
 		q = q.Where("zone_id = ?", zoneID)
 	}
@@ -99,11 +105,12 @@ func (m *BillingModel) ListRule(ctx context.Context, zoneID string, status int64
 	return list, err
 }
 
-// FindApplicableRule 找出某区域能用的规则: 优先该区域自己的, 没有就用全园区默认(zone_id=”)
-func (m *BillingModel) FindApplicableRule(ctx context.Context, zoneID string) (*BillingRule, error) {
+// FindApplicableRule 找出某区域能用的规则: 优先该区域自己的, 没有就用全园区默认(zone_id='').
+// 强制限定租户: 不同园区的同名区域互不可见, 规则也不会串.
+func (m *BillingModel) FindApplicableRule(ctx context.Context, tenantID uint64, zoneID string) (*BillingRule, error) {
 	var r BillingRule
 	err := m.db.WithContext(ctx).
-		Where("zone_id = ? AND status = ?", zoneID, RuleStatusOn).
+		Where("tenant_id = ? AND zone_id = ? AND status = ?", tenantID, zoneID, RuleStatusOn).
 		Order("id DESC").First(&r).Error
 	if err == nil {
 		return &r, nil
@@ -113,7 +120,7 @@ func (m *BillingModel) FindApplicableRule(ctx context.Context, zoneID string) (*
 	}
 	// 该区域没配专属规则, 退回全园区默认规则
 	err = m.db.WithContext(ctx).
-		Where("zone_id = '' AND status = ?", RuleStatusOn).
+		Where("tenant_id = ? AND zone_id = '' AND status = ?", tenantID, RuleStatusOn).
 		Order("id DESC").First(&r).Error
 	if err != nil {
 		return nil, err
@@ -121,11 +128,12 @@ func (m *BillingModel) FindApplicableRule(ctx context.Context, zoneID string) (*
 	return &r, nil
 }
 
-// FindBillByPeriod 查某区域某账期是不是已经出过账(避免重复出账)
-func (m *BillingModel) FindBillByPeriod(ctx context.Context, zoneID string, start, end time.Time) (*Bill, error) {
+// FindBillByPeriod 查某区域某账期是不是已经出过账(避免重复出账).
+// 强制限定租户: 不同园区的同一区域同一账期互不影响.
+func (m *BillingModel) FindBillByPeriod(ctx context.Context, tenantID uint64, zoneID string, start, end time.Time) (*Bill, error) {
 	var b Bill
 	err := m.db.WithContext(ctx).
-		Where("zone_id = ? AND period_start = ? AND period_end = ?", zoneID, start, end).
+		Where("tenant_id = ? AND zone_id = ? AND period_start = ? AND period_end = ?", tenantID, zoneID, start, end).
 		First(&b).Error
 	if err != nil {
 		return nil, err
@@ -133,14 +141,14 @@ func (m *BillingModel) FindBillByPeriod(ctx context.Context, zoneID string, star
 	return &b, nil
 }
 
-// InsertBill 落一条账单
+// InsertBill 落一条账单. 租户由调用方写入 b.TenantID(来源于网关上下文).
 func (m *BillingModel) InsertBill(ctx context.Context, b *Bill) error {
 	return m.db.WithContext(ctx).Create(b).Error
 }
 
-// ListBill 分页查账单, status 传 -1 表示不限
-func (m *BillingModel) ListBill(ctx context.Context, zoneID string, status, page, pageSize int64) ([]Bill, int64, error) {
-	q := m.db.WithContext(ctx).Model(&Bill{})
+// ListBill 分页查账单, status 传 -1 表示不限. 强制限定租户.
+func (m *BillingModel) ListBill(ctx context.Context, tenantID uint64, zoneID string, status, page, pageSize int64) ([]Bill, int64, error) {
+	q := m.db.WithContext(ctx).Model(&Bill{}).Where("tenant_id = ?", tenantID)
 	if zoneID != "" {
 		q = q.Where("zone_id = ?", zoneID)
 	}

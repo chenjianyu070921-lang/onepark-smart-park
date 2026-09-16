@@ -136,6 +136,7 @@ func (l *OverviewLogic) computeOverview(req *types.OverviewReq) (*types.Overview
 			Critical: stat.Critical,
 			Major:    stat.Major,
 			Minor:    stat.Minor,
+			Info:     stat.Info,
 		}
 		return nil
 	})

@@ -16,21 +16,34 @@ Redis:
   Pass: "onepark123"
   DB: 0
 
-# ===== JWT 密钥(与网关/auth-service 共用, 校验大屏 WebSocket 接入) =====
-JwtSecret: "${AUTH_SECRET}"
+# ===== 上游 gRPC 依赖(四路聚合数据源) =====
+# 直连 Endpoints(各上游均无 Etcd 注册, 端口取自其各自 etc 配置)。
+# NonBlock=true: 上游未启动时不阻塞本服务启动, 调用失败由聚合层逐源降级为 null。
+# 未配置的那一路会自动退化为降级占位, 不会导致启动失败。
 
-# ===== 上游 gRPC 依赖: M2 workorder-service =====
-# 直连 Endpoints(与 M2 的 etc/workorder-grpc.yaml 端口一致, 无 Etcd 注册)。
-# NonBlock=true: 上游未启动时不阻塞本服务启动, 调用失败由聚合层降级处理。
+# M2 workorder-service 工单卡片 (app/workorder-service/etc/workorder-grpc.yaml)
 Workorder:
   Endpoints:
     - 127.0.0.1:9091
   NonBlock: true
   Timeout: 600
 
-# ===== 上游 gRPC 依赖: M3 alarm-service (大屏活跃告警卡片, 清单 #43) =====
+# M3 alarm-service 告警卡片 (app/alarm-service/etc/alarm-grpc.yaml: ListenOn 0.0.0.0:9009)
 Alarm:
   Endpoints:
     - 127.0.0.1:9009
   NonBlock: true
   Timeout: 600
+
+# M4 energy-data-service 能耗卡片 (app/energy-data-service/etc/energydata-api.yaml: RPC.ListenOn 0.0.0.0:9061)
+Energy:
+  Endpoints:
+    - 127.0.0.1:9061
+  NonBlock: true
+  Timeout: 600
+
+# ===== JWT 鉴权 =====
+# 为空 = 放行(开发联调期; 中间件会打告警日志)。
+# 填上后 /ws/dashboard 的 ?token= 会被真正校验(浏览器无法给 WS 握手设 Authorization 头,
+# 故 common/middleware 的 extractToken 已支持从 query 取 token)。
+JwtSecret: ""

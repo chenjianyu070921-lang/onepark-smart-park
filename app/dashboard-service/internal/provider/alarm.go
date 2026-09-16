@@ -6,47 +6,44 @@ import (
 	alarmpb "onepark/proto/alarm"
 )
 
-// 告警等级码, 对应 M3 alarm-service 的等级定义(1 致命 / 2 严重 / 3 一般 / 4 提示):
+// 告警等级, 对齐 M3 app/alarm-service/internal/model/alarm.go:
+// 1 提示 / 2 一般 / 3 严重 / 4 紧急.
 const (
-	alarmLevelCritical = 1
-	alarmLevelMajor    = 2
-	alarmLevelMinor    = 3
+	alarmLevelInfo     int32 = 1
+	alarmLevelMinor    int32 = 2
+	alarmLevelMajor    int32 = 3
+	alarmLevelCritical int32 = 4
 )
 
-// Alarm 是基于 M3 alarm-service gRPC 契约(GetActiveAlarms, 清单 #43)的真实实现.
+// Alarm 是基于 M3 alarm-service gRPC 契约的真实实现.
 type Alarm struct {
 	client alarmpb.AlarmServiceClient
 }
 
-// NewAlarm 由 M3 的 gRPC 客户端构造告警数据源.
+// NewAlarm 用 M3 的 gRPC 客户端构造告警数据源.
 func NewAlarm(client alarmpb.AlarmServiceClient) *Alarm {
 	return &Alarm{client: client}
 }
 
-// Stat 聚合大屏告警卡片的指标, 全部来自 M3 gRPC 的真实返回值:
+// Stat 取活跃告警总数与等级分布.
 //
-//   - Total    GetActiveAlarmsResp.total(活跃告警总数)
-//   - Critical level_count[1](致命)
-//   - Major    level_count[2](严重)
-//   - Minor    level_count[3]+level_count[4](一般+提示)
+// M3 已按 level 聚合好返回 map<int32,int64>, M5 不做二次计算,
+// 只做"等级码 -> 语义字段"的映射, 保证大屏拿到的四项分之和恒等于 total。
 func (p *Alarm) Stat(ctx context.Context, tenantId int64) (AlarmStat, error) {
 	resp, err := p.client.GetActiveAlarms(ctx, &alarmpb.GetActiveAlarmsReq{
 		TenantId: tenantId,
+		// area_id=0 全部区域; levels 为空表示全部等级 —— 大屏要的是全貌
 	})
 	if err != nil {
 		return AlarmStat{}, err
 	}
 
-	stat := AlarmStat{Total: resp.GetTotal()}
-	for level, count := range resp.GetLevelCount() {
-		switch level {
-		case alarmLevelCritical:
-			stat.Critical = count
-		case alarmLevelMajor:
-			stat.Major = count
-		case alarmLevelMinor, 4:
-			stat.Minor += count
-		}
-	}
-	return stat, nil
+	counts := resp.GetLevelCount()
+	return AlarmStat{
+		Total:    resp.GetTotal(),
+		Critical: counts[alarmLevelCritical],
+		Major:    counts[alarmLevelMajor],
+		Minor:    counts[alarmLevelMinor],
+		Info:     counts[alarmLevelInfo],
+	}, nil
 }

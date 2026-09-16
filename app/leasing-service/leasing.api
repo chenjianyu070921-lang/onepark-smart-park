@@ -9,19 +9,21 @@ info (
 type (
 	// Contract 租赁合同。金额字段一律用字符串传输, 避免 JSON 浮点精度丢失
 	Contract {
-		Id          int64   `json:"id"`
-		ContractNo  string  `json:"contract_no"`
-		TenantId    int64   `json:"tenant_id"`
-		TenantName  string  `json:"tenant_name"`
-		ZoneCode    string  `json:"zone_code"` // 房间/区域编码, 如 A-3F-301
-		AreaSqm     float64 `json:"area_sqm"` // 租赁面积(平方米)
-		MonthlyRent string  `json:"monthly_rent"` // 月租金
-		Deposit     string  `json:"deposit"` // 押金
-		StartDate   string  `json:"start_date"` // 起租日 yyyy-MM-dd
-		EndDate     string  `json:"end_date"` // 终止日 yyyy-MM-dd
-		Status      int32   `json:"status"` // 1待生效 2生效中 3已到期 4已终止
-		CreatedAt   int64   `json:"created_at"`
-		UpdatedAt   int64   `json:"updated_at"`
+		Id              int64   `json:"id"`
+		ContractNo      string  `json:"contract_no"`
+		TenantId        int64   `json:"tenant_id"`
+		TenantName      string  `json:"tenant_name"`
+		ZoneCode        string  `json:"zone_code"` // 房间/区域编码, 如 A-3F-301
+		AreaSqm         float64 `json:"area_sqm"` // 租赁面积(平方米)
+		MonthlyRent     string  `json:"monthly_rent"` // 月租金
+		Deposit         string  `json:"deposit"` // 押金
+		StartDate       string  `json:"start_date"` // 起租日 yyyy-MM-dd
+		EndDate         string  `json:"end_date"` // 终止日 yyyy-MM-dd
+		Status          int32   `json:"status"` // 1待生效 2生效中 3已到期 4已终止
+		AutoRenew       int32   `json:"auto_renew"` // 1 约定自动续约 0 到期即止
+		RenewNoticeDays int64   `json:"renew_notice_days"` // 到期前多少天进入续签提醒窗口
+		CreatedAt       int64   `json:"created_at"`
+		UpdatedAt       int64   `json:"updated_at"`
 	}
 	// ==================== 合同创建 ====================
 	ContractCreateReq {
@@ -33,6 +35,9 @@ type (
 		Deposit     string  `json:"deposit,optional"`
 		StartDate   string  `json:"start_date"`
 		EndDate     string  `json:"end_date"`
+		// 自动续约条款: 签约时约定。默认 0(到期即止), 只有显式约定才自动顺延租期。
+		AutoRenew       int32 `json:"auto_renew,default=0"`
+		RenewNoticeDays int64 `json:"renew_notice_days,default=30"`
 	}
 	ContractCreateResp {
 		Id         int64  `json:"id"`
@@ -64,6 +69,9 @@ type (
 		NewEndDate  string `json:"new_end_date,optional"` // action=renew 时必填
 		MonthlyRent string `json:"monthly_rent,optional"` // action=renew 时可调整租金
 		Reason      string `json:"reason,optional"` // 终止/到期原因
+		// action=update 时可调整续约条款; -1 表示不动
+		AutoRenew       int32 `json:"auto_renew,default=-1"`
+		RenewNoticeDays int64 `json:"renew_notice_days,default=-1"`
 	}
 	ContractUpdateResp {
 		Id     int64 `json:"id"`
@@ -94,6 +102,10 @@ type (
 		EndDate     string `json:"end_date"` // 终止日 yyyy-MM-dd
 		DaysLeft    int64  `json:"days_left"` // 距终止日剩余天数; 负数表示已逾期
 		Status      int32  `json:"status"`
+		// AutoRenew=1 的合同到期会自动顺延, 前端应展示"将自动续约"而非"待谈续签"
+		AutoRenew int32 `json:"auto_renew"`
+		// NeedNotice 是否已进入该合同的续签提醒窗口(依据其 renew_notice_days)
+		NeedNotice bool `json:"need_notice"`
 	}
 	ContractExpiringResp {
 		Total int64              `json:"total"`

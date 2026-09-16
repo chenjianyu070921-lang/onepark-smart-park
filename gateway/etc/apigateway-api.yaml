@@ -2,80 +2,36 @@ Name: apigateway-api
 Host: 0.0.0.0
 Port: 8080
 
-# 无鉴权联调默认园区ID(生产开启 Auth 后由 JWT 注入真实租户, 此处仅作兜底)
+# 无鉴权联调默认园区ID(生产由 M6 鉴权后经 Header 注入 x-tenant-id 覆盖)
 DefaultTenantId: 1
 DefaultUserId: 0
 
-# 网关统一鉴权: Enabled=true 时全接口强制校验 Bearer Token(与 auth-service 共享密钥,
-# 经环境变量 AUTH_SECRET 注入, 禁止硬编码). 仅鉴权引导端点(login/refresh/verify)
-# 对公众开, 其余接口(含 /api/users、/api/roles 等业务接口)无有效 Token 一律 401.
-Auth:
-  Enabled: true
-  Secret: "${AUTH_SECRET}"
-
-# 可选: 从 Nacos 配置中心动态拉取上游表(覆盖下方静态 Upstreams, 支持热更新).
-# 留空(默认)则使用下方静态 Upstreams; 容器联调环境由环境变量注入 Nacos.Address.
-# 启用示例: Nacos.Address: "nacos:8848" (配置内容见 deploy/nacos/gateway-upstreams.json)
-Nacos:
-  Address: "${NACOS_ADDRESS}"
-  Namespace: "${NACOS_NS}"
-  Group: "${NACOS_GROUP:-DEFAULT_GROUP}"
-  DataId: "gateway-upstreams"
-  Username: "${NACOS_USERNAME:-nacos}"
-  Password: "${NACOS_PASSWORD:-nacos}"
-
-# 路由前缀 -> 上游服务(最长前缀优先匹配; 端口对齐各业务服务 etc/*.yaml 实际监听)
-# Nacos 启用后本段仅作兜底(拉取失败时生效).
+# 路由前缀 -> 上游服务(最长前缀优先匹配)
+# 说明: /api/workorder 前缀同时覆盖 /api/workorders 与 /api/workorder/:id
 Upstreams:
-  # ---- M2 业务域 ----
   - Prefix: /api/workorder
-    Target: http://127.0.0.1:8082
+    Target: http://127.0.0.1:8091
   - Prefix: /api/visitor
-    Target: http://127.0.0.1:8083
+    Target: http://127.0.0.1:8092
   - Prefix: /api/parking
-    Target: http://127.0.0.1:8084
+    Target: http://127.0.0.1:8093
   - Prefix: /api/notice
-    Target: http://127.0.0.1:8085
-  # ---- M5 业务域 ----
-  - Prefix: /api/lease
+    Target: http://127.0.0.1:8094
+  # billing(M2 计费): P1 补租户隔离后接入网关, 与其它 M2 服务同链路注入 x-tenant-id
+  - Prefix: /api/billing
+    Target: http://127.0.0.1:8063
+  # ===== M5 运营招商 + 指挥调度 =====
+  # 端口口径: 按《接口与链路技术点清单》(8051/8052/8053), 与 M2 实际使用的 8091(清单口径)一致.
+  - Prefix: /api/leasing
     Target: http://127.0.0.1:8051
   - Prefix: /api/dashboard
     Target: http://127.0.0.1:8052
   - Prefix: /api/dispatch
     Target: http://127.0.0.1:8053
-  # ---- M6 基础域 ----
-  - Prefix: /api/auth
-    Target: http://127.0.0.1:8088
-  - Prefix: /api/users
-    Target: http://127.0.0.1:8086
-  - Prefix: /api/roles
-    Target: http://127.0.0.1:8086
-  - Prefix: /api/menus
-    Target: http://127.0.0.1:8086
-  - Prefix: /api/permissions
-    Target: http://127.0.0.1:8086
-  # ---- M1 业务域 ----
-  - Prefix: /api/devices
-    Target: http://127.0.0.1:8001
-  - Prefix: /api/device
-    Target: http://127.0.0.1:8001
-  - Prefix: /api/product
-    Target: http://127.0.0.1:8001
-  # ---- M3 业务域 ----
-  - Prefix: /api/alarm
-    Target: http://127.0.0.1:8009
-  - Prefix: /api/access
-    Target: http://127.0.0.1:8010
-  - Prefix: /api/video
-    Target: http://127.0.0.1:8011
-  # ---- M4 业务域(energy-analysis 细分前缀优先, 最长前缀匹配) ----
-  - Prefix: /api/energy/daily
-    Target: http://127.0.0.1:8062
-  - Prefix: /api/energy/monthly
-    Target: http://127.0.0.1:8062
-  - Prefix: /api/energy/zone
-    Target: http://127.0.0.1:8062
-  - Prefix: /api/energy
-    Target: http://127.0.0.1:8061
-  - Prefix: /api/billing
-    Target: http://127.0.0.1:8063
+
+  # 大屏 WebSocket 实时推送(清单 #73)。
+  # 路径打全 /ws/dashboard 而不是 /ws —— 网关是最长前缀优先匹配,
+  # 若用 /ws, 将来 M3 的 WebSocket 会被一并转发到 M5, 造成冲突。
+  # 标准库 httputil.ReverseProxy 原生支持 Upgrade 转发, 无需改代理代码。
+  - Prefix: /ws/dashboard
+    Target: http://127.0.0.1:8052
