@@ -1,8 +1,10 @@
 package svc
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/zeromicro/go-zero/core/stores/redis"
 	"gorm.io/driver/mysql"
@@ -11,13 +13,26 @@ import (
 	"onepark/app/device-service/internal/config"
 	"onepark/app/device-service/internal/model"
 	"onepark/common/kafka"
+	"onepark/common/mqtt"
+	"onepark/common/tdengine"
+
+	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// CommandDownlink 指令下行通道抽象, 便于单测替换; *mqtt.Client 实现该接口.
+type CommandDownlink interface {
+	Publish(ctx context.Context, topic string, qos byte, payload []byte) error
+}
+
 type ServiceContext struct {
-	Config          config.Config
-	DB              *gorm.DB
-	Redis           *redis.Redis
-	Producer        *kafka.Producer
+	Config   config.Config
+	DB       *gorm.DB
+	Redis    *redis.Redis
+	Producer *kafka.Producer
+	// Downlink 指令下行(MQTT); 为 nil 时指令仅落库, 不阻断受理
+	Downlink CommandDownlink
+	// TDengine 遥测时序落库; 为 nil 时跳过写时序库
+	TDengine        *tdengine.Client
 	ProductModel    model.ProductModel
 	DeviceModel     model.DeviceModel
 	ShadowModel     model.ShadowModel
@@ -55,14 +70,50 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 	rds := redis.MustNewRedis(c.Redis)
 
-	return &ServiceContext{
+	ctx := &ServiceContext{
 		Config:          c,
 		DB:              db,
 		Redis:           rds,
 		Producer:        kafka.NewProducer(brokers),
+		TDengine:        tdengine.NewClient(c.TDengine),
 		ProductModel:    model.NewProductModel(db),
 		DeviceModel:     model.NewDeviceModel(db),
 		ShadowModel:     model.NewShadowModel(db),
 		CommandLogModel: model.NewCommandLogModel(db),
+	}
+
+	// MQTT 下行通道: 连接失败只降级不 panic, 保证服务在 EMQX 未就绪时仍能启动
+	c.MQTT.Broker = os.ExpandEnv(c.MQTT.Broker)
+	// 环境变量未注入时 yaml 占位符可能未被替换, 视为未配置
+	if strings.Contains(c.MQTT.Broker, "${") {
+		c.MQTT.Broker = ""
+	}
+	if c.MQTT.Broker != "" {
+		cli, err := mqtt.NewClient(c.MQTT)
+		if err != nil {
+			logx.Errorf("MQTT 连接失败, 指令下行降级为仅落库: %v", err)
+		} else {
+			logx.Infof("MQTT 下行通道已就绪: broker=%s", c.MQTT.Broker)
+			ctx.Downlink = cli
+		}
+	} else {
+		logx.Errorf("未配置 MQTT broker, 指令下行降级为仅落库")
+	}
+	ctx.Config.MQTT = c.MQTT
+
+	if ctx.TDengine == nil {
+		logx.Errorf("未配置 TDengine REST 地址, 遥测不落时序库")
+	}
+
+	return ctx
+}
+
+// Close 释放外部资源.
+func (s *ServiceContext) Close() {
+	if s.Producer != nil {
+		_ = s.Producer.Close()
+	}
+	if cli, ok := s.Downlink.(*mqtt.Client); ok && cli != nil {
+		cli.Close()
 	}
 }

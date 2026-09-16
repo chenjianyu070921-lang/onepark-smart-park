@@ -1,15 +1,88 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+// alarm-service 安防告警服务 API 契约
+// 对齐 docs/m3/04-接口与数据契约.md §1.1 的 #36 告警详情 / #38 活跃告警列表 / #39 确认 / #40 解决.
+// 统一响应体见 common/response {code,msg,data}, 成功 code="0"; 各 handler 通过 response.Ok/Fail 回包.
+// 说明: 以下 returns 类型均为 data 载荷, 由 handler 二次包装为统一响应体.
+// #39 与 #40 合并为 PUT /api/alarm/:id/status (action=ack|resolve), 保持三个接口的粒度.
+
+// ListAlarmsReq 告警列表请求(分页 + 等级/状态/区域/设备筛选)
+type ListAlarmsReq {
+	Level    int8   `form:"level,optional"` // 告警等级筛选: 1提示 2一般 3严重 4紧急; 不传或<0表示全部
+	Status   int8   `form:"status,optional"` // 告警状态筛选: 0未处理 1已确认 2已解决; 不传或<0表示全部
+	AreaId   int64  `form:"area_id,optional"` // 区域ID筛选, 0表示全部
+	DeviceId string `form:"device_id,optional"` // 设备ID筛选, 空表示全部
+	Page     int64  `form:"page"` // 页码(从1开始)
+	PageSize int64  `form:"page_size"` // 每页大小
 }
 
-type Response {
-	Message string `json:"message"`
+// UpdateAlarmStatusReq 告警状态流转请求: 确认(未处理→已确认) / 解决(已确认→已解决)
+type UpdateAlarmStatusReq {
+	Id     int64  `path:"id"` // 告警ID(路径参数)
+	Action string `json:"action"` // 动作: ack 确认 / resolve 解决
+	Remark string `json:"remark,optional"` // 处理备注(如"已派安保现场核实")
+}
+
+// IdReq 按ID查询请求
+type IdReq {
+	Id int64 `path:"id"` // 告警主键ID(路径参数)
+}
+
+// AlarmItem 告警列表项
+type AlarmItem {
+	Id        int64  `json:"id"`
+	AlarmNo   string `json:"alarm_no"` // 告警编号
+	DeviceId  string `json:"device_id"`
+	AreaId    int64  `json:"area_id"`
+	EventType string `json:"event_type"`
+	Level     int8   `json:"level"` // 告警等级 1-4
+	Status    int8   `json:"status"` // 0未处理 1已确认 2已解决
+	Content   string `json:"content"`
+	CreatedAt int64  `json:"created_at"` // 创建时间(秒级时间戳)
+}
+
+// AlarmListResp 告警分页列表响应, 按 level DESC, created_at DESC 排序
+type AlarmListResp {
+	Total    int64       `json:"total"` // 符合条件的总数
+	Page     int64       `json:"page"` // 当前页码
+	PageSize int64       `json:"page_size"` // 每页大小
+	List     []AlarmItem `json:"list"` // 当前页数据
+}
+
+// AlarmDetailResp 告警详情响应
+type AlarmDetailResp {
+	Id         int64  `json:"id"`
+	TenantId   int64  `json:"tenant_id"` // 园区ID(RBAC 隔离)
+	AlarmNo    string `json:"alarm_no"`
+	RuleId     int64  `json:"rule_id"` // 命中规则ID, 0表示硬编码规则
+	DeviceId   string `json:"device_id"`
+	AreaId     int64  `json:"area_id"`
+	EventType  string `json:"event_type"`
+	Level      int8   `json:"level"`
+	Status     int8   `json:"status"`
+	Content    string `json:"content"`
+	RequestId  string `json:"request_id"` // 幂等键
+	AckBy      int64  `json:"ack_by"` // 确认人
+	AckAt      int64  `json:"ack_at"` // 确认时间(秒级时间戳, 0表示未确认)
+	ResolveBy  int64  `json:"resolve_by"` // 解决人
+	ResolveAt  int64  `json:"resolve_at"` // 解决时间(秒级时间戳, 0表示未解决)
+	CreatedAt  int64  `json:"created_at"`
+	UpdatedAt  int64  `json:"updated_at"`
+}
+
+// UpdateAlarmStatusResp 告警状态流转响应
+type UpdateAlarmStatusResp {
+	Id     int64 `json:"id"` // 告警ID
+	Status int8  `json:"status"` // 流转后的状态
 }
 
 service alarm-api {
-	@handler AlarmHandler
-	get /from/:name (Request) returns (Response)
-}
+	@handler ListAlarms
+	get /api/alarms (ListAlarmsReq) returns (AlarmListResp)
 
+	@handler GetAlarm
+	get /api/alarm/:id (IdReq) returns (AlarmDetailResp)
+
+	@handler UpdateAlarmStatus
+	put /api/alarm/:id/status (UpdateAlarmStatusReq) returns (UpdateAlarmStatusResp)
+}

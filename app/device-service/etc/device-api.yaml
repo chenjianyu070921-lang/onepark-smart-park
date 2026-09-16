@@ -18,3 +18,24 @@ Rpc:
   Timeout: 3000
 
 KafkaBrokers: "${KAFKA_BROKERS}"
+
+# 指令下行通道(EMQX); Broker 为空时降级为仅落库
+MQTT:
+  Broker: "${EMQX_BROKER}"
+  ClientId: "${EMQX_CLIENT}"
+  Username: "${EMQX_USERNAME}"
+  Password: "${EMQX_PASSWORD}"
+
+# 遥测时序落库(taosAdapter REST); Endpoint 为空时跳过
+TDengine:
+  Endpoint: "${TDENGINE_REST}"
+  Token: "${TDENGINE_TOKEN}"
+  Database: onepark_ts
+  Timeout: 3000
+
+# HTTP 鉴权密钥; 为空时放行(M6 认证服务就绪前保持可联调)
+JwtSecret: "${JWT_SECRET}"
+
+# 指令超时(秒)与超时扫描周期(秒)
+CommandTimeoutSec: 30
+TimeoutScanIntervalSec: 15

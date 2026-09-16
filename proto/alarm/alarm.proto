@@ -7,6 +7,22 @@ option go_package = "onepark/proto/alarm;alarmpb";
 import "common/common.proto";
 
 service AlarmService {
-  // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
   rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
+
+  // GetActiveAlarms 供 M5 dashboard-service 大屏聚合查询活跃告警数(docs/m3/04 #43).
+  // 活跃告警 = alarm.status = 0(未处理); 建议响应时间 < 200ms.
+  rpc GetActiveAlarms(GetActiveAlarmsReq) returns (GetActiveAlarmsResp);
+}
+
+// GetActiveAlarmsReq 活跃告警聚合查询请求
+message GetActiveAlarmsReq {
+  int64 tenant_id = 1;          // 园区ID(RBAC 数据隔离), 0 表示不过滤
+  int64 area_id = 2;            // 区域ID, 0 表示全部区域
+  repeated int32 levels = 3;    // 告警等级过滤(1-4), 为空表示全部等级
+}
+
+// GetActiveAlarmsResp 活跃告警聚合响应
+message GetActiveAlarmsResp {
+  int64 total = 1;                  // 活跃告警总数
+  map<int32, int64> level_count = 2; // 按等级分布, 如 {3: 5, 4: 2}
 }

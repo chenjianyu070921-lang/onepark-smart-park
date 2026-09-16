@@ -1,0 +1,7 @@
+# alarm-service gRPC 服务配置 (端口 9009, 供 M5 dashboard-service 大屏聚合)
+Name: alarm.rpc
+ListenOn: 0.0.0.0:9009
+
+# MySQL 连接(alarm_db, DSN 由环境变量注入; 未配置时 gRPC 仍启动, 聚合返回空)
+MySQL:
+  DataSource: ${ALARM_MYSQL_DSN}
