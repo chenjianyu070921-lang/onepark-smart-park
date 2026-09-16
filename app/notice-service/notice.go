@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 
 	"onepark/app/notice-service/internal/config"
+	"onepark/app/notice-service/internal/consumer"
 	"onepark/app/notice-service/internal/handler"
 	"onepark/app/notice-service/internal/svc"
 	cmw "onepark/common/middleware"
@@ -31,6 +33,10 @@ func main() {
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+
+	// 站内通知消费者: 消费 workorder-event → 幂等生成 notice + notice_read 送达记录.
+	// 独立 goroutine 常驻; Kafka.Enabled=false 或未配置时 Start 内部直接跳过.
+	consumer.NewWorkorderRunner(c.Kafka, ctx.DB).Start(context.Background())
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()

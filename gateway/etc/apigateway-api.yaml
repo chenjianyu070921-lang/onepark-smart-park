@@ -17,6 +17,9 @@ Upstreams:
     Target: http://127.0.0.1:8093
   - Prefix: /api/notice
     Target: http://127.0.0.1:8094
+  # billing(M2 计费): P1 补租户隔离后接入网关, 与其它 M2 服务同链路注入 x-tenant-id
+  - Prefix: /api/billing
+    Target: http://127.0.0.1:8063
   - Prefix: /api/leasing
     Target: http://127.0.0.1:8015
   - Prefix: /api/dashboard

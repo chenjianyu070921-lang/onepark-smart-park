@@ -12,6 +12,14 @@ Redis:
   Pass: ${REDIS_PASS}
   DB: 0
 
-# Kafka 连接配置 (预留, 用于公告事件投递)
+# Kafka 连接配置
+# 生产: 公告发布时投递 notice-event
+# 消费: 消费 workorder-event 生成站内通知(Topic/Group/Enabled)
+# ⚠️ 共享 broker 上 Group 严禁与其它项目/环境重名; Enabled 默认 false, 部署时显式开启.
+# 本期按部署要求显式置 true: 消费 workorder-event 实时生成站内通知(notice + notice_read 送达记录),
+# 仅在确认 Group(m2-notice-dev-liu)不与其它项目/环境重名、且 KAFKA_BROKERS 已指向正确 broker 时开启.
 Kafka:
   Brokers: ${KAFKA_BROKERS}
+  Topic: workorder-event
+  Group: m2-notice-dev-liu
+  Enabled: true

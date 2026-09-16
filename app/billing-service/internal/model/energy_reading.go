@@ -13,7 +13,10 @@ import (
 // EnergyReading 对应表 energy_reading
 // 注意: 本服务只读这张表, 写入由 energy-data-service 的 Kafka 消费者负责
 type EnergyReading struct {
-	ID         uint64    `gorm:"primaryKey;autoIncrement;column:id"`
+	ID uint64 `gorm:"primaryKey;autoIncrement;column:id"`
+	// TenantID 园区ID. ⚠️ M4 写入侧尚未填充该字段(落库为 0),
+	// 因此用量查询现阶段以 zone_id 作为隔离维度, 待 M4 补写后按租户过滤.
+	TenantID   uint64    `gorm:"column:tenant_id;not null;default:0"`
 	DeviceID   string    `gorm:"column:device_id;type:varchar(64);not null"`
 	ZoneID     string    `gorm:"column:zone_id;type:varchar(64);not null"`
 	EnergyKwh  float64   `gorm:"column:energy_kwh;type:double;not null"`
