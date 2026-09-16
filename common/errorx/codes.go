@@ -66,13 +66,18 @@ const (
 
 // M1 物联接入底座错误码
 const (
-	ErrProductNotFound  = "M1-E-1001" // 产品不存在
-	ErrDeviceDuplicate  = "M1-E-1002" // 设备名重复
-	ErrDeviceCreateFail = "M1-E-1003" // 设备写入失败
-	ErrShadowCreateFail = "M1-E-1004" // 影子创建失败
-	ErrDeviceNotFound   = "M1-E-1005" // 设备不存在
-	ErrDeviceOffline    = "M1-E-1006" // 设备离线
-	ErrCommandSendFail  = "M1-E-1007" // 指令下发失败
+	ErrProductNotFound   = "M1-E-1001" // 产品不存在
+	ErrDeviceDuplicate    = "M1-E-1002" // 设备名重复
+	ErrDeviceCreateFail   = "M1-E-1003" // 设备写入失败
+	ErrShadowCreateFail   = "M1-E-1004" // 影子创建失败
+	ErrDeviceNotFound     = "M1-E-1005" // 设备不存在
+	ErrDeviceOffline      = "M1-E-1006" // 设备离线
+	ErrCommandSendFail    = "M1-E-1007" // 指令下发失败
+	ErrShadowNotFound     = "M1-E-1008" // 设备影子不存在
+	ErrShadowVersionDup   = "M1-E-1009" // 影子版本冲突(乐观锁)
+
+	// W 级: 参数校验类, HttpStatus 映射为 400
+	ErrDeviceParamInvalid = "M1-W-1001" // 设备请求参数非法
 )
 
 // M2 物业管理服务业务错误码

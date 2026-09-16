@@ -27,7 +27,7 @@ func main() {
 	flag.Parse()
 
 	var c rpcConfig
-	conf.MustLoad(*configFile, &c)
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 
 	// 初始化 MySQL(未配置 DSN 时 DB 为 nil, gRPC 仍可提供探活与空聚合).
 	var db *gormx.DB

@@ -1,12 +1,20 @@
 Name: device-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8001
 
+# 环境变量占位, 由 ServiceContext 通过 os.ExpandEnv 注入, 禁止写明文密码/公网地址
 MySQL:
-  DataSource: "root:onepark123@tcp(127.0.0.1:3306)/onepark-smart-park?charset=utf8mb4&parseTime=true&loc=Local"
+  DataSource: "${MYSQL_DSN}"
   MaxOpenConns: 20
   MaxIdleConns: 10
 
 Redis:
-  Host: 127.0.0.1:6379
+  Host: "${REDIS_HOST}"
   Type: node
+
+# M1 对外 gRPC (SendCommand / GetDevice), 直连模式, 不依赖 Etcd
+Rpc:
+  ListenOn: 0.0.0.0:9001
+  Timeout: 3000
+
+KafkaBrokers: "${KAFKA_BROKERS}"

@@ -15,4 +15,48 @@ message Response {
 
 service Shadow {
   rpc Ping(Request) returns (Response);
+
+  // GetShadow 查询设备影子(期望值/上报值/版本)
+  rpc GetShadow(GetShadowReq) returns (GetShadowResp);
+
+  // UpdateDesired 更新期望值, version 为乐观锁: 传 0 表示不校验版本
+  rpc UpdateDesired(UpdateDesiredReq) returns (UpdateShadowResp);
+
+  // UpdateReported 更新设备上报值, version 为乐观锁: 传 0 表示不校验版本
+  rpc UpdateReported(UpdateReportedReq) returns (UpdateShadowResp);
+}
+
+// GetShadowReq 查询影子请求
+message GetShadowReq {
+  string device_id = 1; // 设备ID
+}
+
+// GetShadowResp 影子详情
+message GetShadowResp {
+  string device_id = 1; // 设备ID
+  bytes  desired   = 2; // 期望值 JSON
+  bytes  reported  = 3; // 上报值 JSON
+  uint32 version   = 4; // 当前版本号
+}
+
+// UpdateDesiredReq 更新期望值请求
+message UpdateDesiredReq {
+  string device_id = 1; // 设备ID
+  bytes  desired   = 2; // 期望值 JSON
+  uint32 version   = 3; // 期望的当前版本号(乐观锁), 0 表示不校验
+}
+
+// UpdateReportedReq 更新上报值请求
+message UpdateReportedReq {
+  string device_id = 1; // 设备ID
+  bytes  reported  = 2; // 上报值 JSON
+  uint32 version   = 3; // 期望的当前版本号(乐观锁), 0 表示不校验
+}
+
+// UpdateShadowResp 更新响应, 返回更新后的版本号
+message UpdateShadowResp {
+  string device_id  = 1; // 设备ID
+  uint32 version    = 2; // 更新后的版本号
+  bool   success    = 3; // 是否更新成功(版本冲突时为 false)
+  string message    = 4; // 失败原因
 }

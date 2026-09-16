@@ -18,15 +18,15 @@ type BaseModel struct {
 // fee 在库中为 DECIMAL, 模型以 float64 承载, 接口层再格式化为字符串避免浮点误差.
 type ParkingRecord struct {
 	BaseModel
-	PlateNo     string  `gorm:"column:plate_no;type:varchar(32);not null" json:"plate_no"`      // 车牌号
-	EntryTime   *time.Time `gorm:"column:entry_time" json:"entry_time"`                          // 入场时间
-	ExitTime    *time.Time `gorm:"column:exit_time" json:"exit_time"`                            // 离场时间
-	DurationMin *int    `gorm:"column:duration_min" json:"duration_min"`                         // 停车时长(分钟)
-	Fee         float64 `gorm:"column:fee;type:decimal(10,2)" json:"fee"`                       // 停车费
-	VehicleType int8    `gorm:"column:vehicle_type;not null;default:1" json:"vehicle_type"`      // 1月卡 2临时 3VIP 4异常
-	Status      int8    `gorm:"column:status;not null;default:1" json:"status"`                  // 1停车中 2已完成
-	DeviceIDIn  string  `gorm:"column:device_id_in;type:varchar(64);default:''" json:"device_id_in"`   // 入场地磁设备ID
-	DeviceIDOut string  `gorm:"column:device_id_out;type:varchar(64);default:''" json:"device_id_out"` // 出场地磁设备ID
+	PlateNo     string     `gorm:"column:plate_no;type:varchar(32);not null" json:"plate_no"`             // 车牌号
+	EntryTime   *time.Time `gorm:"column:entry_time" json:"entry_time"`                                   // 入场时间
+	ExitTime    *time.Time `gorm:"column:exit_time" json:"exit_time"`                                     // 离场时间
+	DurationMin *int       `gorm:"column:duration_min" json:"duration_min"`                               // 停车时长(分钟)
+	Fee         float64    `gorm:"column:fee;type:decimal(10,2)" json:"fee"`                              // 停车费
+	VehicleType int8       `gorm:"column:vehicle_type;not null;default:1" json:"vehicle_type"`            // 1月卡 2临时 3VIP 4异常
+	Status      int8       `gorm:"column:status;not null;default:1" json:"status"`                        // 1停车中 2已完成
+	DeviceIDIn  string     `gorm:"column:device_id_in;type:varchar(64);default:''" json:"device_id_in"`   // 入场地磁设备ID
+	DeviceIDOut string     `gorm:"column:device_id_out;type:varchar(64);default:''" json:"device_id_out"` // 出场地磁设备ID
 }
 
 // TableName 指定停车记录表名(对齐 parking_db 库).
@@ -35,7 +35,7 @@ func (ParkingRecord) TableName() string { return "parking_record" }
 // ParkingFeeRule 停车计费规则, 以 JSON 存储阶梯/封顶等配置.
 type ParkingFeeRule struct {
 	BaseModel
-	RuleJSON      string `gorm:"column:rule_json;type:json" json:"rule_json"` // 计费规则(JSON)
+	RuleJSON      string     `gorm:"column:rule_json;type:json" json:"rule_json"` // 计费规则(JSON)
 	EffectiveFrom *time.Time `gorm:"column:effective_from" json:"effective_from"`
 	EffectiveTo   *time.Time `gorm:"column:effective_to" json:"effective_to"`
 }
@@ -51,8 +51,8 @@ const (
 
 // 车辆类型(与 ParkingRecord.VehicleType 字段含义一致)
 const (
-	VehicleTypeMonthly int8 = 1 // 月卡
-	VehicleTypeTemp    int8 = 2 // 临时
-	VehicleTypeVIP     int8 = 3 // VIP
+	VehicleTypeMonthly  int8 = 1 // 月卡
+	VehicleTypeTemp     int8 = 2 // 临时
+	VehicleTypeVIP      int8 = 3 // VIP
 	VehicleTypeAbnormal int8 = 4 // 异常
 )
