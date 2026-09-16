@@ -2,8 +2,16 @@ package model
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
+)
+
+// 设备状态枚举, 与 device.status 列一致.
+const (
+	DeviceStatusOffline int8 = 0 // 离线/未激活
+	DeviceStatusOnline  int8 = 1 // 在线
+	DeviceStatusFault   int8 = 2 // 故障
 )
 
 type (
@@ -13,6 +21,8 @@ type (
 		FindByProductKeyAndName(ctx context.Context, productKey, deviceName string) (*Device, error)
 		FindList(ctx context.Context, page, size int, productKey string, status int8) ([]*Device, int64, error)
 		UpdateStatus(ctx context.Context, deviceID string, status int8) error
+		// UpdateOnline 更新在线状态并刷新最后在线时间, 由遥测消费端驱动.
+		UpdateOnline(ctx context.Context, deviceID string, status int8, at time.Time) error
 		SoftDelete(ctx context.Context, deviceID string) error
 	}
 
@@ -70,6 +80,16 @@ func (m *deviceModel) UpdateStatus(ctx context.Context, deviceID string, status 
 	return m.db.WithContext(ctx).Model(&Device{}).
 		Where("device_id = ? AND deleted_at IS NULL", deviceID).
 		Update("status", status).Error
+}
+
+func (m *deviceModel) UpdateOnline(ctx context.Context, deviceID string, status int8, at time.Time) error {
+	updates := map[string]any{"status": status}
+	if status == DeviceStatusOnline {
+		updates["last_online_at"] = at
+	}
+	return m.db.WithContext(ctx).Model(&Device{}).
+		Where("device_id = ? AND deleted_at IS NULL", deviceID).
+		Updates(updates).Error
 }
 
 func (m *deviceModel) SoftDelete(ctx context.Context, deviceID string) error {
