@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	segkafka "github.com/segmentio/kafka-go"
 	"github.com/zeromicro/go-zero/core/logx"
 
 	"onepark/app/dispatch-service/internal/config"
@@ -48,7 +47,9 @@ func NewRunner(c config.Config, db *gormx.DB) *Runner {
 func (r *Runner) Start(ctx context.Context) {
 	r.Infof("[consumer] 开始消费告警事件: topic=%s, group=%s", r.topic, r.group)
 
-	err := r.consumer.Consume(ctx, func(ctx context.Context, msg segkafka.Message) error {
+	// 用 common/kafka.Message(它是 segmentio kafka.Message 的别名)而不是直接依赖
+	// segmentio 包 —— 这样本服务不必把 kafka 客户端库列为直接依赖, 也避免了包重名的别名。
+	err := r.consumer.Consume(ctx, func(ctx context.Context, msg kafka.Message) error {
 		return r.handler.Handle(ctx, msg.Value)
 	})
 	if err != nil && ctx.Err() == nil {

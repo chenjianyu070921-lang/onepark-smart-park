@@ -11,6 +11,8 @@ import (
 	"onepark/app/dashboard-service/internal/provider"
 	"onepark/common/gormx"
 	"onepark/common/redisx"
+	alarmpb "onepark/proto/alarm"
+	energypb "onepark/proto/energy"
 	workorderpb "onepark/proto/workorder"
 )
 
@@ -71,22 +73,53 @@ func NewServiceContext(c config.Config) *ServiceContext {
 }
 
 // newProviders 装配各数据源端口.
-// M2 工单已就绪 -> 真实 gRPC 客户端; M1/M3/M4 的契约尚未定义 -> 显式降级占位.
+//
+// 状态(2026-09-16): M2 工单 / M3 告警 / M4 能耗 三个契约均已就绪 -> 真实 gRPC 客户端;
+// M1 仍无设备统计接口 -> 保持显式降级占位。
 func newProviders(c config.Config) Providers {
 	providers := Providers{
-		Alarm:  provider.Alarm{},
+		// M1 无设备统计 gRPC(只有 Ping/SendCommand/GetDevice), 且规范禁止服务间走 HTTP
 		Device: provider.Device{},
-		Energy: provider.Energy{},
 	}
 
-	if c.Workorder.Target != "" || len(c.Workorder.Endpoints) > 0 || len(c.Workorder.Etcd.Hosts) > 0 {
-		client := zrpc.MustNewClient(c.Workorder)
-		providers.WorkOrder = provider.NewWorkOrder(workorderpb.NewWorkorderServiceClient(client.Conn()))
-		log.Printf("[dashboard] workorder grpc client initialized")
-	} else {
-		providers.WorkOrder = provider.WorkOrderNotReady{}
-		log.Printf("[warn] dashboard workorder grpc config is empty, work order card will degrade")
-	}
-
+	providers.WorkOrder, providers.Alarm, providers.Energy = wireWorkOrder(c), wireAlarm(c), wireEnergy(c)
 	return providers
+}
+
+// configured 判断某路 gRPC 客户端配置是否可用(Endpoints / Target / Etcd 任一非空即可用).
+func configured(conf zrpc.RpcClientConf) bool {
+	return conf.Target != "" || len(conf.Endpoints) > 0 || len(conf.Etcd.Hosts) > 0
+}
+
+// wireWorkOrder 装配 M2 工单数据源.
+func wireWorkOrder(c config.Config) provider.WorkOrderProvider {
+	if !configured(c.Workorder) {
+		log.Printf("[warn] dashboard workorder grpc config is empty, work order card will degrade")
+		return provider.WorkOrderNotReady{}
+	}
+	conn := zrpc.MustNewClient(c.Workorder).Conn()
+	log.Printf("[dashboard] workorder grpc client initialized")
+	return provider.NewWorkOrder(workorderpb.NewWorkorderServiceClient(conn))
+}
+
+// wireAlarm 装配 M3 告警数据源.
+func wireAlarm(c config.Config) provider.AlarmProvider {
+	if !configured(c.Alarm) {
+		log.Printf("[warn] dashboard alarm grpc config is empty, alarm card will degrade")
+		return provider.AlarmNotReady{}
+	}
+	conn := zrpc.MustNewClient(c.Alarm).Conn()
+	log.Printf("[dashboard] alarm grpc client initialized")
+	return provider.NewAlarm(alarmpb.NewAlarmServiceClient(conn))
+}
+
+// wireEnergy 装配 M4 能耗数据源.
+func wireEnergy(c config.Config) provider.EnergyProvider {
+	if !configured(c.Energy) {
+		log.Printf("[warn] dashboard energy grpc config is empty, energy card will degrade")
+		return provider.EnergyNotReady{}
+	}
+	conn := zrpc.MustNewClient(c.Energy).Conn()
+	log.Printf("[dashboard] energy grpc client initialized")
+	return provider.NewEnergy(energypb.NewEnergyDataServiceClient(conn))
 }

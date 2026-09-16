@@ -26,9 +26,13 @@ func main() {
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()
 
-	// 全链路 RequestId 透传 + 开发环境跨域
+	// 中间件顺序有讲究: Cors 必须在 JWT 外层 —— 浏览器的 OPTIONS 预检不带 token,
+	// 若 JWT 在外层会直接把预检判成 401, 前端所有跨域请求都会失败。
+	// Cors 对 OPTIONS 直接返回 204 并中断, 不会走到 JWT。
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
+	// JWT 鉴权: 填了密钥后, 审计流水的 operator_id 才会从 token 的 userId claim 取值
+	server.Use(middleware.JWT(c.JwtSecret))
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)

@@ -28,3 +28,8 @@ Kafka:
   Topic: "alarm-event"
   Group: "m5-dispatch-dev-hjy"
   Enabled: false
+
+# ===== JWT 鉴权 =====
+# 为空 = 放行(开发联调期; 中间件会打告警日志)。
+# 填上后审计流水的 operator_id 才会从 token 的 userId claim 取值。
+JwtSecret: ""

@@ -46,14 +46,15 @@ func (h *AlarmHandler) Handle(ctx context.Context, value []byte) error {
 
 	draft := BuildTaskDraft(evt)
 	task := &model.DispatchTask{
-		TaskNo:      model.NewTaskNo(),
-		Title:       draft.Title,
-		Source:      model.SourceAlarm,
-		AlarmId:     &draft.AlarmID,
-		ZoneCode:    draft.ZoneCode,
-		Priority:    draft.Priority,
-		Status:      model.StatusPendingAssign,
-		Description: draft.Description,
+		TaskNo:        model.NewTaskNo(),
+		Title:         draft.Title,
+		Source:        model.SourceAlarm,
+		AlarmId:       &draft.AlarmID,
+		ZoneCode:      draft.ZoneCode,
+		RequiredSkill: draft.RequiredSkill,
+		Priority:      draft.Priority,
+		Status:        model.StatusPendingAssign,
+		Description:   draft.Description,
 	}
 
 	if err := h.db.WithContext(ctx).Create(task).Error; err != nil {

@@ -4,10 +4,11 @@
 package types
 
 type AlarmCard struct {
-	Total    int64 `json:"total"`
-	Critical int64 `json:"critical"`
-	Major    int64 `json:"major"`
-	Minor    int64 `json:"minor"`
+	Total    int64 `json:"total"`    // 活跃告警总数
+	Critical int64 `json:"critical"` // level=4 紧急: 需立即响应
+	Major    int64 `json:"major"`    // level=3 严重: 需及时处理
+	Minor    int64 `json:"minor"`    // level=2 一般: 需关注
+	Info     int64 `json:"info"`     // level=1 提示: 一般提示性事件
 }
 
 type DeviceCard struct {
@@ -17,8 +18,8 @@ type DeviceCard struct {
 }
 
 type EnergyCard struct {
-	TotalKwh   float64 `json:"total_kwh"`
-	TotalWater float64 `json:"total_water"`
+	TotalKwh   float64  `json:"total_kwh"`   // 当日总用电(度)
+	TotalWater *float64 `json:"total_water"` // 当日总用水(吨); M4 契约当前未提供该指标 -> null, 不用 0 冒充
 }
 
 type HomeReq struct {

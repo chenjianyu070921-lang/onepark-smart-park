@@ -24,11 +24,13 @@ type WorkOrderStat struct {
 }
 
 // AlarmStat 告警统计, 数据源: M3 alarm-service GetActiveAlarms(清单 #43).
+// 等级口径对齐 M3 app/alarm-service/internal/model/alarm.go: 1 提示 / 2 一般 / 3 严重 / 4 紧急.
 type AlarmStat struct {
 	Total    int64
-	Critical int64
-	Major    int64
-	Minor    int64
+	Critical int64 // level=4 紧急
+	Major    int64 // level=3 严重
+	Minor    int64 // level=2 一般
+	Info     int64 // level=1 提示
 }
 
 // DeviceStat 设备统计, 数据源: M1 device-service(清单 #69 / #72).
@@ -41,7 +43,7 @@ type DeviceStat struct {
 // EnergyStat 今日能耗, 数据源: M4 energy-data-service GetDailyReport(清单 #54).
 type EnergyStat struct {
 	TotalKwh   float64
-	TotalWater float64
+	TotalWater *float64 // M4 契约当前只提供电耗 -> nil, 不用 0 冒充"没用水"
 }
 
 // WorkOrderProvider 工单数据源端口.
@@ -50,8 +52,10 @@ type WorkOrderProvider interface {
 }
 
 // AlarmProvider 告警数据源端口.
+// 带 tenantId 是因为 M3 契约支持园区维度隔离(0 表示不过滤) ——
+// 漏传会把别的园区的告警显示到本园区大屏上。
 type AlarmProvider interface {
-	Stat(ctx context.Context) (AlarmStat, error)
+	Stat(ctx context.Context, tenantId int64) (AlarmStat, error)
 }
 
 // DeviceProvider 设备数据源端口.
