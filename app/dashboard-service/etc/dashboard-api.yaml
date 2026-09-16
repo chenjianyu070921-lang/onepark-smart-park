@@ -16,11 +16,21 @@ Redis:
   Pass: "onepark123"
   DB: 0
 
+# ===== JWT 密钥(与网关/auth-service 共用, 校验大屏 WebSocket 接入) =====
+JwtSecret: "${AUTH_SECRET}"
+
 # ===== 上游 gRPC 依赖: M2 workorder-service =====
 # 直连 Endpoints(与 M2 的 etc/workorder-grpc.yaml 端口一致, 无 Etcd 注册)。
 # NonBlock=true: 上游未启动时不阻塞本服务启动, 调用失败由聚合层降级处理。
 Workorder:
   Endpoints:
     - 127.0.0.1:9091
+  NonBlock: true
+  Timeout: 600
+
+# ===== 上游 gRPC 依赖: M3 alarm-service (大屏活跃告警卡片, 清单 #43) =====
+Alarm:
+  Endpoints:
+    - 127.0.0.1:9009
   NonBlock: true
   Timeout: 600

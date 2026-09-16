@@ -29,4 +29,7 @@ type KafkaConf struct {
 	Topic   string `json:",default=alarm-event"`
 	Group   string `json:",default=m5-dispatch-dev"`
 	Enabled bool   `json:",default=false"`
+	// DefaultTenantId 告警消息体不携带租户信息, 自动建单时落到该园区(RBAC 隔离维度).
+	// 默认 1 与 l2_tenant_id_migration.sql 的"默认园区"回填口径一致.
+	DefaultTenantId int64 `json:",default=1"`
 }

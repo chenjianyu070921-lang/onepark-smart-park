@@ -12,6 +12,7 @@ import (
 	"onepark/app/device-service/internal/server"
 	"onepark/app/device-service/internal/svc"
 	devicepb "onepark/proto/device"
+	"onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
@@ -33,6 +34,7 @@ func main() {
 	defer ctx.Producer.Close()
 
 	restServer := rest.MustNewServer(c.RestConf)
+	restServer.Use(middleware.IdentityFromHeader)
 	defer restServer.Stop()
 	handler.RegisterHandlers(restServer, ctx)
 

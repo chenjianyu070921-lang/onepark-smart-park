@@ -9,12 +9,12 @@ import (
 // 它们不做硬编码假数据, 而是显式返回 ErrSourceNotReady,
 // 由聚合层转成"字段为 null + degraded 列表", 使降级路径可被真实触发与验证.
 
-// Alarm 占位实现: M3 GetActiveAlarms 尚未在 proto/alarm 中定义(清单 #43).
-type Alarm struct{}
+// AlarmNotReady 占位实现: 未配置 M3 gRPC 地址时使用.
+type AlarmNotReady struct{}
 
 // Stat 始终返回 ErrSourceNotReady.
-func (Alarm) Stat(context.Context) (AlarmStat, error) {
-	return AlarmStat{}, fmt.Errorf("%w: M3 alarm-service GetActiveAlarms (清单 #43) 未定义", ErrSourceNotReady)
+func (AlarmNotReady) Stat(context.Context, int64) (AlarmStat, error) {
+	return AlarmStat{}, fmt.Errorf("%w: 未配置 alarm gRPC 地址", ErrSourceNotReady)
 }
 
 // Device 占位实现: M1 目前只有 SendCommand/GetDevice, 无设备统计接口(清单 #69/#72).

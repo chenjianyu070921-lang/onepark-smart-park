@@ -53,33 +53,44 @@ func (l *AssignWorkOrderLogic) AssignWorkOrder(req *types.AssignWorkOrderReq) (r
 	if !ok {
 		return nil, errorx.NewError(errorx.ErrWorkOrderStatusInvalid, "当前状态不允许派单")
 	}
+	// 处理人必须指定, 防止"处理中却无人负责"的僵尸工单; 部门可选(0 表示未指定).
+	if req.AssigneeID <= 0 {
+		return nil, errorx.NewError(errorx.ErrBadRequest, "处理人不能为空")
+	}
 
-	// 乐观锁更新: 携带 version 条件, 冲突即返回派单失败.
+	// 乐观锁更新与派单流水同事务, 冲突或流水失败均整体回滚.
 	now := time.Now()
-	res := l.svcCtx.DB.WithContext(l.ctx).
-		Model(&model.WorkOrder{}).
-		Where("id=? AND tenant_id=? AND version=?", wo.ID, tenantID, wo.Version).
-		Updates(map[string]interface{}{
-			"assignee_id":   req.AssigneeID,
-			"department_id": req.DepartmentID,
-			"status":        next,
-			"version":       gorm.Expr("version+1"),
-			"updated_at":    now,
-		})
-	if res.Error != nil {
-		l.Errorf("assign work order failed: %v", res.Error)
-		return nil, errorx.NewError(errorx.ErrM2Internal, "派单失败")
-	}
-	if res.RowsAffected == 0 {
-		return nil, errorx.NewError(errorx.ErrWorkOrderAssignFailed, "派单冲突, 请刷新后重试")
-	}
-
-	// 写派单流水.
 	flow := &model.WorkOrderFlow{WorkOrderID: wo.ID, FromStatus: wo.Status, ToStatus: next, Action: state.ActionAssign, OperatorID: operatorID}
 	flow.TenantID = tenantID
 	flow.CreatedAt = now
 	flow.UpdatedAt = now
-	_ = l.svcCtx.DB.WithContext(l.ctx).Create(flow).Error
+
+	var conflict bool
+	if e := l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&model.WorkOrder{}).
+			Where("id=? AND tenant_id=? AND version=?", wo.ID, tenantID, wo.Version).
+			Updates(map[string]interface{}{
+				"assignee_id":   req.AssigneeID,
+				"department_id": req.DepartmentID,
+				"status":        next,
+				"version":       gorm.Expr("version+1"),
+				"updated_at":    now,
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			conflict = true
+			return nil
+		}
+		return tx.Create(flow).Error
+	}); e != nil {
+		l.Errorf("assign work order failed: %v", e)
+		return nil, errorx.NewError(errorx.ErrM2Internal, "派单失败")
+	}
+	if conflict {
+		return nil, errorx.NewError(errorx.ErrWorkOrderAssignConflict, "派单冲突, 请刷新后重试")
+	}
 
 	// 发布派单事件(workorder-event); 失败仅记日志不阻断派单.
 	publishWorkOrderEvent(l.ctx, l.svcCtx, l.Logger, WorkOrderEvent{

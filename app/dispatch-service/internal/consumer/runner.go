@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"strings"
+	"time"
 
 	segkafka "github.com/segmentio/kafka-go"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -20,6 +21,7 @@ type Runner struct {
 	logx.Logger
 	consumer *kafka.Consumer
 	handler  *AlarmHandler
+	brokers  string
 	topic    string
 	group    string
 }
@@ -38,21 +40,36 @@ func NewRunner(c config.Config, db *gormx.DB) *Runner {
 	return &Runner{
 		Logger:   logx.WithContext(context.Background()),
 		consumer: kafka.NewConsumer(c.Kafka.Brokers, c.Kafka.Topic, c.Kafka.Group),
-		handler:  NewAlarmHandler(db),
+		handler:  NewAlarmHandler(db, c.Kafka.DefaultTenantId),
+		brokers:  c.Kafka.Brokers,
 		topic:    c.Kafka.Topic,
 		group:    c.Kafka.Group,
 	}
 }
 
+// reconnectDelay 消费循环异常退出后的重连间隔。
+const reconnectDelay = 5 * time.Second
+
 // Start 阻塞运行消费循环, 应在独立 goroutine 中调用; ctx 取消即退出。
+// 循环异常退出(如连接断开)时自动重建 Reader 重连, 避免进程存活但消费静默停止。
 func (r *Runner) Start(ctx context.Context) {
 	r.Infof("[consumer] 开始消费告警事件: topic=%s, group=%s", r.topic, r.group)
 
-	err := r.consumer.Consume(ctx, func(ctx context.Context, msg segkafka.Message) error {
-		return r.handler.Handle(ctx, msg.Value)
-	})
-	if err != nil && ctx.Err() == nil {
-		r.Errorf("[consumer] 消费循环异常退出: topic=%s, err=%v", r.topic, err)
+	for {
+		err := r.consumer.Consume(ctx, func(ctx context.Context, msg segkafka.Message) error {
+			return r.handler.Handle(ctx, msg.Value)
+		})
+		// 正常退出(ctx 取消)即结束; 异常退出则延迟后重连。
+		if ctx.Err() != nil {
+			break
+		}
+		r.Errorf("[consumer] 消费循环异常退出, %s 后重连: topic=%s, err=%v", reconnectDelay, r.topic, err)
+
+		select {
+		case <-ctx.Done():
+		case <-time.After(reconnectDelay):
+			r.consumer = kafka.NewConsumer(r.brokers, r.topic, r.group)
+		}
 	}
 
 	r.Infof("[consumer] 消费循环已停止: topic=%s", r.topic)

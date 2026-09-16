@@ -8,7 +8,8 @@
 //     到时只需在本包加一个事件入口调 hub.Broadcast, 推送通道不变。
 //
 // 鉴权: 按既定决策走 `?token=`(浏览器 WebSocket 无法自定义 Authorization 头)。
-// ⚠️ 开发期暂不校验 token, M6 JWT 网关就绪后必须在 Handler 中补校验 —— 已在确认书中披露。
+// 校验规则: JWT 签名有效、未过期、且为 access 类型(refresh 令牌不允许接入大屏)。
+// jwtSecret 必须来自环境变量, 为空时拒绝所有连接(服务配置错误, 宁可不服务不裸奔)。
 package wsserver
 
 import (
@@ -24,6 +25,7 @@ import (
 	"onepark/app/dashboard-service/internal/svc"
 	"onepark/app/dashboard-service/internal/types"
 	"onepark/app/dashboard-service/internal/wshub"
+	"onepark/common/jwt"
 )
 
 // pushInterval 快照推送间隔.
@@ -35,8 +37,8 @@ type snapshotMsg struct {
 	Data *types.OverviewResp `json:"data"`
 }
 
-// Handler 返回 WebSocket 升级处理器, 路由为 GET /ws/dashboard.
-func Handler(hub *wshub.Hub) http.HandlerFunc {
+// Handler 返回 WebSocket 升级处理器, 路由为 GET /ws/dashboard?token=xxx.
+func Handler(hub *wshub.Hub, jwtSecret string) http.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -45,7 +47,27 @@ func Handler(hub *wshub.Hub) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO(M6): 校验 r.URL.Query().Get("token"), 当前为开发期放行
+		// M6 网关已就绪: 必须校验 token, 否则任何人可连 WS 获取大屏聚合数据.
+		if jwtSecret == "" {
+			logx.WithContext(r.Context()).Errorf("[ws] jwt secret not configured, refuse ws connection")
+			http.Error(w, "server misconfigured", http.StatusInternalServerError)
+			return
+		}
+		tokenStr := r.URL.Query().Get("token")
+		if tokenStr == "" {
+			http.Error(w, "missing token", http.StatusUnauthorized)
+			return
+		}
+		claims, err := jwt.Parse(jwtSecret, tokenStr)
+		if err != nil {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		if claims.Type != jwt.TypeAccess {
+			http.Error(w, "refresh token not allowed", http.StatusUnauthorized)
+			return
+		}
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			// Upgrade 失败时响应已由 upgrader 写出(如 400), 这里只需返回

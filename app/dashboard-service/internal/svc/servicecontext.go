@@ -11,6 +11,7 @@ import (
 	"onepark/app/dashboard-service/internal/provider"
 	"onepark/common/gormx"
 	"onepark/common/redisx"
+	alarmpb "onepark/proto/alarm"
 	workorderpb "onepark/proto/workorder"
 )
 
@@ -71,10 +72,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 }
 
 // newProviders 装配各数据源端口.
-// M2 工单已就绪 -> 真实 gRPC 客户端; M1/M3/M4 的契约尚未定义 -> 显式降级占位.
+// M2 工单、M3 告警已就绪 -> 真实 gRPC 客户端; M1/M4 契约未定义 -> 显式降级占位.
 func newProviders(c config.Config) Providers {
 	providers := Providers{
-		Alarm:  provider.Alarm{},
 		Device: provider.Device{},
 		Energy: provider.Energy{},
 	}
@@ -86,6 +86,15 @@ func newProviders(c config.Config) Providers {
 	} else {
 		providers.WorkOrder = provider.WorkOrderNotReady{}
 		log.Printf("[warn] dashboard workorder grpc config is empty, work order card will degrade")
+	}
+
+	if c.Alarm.Target != "" || len(c.Alarm.Endpoints) > 0 || len(c.Alarm.Etcd.Hosts) > 0 {
+		client := zrpc.MustNewClient(c.Alarm)
+		providers.Alarm = provider.NewAlarm(alarmpb.NewAlarmServiceClient(client.Conn()))
+		log.Printf("[dashboard] alarm grpc client initialized")
+	} else {
+		providers.Alarm = provider.AlarmNotReady{}
+		log.Printf("[warn] dashboard alarm grpc config is empty, alarm card will degrade")
 	}
 
 	return providers

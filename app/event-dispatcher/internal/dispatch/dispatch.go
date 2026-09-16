@@ -124,10 +124,13 @@ func (h *Handler) Dispatch(ctx context.Context, topic string, body []byte) error
 		return fmt.Errorf("未知的上报类型: %s", kind)
 	}
 
-	// 告警类事件额外投递告警 topic, 供 M3 消费
+	// 告警类事件额外投递告警 topic, 供 M3 消费.
+	// 投递失败必须返回 error 让上层可见 —— 告警是安防关键链路(派单源头),
+	// 不能静默丢失. 上层无重试: EMQX QoS1 + CleanSession=false 保证设备上报不丢,
+	// 此处失败会在日志留下 error, 由告警链路监控发现; 正式方案(P2)为本地消息表/死信.
 	if _, ok := alarmEventTypes[eventType]; ok {
 		if err := h.producer.Publish(ctx, kafka.TopicAlarm, []byte(deviceID), value); err != nil {
-			h.Errorf("投递 %s 失败: deviceId=%s, err=%v", kafka.TopicAlarm, deviceID, err)
+			return fmt.Errorf("投递告警 topic 失败: deviceId=%s, %w", deviceID, err)
 		}
 	}
 

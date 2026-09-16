@@ -36,6 +36,12 @@ type WorkOrder struct {
 // TableName 指定工单主表名(对齐 workorder_db 库).
 func (WorkOrder) TableName() string { return "work_order" }
 
+// ValidType 校验工单类型取值(1报修 2投诉 3巡检 4保洁 5装修 6搬运 7其他).
+func ValidType(t int8) bool { return t >= 1 && t <= 7 }
+
+// ValidPriority 校验优先级取值(1紧急 2普通 3低).
+func ValidPriority(p int8) bool { return p >= 1 && p <= 3 }
+
 // WorkOrderFlow 工单操作流水, 记录每次状态流转(派单/提交/验收/驳回/关闭)用于审计.
 type WorkOrderFlow struct {
 	BaseModel

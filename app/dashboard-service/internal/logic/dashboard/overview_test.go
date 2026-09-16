@@ -45,7 +45,7 @@ type stubAlarm struct {
 	block time.Duration
 }
 
-func (s *stubAlarm) Stat(ctx context.Context) (provider.AlarmStat, error) {
+func (s *stubAlarm) Stat(ctx context.Context, _ int64) (provider.AlarmStat, error) {
 	if s.block > 0 {
 		select {
 		case <-time.After(s.block):

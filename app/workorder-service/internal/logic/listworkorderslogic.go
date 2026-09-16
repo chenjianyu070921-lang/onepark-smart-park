@@ -12,6 +12,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// maxPageSize 分页查询单页上限.
+const maxPageSize = 200
+
 // ListWorkOrdersLogic 工单分页查询逻辑(支持状态/类型/处理人筛选, 强制租户隔离).
 type ListWorkOrdersLogic struct {
 	logx.Logger
@@ -55,6 +58,10 @@ func (l *ListWorkOrdersLogic) ListWorkOrders(req *types.ListWorkOrderReq) (resp 
 	}
 	if size < 1 {
 		size = 10
+	}
+	// 单页上限, 防止超大 pageSize 深翻页拖库(与 dispatch-service maxPageSize 口径一致).
+	if size > maxPageSize {
+		size = maxPageSize
 	}
 
 	var list []model.WorkOrder

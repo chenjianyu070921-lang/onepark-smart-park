@@ -4,10 +4,10 @@ import "context"
 
 // 全链路上下文键名, 网关层注入, 服务层透传.
 const (
-	CtxRequestId = "x-request-id"   // RequestId
-	CtxUserId    = "x-user-id"      // 用户 ID
-	CtxRoleIds   = "x-role-ids"     // 角色 ID 列表 (逗号分隔)
-	CtxTenantId  = "x-tenant-id"    // 租户/园区 ID
+	CtxRequestId = "x-request-id" // RequestId
+	CtxUserId    = "x-user-id"    // 用户 ID
+	CtxRoleIds   = "x-role-ids"   // 角色 ID 列表 (逗号分隔)
+	CtxTenantId  = "x-tenant-id"  // 租户/园区 ID
 )
 
 func SetRequestId(ctx context.Context, id string) context.Context {

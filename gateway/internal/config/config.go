@@ -8,10 +8,34 @@ type Config struct {
 	rest.RestConf
 	// Upstreams 路径前缀 -> 上游服务映射(最长前缀优先匹配).
 	Upstreams []UpstreamConf `json:",optional"`
-	// DefaultTenantId 无鉴权联调时的默认园区ID(生产由 M6 鉴权后经 Header 注入 x-tenant-id).
+	// DefaultTenantId 无鉴权联调时的默认园区ID(生产开启 Auth 后由 JWT 注入真实租户, 此值仅作兜底).
 	DefaultTenantId int64 `json:",default=1"`
 	// DefaultUserId 无鉴权联调时的默认用户ID(0 表示匿名).
 	DefaultUserId int64 `json:",default=0"`
+	// Auth 网关统一鉴权开关(默认关闭, 兼顾联调; 生产开启需与 auth-service 共享 JWT 密钥).
+	Auth AuthConf `json:",optional"`
+	// Nacos 可选: 配置中心动态上游表. Address 为空时忽略, 继续使用上方静态 Upstreams.
+	Nacos NacosConf `json:",optional"`
+}
+
+// NacosConf 网关上游表配置中心(仅替换"上游地址从哪来", 不改转发逻辑).
+// 启用后网关从 Nacos 拉取 gateway-upstreams(JSON 数组 [{prefix,target}])并监听热更新;
+// 拉取失败则回退到静态 Upstreams, 不影响原功能.
+type NacosConf struct {
+	Address   string `json:",default="` // nacos server, 形如 nacos:8848; 为空不启用
+	Namespace string `json:",default="` // 命名空间 ID
+	Group     string `json:",default=DEFAULT_GROUP"`
+	DataId    string `json:",default=gateway-upstreams"`
+	Username  string `json:",default=nacos"`
+	Password  string `json:",default=nacos"`
+}
+
+// AuthConf 网关统一鉴权配置.
+type AuthConf struct {
+	// Enabled 是否启用 JWT 校验; 关闭时网关仅做默认身份注入(联调模式).
+	Enabled bool `json:",default=false"`
+	// Secret 与 auth-service 共享的 JWT 签名密钥; 开启鉴权时必填(可由环境变量 AUTH_SECRET 注入).
+	Secret string `json:",optional"`
 }
 
 // UpstreamConf 单条上游路由配置.

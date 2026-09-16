@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -35,10 +36,14 @@ func mockUpstream(t *testing.T) (port int, closeFn func()) {
 func TestProxyForward(t *testing.T) {
 	port, closeFn := mockUpstream(t)
 	defer closeFn()
-	h := proxy.NewHandler([]config.Upstream{{Name: "device", Port: port}})
+	cfg := config.Config{Upstreams: []config.UpstreamConf{{Prefix: "/api/devices", Target: "http://127.0.0.1:" + strconv.Itoa(port)}}}
+	h, err := proxy.NewGateway(cfg)
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/api/devices/123", nil)
 	rec := httptest.NewRecorder()
-	h(rec, req)
+	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("forward status = %d, want 200", rec.Code)
 	}
@@ -49,10 +54,13 @@ func TestProxyForward(t *testing.T) {
 
 // TestProxyNotFound 未匹配任何服务前缀应返回 errorx 风格的 404.
 func TestProxyNotFound(t *testing.T) {
-	h := proxy.NewHandler(nil)
+	h, err := proxy.NewGateway(config.Config{})
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/api/unknown", nil)
 	rec := httptest.NewRecorder()
-	h(rec, req)
+	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
@@ -63,14 +71,18 @@ func TestProxyNotFound(t *testing.T) {
 
 // TestProxyBadGateway upstream 配置了但无服务监听(连接拒绝)应返回 errorx 风格的 502.
 func TestProxyBadGateway(t *testing.T) {
-	h := proxy.NewHandler([]config.Upstream{{Name: "device", Port: 1}})
+	cfg := config.Config{Upstreams: []config.UpstreamConf{{Prefix: "/api/devices", Target: "http://127.0.0.1:1"}}}
+	h, err := proxy.NewGateway(cfg)
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/api/devices", nil)
 	rec := httptest.NewRecorder()
-	h(rec, req)
+	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "M6-E-0008") {
+	if !strings.Contains(rec.Body.String(), "M6-E-0006") {
 		t.Errorf("body should contain ErrBadGateway code, got %s", rec.Body.String())
 	}
 }

@@ -13,6 +13,7 @@ const (
 	ActionStart  = "start"  // 开始处理: 已指派 -> 处理中
 	ActionFinish = "finish" // 完成: 处理中 -> 已完成
 	ActionClose  = "close"  // 关闭: 任意非终态 -> 已关闭
+	ActionExpire = "expire" // 指派超时未接单: 已指派 -> 待指派(仅内部定时任务使用)
 )
 
 // transitions 合法状态转移表: from -> action -> to.
@@ -24,6 +25,7 @@ var transitions = map[int8]map[string]int8{
 	model.StatusAssigned: {
 		ActionAssign: model.StatusAssigned, // 改派
 		ActionStart:  model.StatusProcessing,
+		ActionExpire: model.StatusPendingAssign, // 超时未接单退回待指派
 		ActionClose:  model.StatusClosed,
 	},
 	model.StatusProcessing: {

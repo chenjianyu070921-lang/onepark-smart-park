@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"onepark/app/workorder-service/internal/model"
+	"onepark/app/workorder-service/internal/state"
 	"onepark/common/errorx"
 	"onepark/common/gormx"
 	commonpb "onepark/proto/common"
@@ -57,14 +58,21 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 
 	tenant := req.TenantId
 
+	// 统计查询统一检查错误: 任一失败返回错误, 让上游(dashboard)走降级而非拿到静默的 0.
 	// 总数.
 	var total int64
-	s.scoped(ctx, tenant).Count(&total)
+	if err := s.scoped(ctx, tenant).Count(&total).Error; err != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "统计工单总数失败")
+	}
 	resp.Total = total
 
 	// 待处理数: 待派单(0)+处理中(1).
 	var pending int64
-	s.scoped(ctx, tenant).Where("status IN (?)", []int8{0, 1}).Count(&pending)
+	if err := s.scoped(ctx, tenant).
+		Where("status IN (?)", []int8{state.StatusPendingDispatch, state.StatusProcessing}).
+		Count(&pending).Error; err != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "统计待处理工单失败")
+	}
 	resp.PendingCount = pending
 
 	// 今日零点(本地时区).
@@ -73,21 +81,29 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 
 	// 今日新建.
 	var todayCount int64
-	s.scoped(ctx, tenant).Where("created_at >= ?", startOfDay).Count(&todayCount)
+	if err := s.scoped(ctx, tenant).Where("created_at >= ?", startOfDay).Count(&todayCount).Error; err != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "统计今日新建工单失败")
+	}
 	resp.TodayCount = todayCount
 
 	// 今日完成(已完成状态且 finished_at 在今日).
 	var completedToday int64
-	s.scoped(ctx, tenant).Where("status = ? AND finished_at >= ?", int8(3), startOfDay).Count(&completedToday)
+	if err := s.scoped(ctx, tenant).
+		Where("status = ? AND finished_at >= ?", state.StatusCompleted, startOfDay).
+		Count(&completedToday).Error; err != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "统计今日完成工单失败")
+	}
 	resp.CompletedToday = completedToday
 
 	// 平均处理时长: 已完成工单 (finished_at - created_at) 的分钟均值.
 	var avgMinutes float64
-	s.scoped(ctx, tenant).
-		Where("status = ? AND finished_at IS NOT NULL", int8(3)).
+	if err := s.scoped(ctx, tenant).
+		Where("status = ? AND finished_at IS NOT NULL", state.StatusCompleted).
 		Select("AVG(TIMESTAMPDIFF(MINUTE, created_at, finished_at))").
-		Scan(&avgMinutes)
-	if avgMinutes < 0 || s.DB == nil {
+		Scan(&avgMinutes).Error; err != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "统计平均处理时长失败")
+	}
+	if avgMinutes < 0 {
 		avgMinutes = 0
 	}
 	resp.AvgProcessMinutes = avgMinutes
@@ -95,7 +111,9 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	// 完成率: 已完成(状态3)/总数 * 100.
 	if total > 0 {
 		var done int64
-		s.scoped(ctx, tenant).Where("status = ?", int8(3)).Count(&done)
+		if err := s.scoped(ctx, tenant).Where("status = ?", state.StatusCompleted).Count(&done).Error; err != nil {
+			return nil, errorx.NewError(errorx.ErrM2Internal, "统计已完成工单失败")
+		}
 		resp.CompletionRate = float64(done) / float64(total) * 100
 	}
 
@@ -107,9 +125,15 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	if size < 1 {
 		size = 10
 	}
+	listQ := s.scoped(ctx, tenant)
+	if req.Status != 0 {
+		listQ = listQ.Where("status = ?", int8(req.Status))
+	}
 	var list []model.WorkOrder
-	s.scoped(ctx, tenant).Where(statusFilter(req.Status)).
-		Order("id DESC").Offset(int((page - 1) * size)).Limit(int(size)).Find(&list)
+	if err := listQ.Order("id DESC").
+		Offset(int((page - 1) * size)).Limit(int(size)).Find(&list).Error; err != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "查询工单列表失败")
+	}
 
 	summaries := make([]*workorderpb.WorkOrderSummary, 0, len(list))
 	for _, wo := range list {
@@ -126,35 +150,4 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	resp.List = summaries
 
 	return resp, nil
-}
-
-// statusFilter 生成状态过滤条件; status=0 表示不限.
-func statusFilter(status int32) string {
-	if status == 0 {
-		return "1=1"
-	}
-	return "status = " + itoa(int(status))
-}
-
-// itoa 轻量整型转字符串, 避免引入 strconv 仅用于此场景.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [12]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
 }

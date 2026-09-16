@@ -99,7 +99,7 @@ func (m *BillingModel) ListRule(ctx context.Context, zoneID string, status int64
 	return list, err
 }
 
-// FindApplicableRule 找出某区域能用的规则: 优先该区域自己的, 没有就用全园区默认(zone_id='')
+// FindApplicableRule 找出某区域能用的规则: 优先该区域自己的, 没有就用全园区默认(zone_id=”)
 func (m *BillingModel) FindApplicableRule(ctx context.Context, zoneID string) (*BillingRule, error) {
 	var r BillingRule
 	err := m.db.WithContext(ctx).

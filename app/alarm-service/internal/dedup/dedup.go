@@ -14,6 +14,8 @@ import (
 type Deduper interface {
 	// Seen 判定 key 是否已处理过. Redis 不可用时返回 error, 调用方不得跳过去重.
 	Seen(ctx context.Context, key string) (bool, error)
+	// Delete 移除幂等键, 用于"已置位但业务落库失败"时回滚, 避免重投被 L1 误拦截.
+	Delete(ctx context.Context, key string) error
 }
 
 // redisDeduper 基于 go-redis SetNX 的实现, TTL 决定幂等窗口(默认 24h).
@@ -34,4 +36,8 @@ func (d *redisDeduper) Seen(ctx context.Context, key string) (bool, error) {
 		return false, err
 	}
 	return !ok, nil
+}
+
+func (d *redisDeduper) Delete(ctx context.Context, key string) error {
+	return d.rdb.Del(ctx, key).Err()
 }

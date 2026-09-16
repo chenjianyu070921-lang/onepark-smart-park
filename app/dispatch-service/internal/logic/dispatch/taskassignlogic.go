@@ -14,6 +14,7 @@ import (
 	"onepark/app/dispatch-service/internal/svc"
 	"onepark/app/dispatch-service/internal/types"
 	"onepark/common/ctxdata"
+	"onepark/app/dispatch-service/internal/ecode"
 	"onepark/common/errorx"
 )
 
@@ -36,25 +37,31 @@ func NewTaskAssignLogic(ctx context.Context, svcCtx *svc.ServiceContext) *TaskAs
 	}
 }
 
+// errVersionConflict 事务内乐观锁冲突哨兵, 避免冲突被误当数据库错误.
+var errVersionConflict = errors.New("task version conflict")
+
 // TaskAssign 指派处理人, 并用乐观锁防并发改派.
 func (l *TaskAssignLogic) TaskAssign(req *types.TaskAssignReq) (*types.TaskAssignResp, error) {
 	if l.svcCtx.DB == nil {
 		return nil, errorx.NewError(errorx.ErrDepConnect, "数据库未初始化")
 	}
+	tenantID := ctxdata.GetTenantId(l.ctx)
 
 	var task model.DispatchTask
-	err := l.svcCtx.DB.WithContext(l.ctx).First(&task, req.Id).Error
+	err := l.svcCtx.DB.WithContext(l.ctx).
+		Where("id = ? AND tenant_id = ?", req.Id, tenantID).
+		First(&task).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, errorx.NewError(errorx.ErrNotFound, "调度工单不存在")
+		return nil, errorx.NewError(ecode.ErrTaskNotFound, "调度工单不存在")
 	}
 	if err != nil {
 		l.Errorf("[dispatch] load task failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "加载调度工单失败")
+		return nil, errorx.NewError(ecode.ErrTaskQueryFailed, "加载调度工单失败")
 	}
 
 	to, ok := state.Next(task.Status, state.ActionAssign)
 	if !ok {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "当前状态不允许指派")
+		return nil, errorx.NewError(ecode.ErrTaskStatusInvalid, "当前状态不允许指派")
 	}
 
 	assigneeId := req.AssigneeId
@@ -64,37 +71,52 @@ func (l *TaskAssignLogic) TaskAssign(req *types.TaskAssignReq) (*types.TaskAssig
 		candidates, cerr := assign.LoadCandidates(l.ctx, l.svcCtx.DB)
 		if cerr != nil {
 			l.Errorf("[dispatch] load candidates failed: %v", cerr)
-			return nil, errorx.NewError(errorx.ErrInternal, "加载候选处理人失败")
+			return nil, errorx.NewError(ecode.ErrAssigneeLoadFailed, "加载候选处理人失败")
 		}
 		best, found := assign.Pick(task.ZoneCode, candidates)
 		if !found {
-			return nil, errorx.NewError(errorx.ErrBadRequest, "暂无可用处理人, 请指定 assignee_id")
+			return nil, errorx.NewError(ecode.ErrNoAssignee, "暂无可用处理人, 请指定 assignee_id")
 		}
 		assigneeId, assigneeName = best.AssigneeId, best.AssigneeName
 	}
 	if assigneeId <= 0 {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "处理人不能为空")
+		return nil, errorx.NewError(ecode.ErrDispatchParamInvalid, "处理人不能为空")
 	}
 
+	// 乐观锁更新与审计流水同事务, 防止"更新成功但流水丢失"的审计断档.
 	expireAt := time.Now().Add(assignExpireWindow)
-	res := l.svcCtx.DB.WithContext(l.ctx).Model(&model.DispatchTask{}).
-		Where("id = ? AND version = ?", task.Id, task.Version).
-		Updates(map[string]interface{}{
-			"assignee_id":      assigneeId,
-			"assignee_name":    assigneeName,
-			"status":           to,
-			"assign_expire_at": expireAt,
-			"version":          gorm.Expr("version+1"),
-		})
-	if res.Error != nil {
-		l.Errorf("[dispatch] assign task failed: %v", res.Error)
-		return nil, errorx.NewError(errorx.ErrInternal, "指派失败")
+	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&model.DispatchTask{}).
+			Where("id = ? AND tenant_id = ? AND version = ?", task.Id, tenantID, task.Version).
+			Updates(map[string]interface{}{
+				"assignee_id":      assigneeId,
+				"assignee_name":    assigneeName,
+				"status":           to,
+				"assign_expire_at": expireAt,
+				"version":          gorm.Expr("version+1"),
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errVersionConflict
+		}
+		return tx.Create(&model.DispatchTaskLog{
+			TenantID:   tenantID,
+			TaskId:     task.Id,
+			FromStatus: task.Status,
+			ToStatus:   to,
+			Action:     state.ActionAssign,
+			OperatorId: ctxdata.GetUserId(l.ctx),
+		}).Error
+	})
+	if errors.Is(err, errVersionConflict) {
+		return nil, errorx.NewError(ecode.ErrTaskConflict, "工单已被他人修改, 请刷新后重试")
 	}
-	if res.RowsAffected == 0 {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "工单已被他人修改, 请刷新后重试")
+	if err != nil {
+		l.Errorf("[dispatch] assign task failed: %v", err)
+		return nil, errorx.NewError(ecode.ErrAssignFailed, "指派失败")
 	}
-
-	l.writeLog(task.Id, task.Status, to, state.ActionAssign, ctxdata.GetUserId(l.ctx))
 
 	return &types.TaskAssignResp{
 		Id:           task.Id,
@@ -122,17 +144,4 @@ func (l *TaskAssignLogic) lookupAssigneeName(assigneeId int64) string {
 		return ""
 	}
 	return name
-}
-
-// writeLog 写状态流转审计; 失败不影响主流程, 但必须留痕.
-func (l *TaskAssignLogic) writeLog(taskId int64, from, to int8, action string, operatorId int64) {
-	if err := l.svcCtx.DB.WithContext(l.ctx).Create(&model.DispatchTaskLog{
-		TaskId:     taskId,
-		FromStatus: from,
-		ToStatus:   to,
-		Action:     action,
-		OperatorId: operatorId,
-	}).Error; err != nil {
-		l.Errorf("[dispatch] write task log failed: taskId=%d, err=%v", taskId, err)
-	}
 }

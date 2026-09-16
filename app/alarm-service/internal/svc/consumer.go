@@ -134,6 +134,11 @@ func (s *ServiceContext) HandleDeviceEvent(ctx context.Context, msg kafkago.Mess
 			log.Infof("alarm skip duplicated insert request_id=%s", id)
 			return nil
 		}
+		// DB 落库失败: 回滚 L1 置位, 保证 Kafka 重投后能重新处理, 不丢告警.
+		// 若回滚 Redis 也失败, 记录并返回错误, 该键会在 TTL(24h) 后自然过期.
+		if derr := s.Dedup.Delete(ctx, keyDedup+id); derr != nil {
+			log.Errorf("alarm rollback dedup key failed request_id=%s err=%v", id, derr)
+		}
 		log.Errorf("alarm create failed request_id=%s err=%v", id, err)
 		return err
 	}

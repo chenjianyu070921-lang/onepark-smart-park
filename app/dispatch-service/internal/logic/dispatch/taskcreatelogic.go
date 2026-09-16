@@ -11,6 +11,7 @@ import (
 	"onepark/app/dispatch-service/internal/svc"
 	"onepark/app/dispatch-service/internal/types"
 	"onepark/common/ctxdata"
+	"onepark/app/dispatch-service/internal/ecode"
 	"onepark/common/errorx"
 )
 
@@ -36,21 +37,27 @@ func (l *TaskCreateLogic) TaskCreate(req *types.TaskCreateReq) (*types.TaskCreat
 	if l.svcCtx.DB == nil {
 		return nil, errorx.NewError(errorx.ErrDepConnect, "数据库未初始化")
 	}
+	// 租户为 RBAC 行级隔离维度, 必须由网关注入, 不允许匿名建单.
+	tenantID := ctxdata.GetTenantId(l.ctx)
+	if tenantID == 0 {
+		return nil, errorx.NewError(ecode.ErrDispatchParamInvalid, "缺少租户信息(x-tenant-id)")
+	}
 	if req.Title == "" {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "工单标题不能为空")
+		return nil, errorx.NewError(ecode.ErrDispatchParamInvalid, "工单标题不能为空")
 	}
 	if req.ZoneCode == "" {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "事发区域不能为空")
+		return nil, errorx.NewError(ecode.ErrDispatchParamInvalid, "事发区域不能为空")
 	}
 	if !validPriority(req.Priority) {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "优先级取值非法, 仅支持 1/2/3")
+		return nil, errorx.NewError(ecode.ErrDispatchParamInvalid, "优先级取值非法, 仅支持 1/2/3")
 	}
 	// 告警来源的工单只允许由 Kafka 消费者自动落库, 防止人工伪造 source 绕过去重逻辑.
 	if int8(req.Source) == model.SourceAlarm {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "告警来源工单由消费者自动创建, 不支持人工指定")
+		return nil, errorx.NewError(ecode.ErrDispatchParamInvalid, "告警来源工单由消费者自动创建, 不支持人工指定")
 	}
 
 	task := &model.DispatchTask{
+		TenantID:    tenantID,
 		TaskNo:      model.NewTaskNo(),
 		Title:       req.Title,
 		Source:      model.SourceManual,
@@ -65,6 +72,7 @@ func (l *TaskCreateLogic) TaskCreate(req *types.TaskCreateReq) (*types.TaskCreat
 			return err
 		}
 		return tx.Create(&model.DispatchTaskLog{
+			TenantID:   tenantID,
 			TaskId:     task.Id,
 			FromStatus: 0,
 			ToStatus:   model.StatusPendingAssign,
@@ -74,7 +82,7 @@ func (l *TaskCreateLogic) TaskCreate(req *types.TaskCreateReq) (*types.TaskCreat
 		}).Error
 	}); err != nil {
 		l.Errorf("[dispatch] create task failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "创建调度工单失败")
+		return nil, errorx.NewError(ecode.ErrTaskCreateFailed, "创建调度工单失败")
 	}
 
 	return &types.TaskCreateResp{

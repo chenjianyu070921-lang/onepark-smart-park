@@ -18,7 +18,7 @@ func downstream() http.HandlerFunc {
 
 func TestAuth(t *testing.T) {
 	const secret = "gw-secret"
-	auth := Auth(secret, map[string]bool{})(downstream())
+	auth := Auth(secret)(downstream())
 
 	// 1) 无 token -> 401
 	rec := httptest.NewRecorder()
@@ -49,11 +49,18 @@ func TestAuth(t *testing.T) {
 		t.Fatalf("downstream tenant = %q, want 5", rec3.Header().Get("X-Downstream-Tenant"))
 	}
 
-	// 4) 白名单路径放行(无需 token)
-	authSkip := Auth(secret, map[string]bool{"/api/auth/login": true})(downstream())
+	// 4) 鉴权引导端点公开(无需 token)
+	authPublic := Auth(secret)(downstream())
 	rec4 := httptest.NewRecorder()
-	authSkip.ServeHTTP(rec4, httptest.NewRequest(http.MethodPost, "/api/auth/login", nil))
+	authPublic.ServeHTTP(rec4, httptest.NewRequest(http.MethodPost, "/api/auth/login", nil))
 	if rec4.Code != http.StatusOK {
-		t.Fatalf("skip path: want 200, got %d", rec4.Code)
+		t.Fatalf("public auth path: want 200, got %d", rec4.Code)
+	}
+
+	// 5) 其它业务接口无 token -> 401(全接口强制 JWT)
+	rec5 := httptest.NewRecorder()
+	auth.ServeHTTP(rec5, httptest.NewRequest(http.MethodGet, "/api/users", nil))
+	if rec5.Code != http.StatusUnauthorized {
+		t.Fatalf("protected path without token: want 401, got %d", rec5.Code)
 	}
 }

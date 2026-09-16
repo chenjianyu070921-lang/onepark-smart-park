@@ -29,6 +29,7 @@ func main() {
 	// 全链路 RequestId 透传 + 开发环境跨域
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
+	server.Use(middleware.IdentityFromHeader)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)

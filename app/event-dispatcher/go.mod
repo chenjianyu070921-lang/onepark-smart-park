@@ -2,11 +2,13 @@ module onepark/app/event-dispatcher
 
 go 1.25
 
-require github.com/zeromicro/go-zero v1.10.3
+require (
+	github.com/eclipse/paho.mqtt.golang v1.5.1
+	github.com/zeromicro/go-zero v1.10.3
+)
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/eclipse/paho.mqtt.golang v1.5.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect

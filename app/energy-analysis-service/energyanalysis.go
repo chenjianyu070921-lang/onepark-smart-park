@@ -7,6 +7,7 @@ import (
 	"onepark/app/energy-analysis-service/internal/config"
 	"onepark/app/energy-analysis-service/internal/handler"
 	"onepark/app/energy-analysis-service/internal/svc"
+	"onepark/common/middleware"
 	"onepark/common/response"
 
 	"github.com/zeromicro/go-zero/core/conf"
@@ -25,6 +26,7 @@ func main() {
 	response.Init()
 
 	server := rest.MustNewServer(c.RestConf)
+	server.Use(middleware.IdentityFromHeader)
 	defer server.Stop()
 
 	ctx := svc.NewServiceContext(c)

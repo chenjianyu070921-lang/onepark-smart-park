@@ -64,25 +64,32 @@ func (l *UpdateWorkOrderStatusLogic) UpdateWorkOrderStatus(req *types.UpdateWork
 		updates["finished_at"] = now
 	}
 
-	// 乐观锁更新.
-	res := l.svcCtx.DB.WithContext(l.ctx).
-		Model(&model.WorkOrder{}).
-		Where("id=? AND tenant_id=? AND version=?", wo.ID, tenantID, wo.Version).
-		Updates(updates)
-	if res.Error != nil {
-		l.Errorf("update work order status failed: %v", res.Error)
-		return nil, errorx.NewError(errorx.ErrM2Internal, "状态流转失败")
-	}
-	if res.RowsAffected == 0 {
-		return nil, errorx.NewError(errorx.ErrWorkOrderAssignFailed, "状态流转冲突, 请刷新后重试")
-	}
-
-	// 写流转流水.
+	// 乐观锁更新与流转流水同事务, 冲突或流水失败均整体回滚.
 	flow := &model.WorkOrderFlow{WorkOrderID: wo.ID, FromStatus: wo.Status, ToStatus: next, Action: req.Action, OperatorID: operatorID, Remark: req.Remark}
 	flow.TenantID = tenantID
 	flow.CreatedAt = now
 	flow.UpdatedAt = now
-	_ = l.svcCtx.DB.WithContext(l.ctx).Create(flow).Error
+
+	var conflict bool
+	if e := l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&model.WorkOrder{}).
+			Where("id=? AND tenant_id=? AND version=?", wo.ID, tenantID, wo.Version).
+			Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			conflict = true
+			return nil
+		}
+		return tx.Create(flow).Error
+	}); e != nil {
+		l.Errorf("update work order status failed: %v", e)
+		return nil, errorx.NewError(errorx.ErrM2Internal, "状态流转失败")
+	}
+	if conflict {
+		return nil, errorx.NewError(errorx.ErrWorkOrderStatusConflict, "状态流转冲突, 请刷新后重试")
+	}
 
 	// 发布状态流转事件(workorder-event); 失败仅记日志不阻断流转.
 	publishWorkOrderEvent(l.ctx, l.svcCtx, l.Logger, WorkOrderEvent{

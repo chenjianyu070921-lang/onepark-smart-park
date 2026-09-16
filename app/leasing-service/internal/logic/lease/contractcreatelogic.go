@@ -15,6 +15,7 @@ import (
 	"onepark/app/leasing-service/internal/svc"
 	"onepark/app/leasing-service/internal/types"
 	"onepark/common/ctxdata"
+	"onepark/app/leasing-service/internal/ecode"
 	"onepark/common/errorx"
 )
 
@@ -43,34 +44,40 @@ func (l *ContractCreateLogic) ContractCreate(req *types.ContractCreateReq) (*typ
 
 	monthlyRent, err := decimal.NewFromString(req.MonthlyRent)
 	if err != nil || monthlyRent.IsNegative() {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "月租金格式非法")
+		return nil, errorx.NewError(ecode.ErrLeaseParamInvalid, "月租金格式非法")
 	}
 	deposit := decimal.Zero
 	if req.Deposit != "" {
 		if deposit, err = decimal.NewFromString(req.Deposit); err != nil || deposit.IsNegative() {
-			return nil, errorx.NewError(errorx.ErrBadRequest, "押金格式非法")
+			return nil, errorx.NewError(ecode.ErrLeaseParamInvalid, "押金格式非法")
 		}
 	}
 
 	startDate, err := time.ParseInLocation(dateLayout, req.StartDate, time.Local)
 	if err != nil {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "起租日格式应为 yyyy-MM-dd")
+		return nil, errorx.NewError(ecode.ErrLeaseParamInvalid, "起租日格式应为 yyyy-MM-dd")
 	}
 	endDate, err := time.ParseInLocation(dateLayout, req.EndDate, time.Local)
 	if err != nil {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "终止日格式应为 yyyy-MM-dd")
+		return nil, errorx.NewError(ecode.ErrLeaseParamInvalid, "终止日格式应为 yyyy-MM-dd")
 	}
 	if !endDate.After(startDate) {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "终止日必须晚于起租日")
+		return nil, errorx.NewError(ecode.ErrLeaseParamInvalid, "终止日必须晚于起租日")
 	}
 	if req.ZoneCode == "" {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "区域编码不能为空")
+		return nil, errorx.NewError(ecode.ErrZoneCodeInvalid, "区域编码不能为空")
 	}
 
 	from, _ := state.Next(0, state.ActionCreate)
+	// 租户来源必须是网关注入的 x-tenant-id(经 IdentityFromHeader 写入 ctx),
+	// 禁止信任请求体中的 tenant_id —— 否则客户端可伪造租户越权建合同.
+	tenantID := ctxdata.GetTenantId(l.ctx)
+	if tenantID == 0 {
+		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
+	}
 	contract := &model.LeaseContract{
 		ContractNo:  newContractNo(),
-		TenantId:    req.TenantId,
+		TenantId:    tenantID,
 		TenantName:  req.TenantName,
 		ZoneCode:    req.ZoneCode,
 		AreaSqm:     req.AreaSqm,
@@ -97,7 +104,7 @@ func (l *ContractCreateLogic) ContractCreate(req *types.ContractCreateReq) (*typ
 	})
 	if err != nil {
 		l.Errorf("[lease] create contract failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "创建合同失败")
+		return nil, errorx.NewError(ecode.ErrContractCreateFailed, "创建合同失败")
 	}
 
 	return &types.ContractCreateResp{

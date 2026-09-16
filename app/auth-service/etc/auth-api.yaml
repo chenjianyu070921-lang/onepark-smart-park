@@ -8,10 +8,9 @@ JwtSecret: ${JWT_SECRET}
 JwtExpire: 7200
 JwtRefresh: 86400
 
-# 初始用户(演示用, 生产应接入用户中心/DB).
-# Password 明文仅本地演示, 启动时转 sha256; 也可直接给 PasswordHash(sha256 hex).
-Users:
-  - Username: admin
-    Password: "admin123"
-    RoleIds: "1"
-    TenantId: 1
+# 用户中心库(sys_db)连接, 身份校验查询 sys_user + sys_user_role.
+# DSN 格式: user:pass@tcp(host:port)/sys_db?charset=utf8mb4&parseTime=True&loc=Local
+MySQL:
+  DataSource: ${AUTH_MYSQL_DSN}
+  MaxOpenConns: 20
+  MaxIdleConns: 10

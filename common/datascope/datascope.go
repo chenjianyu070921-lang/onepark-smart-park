@@ -7,8 +7,8 @@ package datascope
 import (
 	"context"
 
-	"onepark/common/ctxdata"
 	"gorm.io/gorm"
+	"onepark/common/ctxdata"
 )
 
 // 数据范围级别.

@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"onepark/gateway/internal/config"
+	"onepark/gateway/internal/discovery"
 	"onepark/gateway/internal/proxy"
 )
 
@@ -18,6 +19,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	g, err := proxy.NewGateway(c)
 	if err != nil {
 		log.Fatalf("init gateway proxy failed: %v", err)
+	}
+	// 可选: 从 Nacos 配置中心动态拉取上游表(仅当 Nacos.Address 配置时).
+	if c.Nacos.Address != "" {
+		go discovery.StartWatch(c.Nacos, g)
 	}
 	return &ServiceContext{
 		Config:  c,

@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strings"
 
-	"onepark/common/jwt"
 	"onepark/app/auth-service/internal/svc"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/jwt"
 	"onepark/common/response"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -18,6 +18,7 @@ import (
 var publicPaths = map[string]bool{
 	"/api/auth/login":   true,
 	"/api/auth/refresh": true,
+	"/api/auth/verify":  true,
 }
 
 // JwtAuth 返回 go-zero 全局中间件: 校验 Authorization Bearer Token,

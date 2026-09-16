@@ -10,13 +10,13 @@ import (
 
 // ServiceContext 持有 DB 与各领域 model, 供 logic 使用.
 type ServiceContext struct {
-	Config          config.Config
-	DB              *gormx.DB
-	UserModel       model.SysUserModel
-	RoleModel       model.SysRoleModel
-	MenuModel       model.SysMenuModel
-	UserRoleModel   model.SysUserRoleModel
-	RoleMenuModel   model.SysRoleMenuModel
+	Config        config.Config
+	DB            *gormx.DB
+	UserModel     model.SysUserModel
+	RoleModel     model.SysRoleModel
+	MenuModel     model.SysMenuModel
+	UserRoleModel model.SysUserRoleModel
+	RoleMenuModel model.SysRoleMenuModel
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -39,12 +39,12 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 
 	return &ServiceContext{
-		Config:          c,
-		DB:              db,
-		UserModel:       model.NewSysUserModel(db),
-		RoleModel:       model.NewSysRoleModel(db),
-		MenuModel:       model.NewSysMenuModel(db),
-		UserRoleModel:   model.NewSysUserRoleModel(db),
-		RoleMenuModel:   model.NewSysRoleMenuModel(db),
+		Config:        c,
+		DB:            db,
+		UserModel:     model.NewSysUserModel(db),
+		RoleModel:     model.NewSysRoleModel(db),
+		MenuModel:     model.NewSysMenuModel(db),
+		UserRoleModel: model.NewSysUserRoleModel(db),
+		RoleMenuModel: model.NewSysRoleMenuModel(db),
 	}
 }

@@ -31,6 +31,7 @@ func main() {
 	// 全链路 RequestId 透传 + 开发环境跨域
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
+	server.Use(middleware.IdentityFromHeader)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
@@ -42,7 +43,7 @@ func main() {
 	server.AddRoute(rest.Route{
 		Method:  http.MethodGet,
 		Path:    "/ws/dashboard",
-		Handler: wsserver.Handler(hub),
+		Handler: wsserver.Handler(hub, c.JwtSecret),
 	})
 
 	// 周期快照广播; 随进程退出

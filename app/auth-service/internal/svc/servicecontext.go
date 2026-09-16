@@ -1,30 +1,22 @@
 package svc
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"fmt"
 
 	"onepark/app/auth-service/internal/config"
+	"onepark/common/gormx"
 )
 
-// UserInfo 内存用户视图(演示用, 生产应替换为用户中心/DB 查询).
-type UserInfo struct {
-	UserId   int64
-	RoleIds  string
-	TenantId int64
-	PwdHash  string
-}
-
-// ServiceContext 注入 JWT 配置与用户表.
+// ServiceContext 注入 JWT 配置与 sys_db 连接, 身份校验改为查询用户中心(DB).
 type ServiceContext struct {
 	Config     config.Config
 	JwtSecret  string
 	JwtExpire  int64
 	JwtRefresh int64
-	Users      map[string]*UserInfo
+	DB         *gormx.DB
 }
 
-// NewServiceContext 构建服务上下文, JWT_SECRET 为空直接 panic(禁止硬编码密钥).
+// NewServiceContext 构建服务上下文: 校验 JWT 密钥并初始化 sys_db 连接.
 func NewServiceContext(c config.Config) *ServiceContext {
 	if c.JwtSecret == "" {
 		panic("auth-service: JWT_SECRET is required, set environment variable JWT_SECRET")
@@ -38,19 +30,22 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		refresh = 86400
 	}
 
-	users := make(map[string]*UserInfo, len(c.Users))
-	for i, u := range c.Users {
-		hash := u.PasswordHash
-		if hash == "" && u.Password != "" {
-			h := sha256.Sum256([]byte(u.Password))
-			hash = hex.EncodeToString(h[:])
-		}
-		users[u.Username] = &UserInfo{
-			UserId:   int64(i + 1),
-			RoleIds:  u.RoleIds,
-			TenantId: u.TenantId,
-			PwdHash:  hash,
-		}
+	db, err := gormx.NewDB(c.MySQL.DataSource)
+	if err != nil {
+		panic(fmt.Sprintf("auth-service: 初始化 MySQL(sys_db) 失败: %v", err))
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		panic(fmt.Sprintf("auth-service: 获取 SQLDB 失败: %v", err))
+	}
+	if c.MySQL.MaxOpenConns > 0 {
+		sqlDB.SetMaxOpenConns(c.MySQL.MaxOpenConns)
+	}
+	if c.MySQL.MaxIdleConns > 0 {
+		sqlDB.SetMaxIdleConns(c.MySQL.MaxIdleConns)
+	}
+	if err := sqlDB.Ping(); err != nil {
+		panic(fmt.Sprintf("auth-service: sys_db 连通性检查失败: %v", err))
 	}
 
 	return &ServiceContext{
@@ -58,6 +53,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		JwtSecret:  c.JwtSecret,
 		JwtExpire:  expire,
 		JwtRefresh: refresh,
-		Users:      users,
+		DB:         db,
 	}
 }

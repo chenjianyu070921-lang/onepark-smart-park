@@ -68,15 +68,15 @@ const (
 
 // M1 物联接入底座错误码
 const (
-	ErrProductNotFound   = "M1-E-1001" // 产品不存在
-	ErrDeviceDuplicate    = "M1-E-1002" // 设备名重复
-	ErrDeviceCreateFail   = "M1-E-1003" // 设备写入失败
-	ErrShadowCreateFail   = "M1-E-1004" // 影子创建失败
-	ErrDeviceNotFound     = "M1-E-1005" // 设备不存在
-	ErrDeviceOffline      = "M1-E-1006" // 设备离线
-	ErrCommandSendFail    = "M1-E-1007" // 指令下发失败
-	ErrShadowNotFound     = "M1-E-1008" // 设备影子不存在
-	ErrShadowVersionDup   = "M1-E-1009" // 影子版本冲突(乐观锁)
+	ErrProductNotFound  = "M1-E-1001" // 产品不存在
+	ErrDeviceDuplicate  = "M1-E-1002" // 设备名重复
+	ErrDeviceCreateFail = "M1-E-1003" // 设备写入失败
+	ErrShadowCreateFail = "M1-E-1004" // 影子创建失败
+	ErrDeviceNotFound   = "M1-E-1005" // 设备不存在
+	ErrDeviceOffline    = "M1-E-1006" // 设备离线
+	ErrCommandSendFail  = "M1-E-1007" // 指令下发失败
+	ErrShadowNotFound   = "M1-E-1008" // 设备影子不存在
+	ErrShadowVersionDup = "M1-E-1009" // 影子版本冲突(乐观锁)
 
 	// W 级: 参数校验类, HttpStatus 映射为 400
 	ErrDeviceParamInvalid = "M1-W-1001" // 设备请求参数非法
@@ -85,9 +85,10 @@ const (
 // M2 物业管理服务业务错误码
 const (
 	// 工单域 1001~1999
-	ErrWorkOrderNotFound      = "M2-E-1001" // 工单不存在
-	ErrWorkOrderStatusInvalid = "M2-E-1002" // 工单状态非法或流转被禁止
-	ErrWorkOrderAssignFailed  = "M2-E-1003" // 工单派单失败（并发冲突或处理人不合法）
+	ErrWorkOrderNotFound       = "M2-E-1001" // 工单不存在
+	ErrWorkOrderStatusInvalid  = "M2-E-1002" // 工单状态非法或流转被禁止
+	ErrWorkOrderAssignConflict = "M2-E-1003" // 派单并发冲突(乐观锁 version 不一致)
+	ErrWorkOrderStatusConflict = "M2-E-1004" // 工单状态流转并发冲突(乐观锁 version 不一致)
 
 	// 访客域 2001~2999
 	ErrVisitorQRCodeExpired = "M2-E-2001" // 访客二维码已过期
@@ -113,4 +114,59 @@ const (
 	ErrMenuNotFound     = "M2-E-6005" // 菜单不存在
 	ErrPermissionDenied = "M2-E-6006" // 无权限(角色未分配该菜单权限)
 	ErrMenuDuplicate    = "M2-E-6007" // 菜单标识重复
+)
+
+// M4 能源管控错误码: 1xxx 采集与能耗查询(energy-data/energy-analysis 共用) / 2xxx 计费(billing).
+// 与各服务 internal/ecode 保持同步(来源: billing/energy-data/energy-analysis 三处 ecode.go).
+const (
+	// 采集与分析 (energy-data / energy-analysis)
+	ErrDeviceNoData = "M4-E-1001" // 该设备还没有任何能耗数据
+	ErrQueryFailed  = "M4-E-1002" // 查询能耗数据失败(数据库异常)
+	ErrBadTimeRange = "M4-E-1003" // 时间范围参数不合法
+	ErrZoneNoData   = "M4-E-1004" // 该区域在指定时间范围内没有数据
+
+	// 计费 (billing)
+	ErrBadRuleConfig = "M4-E-1005" // 规则配置不合法(阶梯档位未递增/峰谷时间写错)
+	ErrRuleNotFound  = "M4-E-1006" // 规则不存在
+	ErrNoRuleMatch   = "M4-E-1007" // 该区域既无专属规则也无全局默认规则
+	ErrBillExists    = "M4-E-1008" // 该账期已经出过账, 不能重复出
+	ErrNoUsage       = "M4-E-1009" // 该区域这个账期没有任何用量, 出不了账
+)
+
+// M5 运营招商+指挥调度+大屏错误码: 招商 leasing 1001~1999 / 调度 dispatch 2001~2999 / 大屏 dashboard 3001~3999.
+// 与 M5 各服务 internal/ecode 保持同步(来源: leasing/dispatch 两处 ecode.go; dashboard 暂沿用中央码, 待其接入 errorx).
+// 参数校验类统一用 W 级(M5-W-xxxx)以保证返回 400(见 http_status.go 与 M3 KI-2).
+const (
+	// 招商 leasing (1001~1999)
+	ErrContractNotFound      = "M5-E-1001" // 合同不存在
+	ErrContractStatusInvalid = "M5-E-1002" // 合同状态不允许该操作
+	ErrContractCreateFailed  = "M5-E-1003" // 合同创建失败
+	ErrContractUpdateFailed  = "M5-E-1004" // 合同更新失败
+	ErrBillGenerateFailed    = "M5-E-1005" // 账单生成失败
+	ErrZoneCodeInvalid       = "M5-E-1006" // 区域编码非法
+	ErrContractConflict      = "M5-E-1007" // 合同已被并发修改
+	ErrContractListFailed    = "M5-E-1901" // 合同列表查询失败
+	ErrContractQueryFailed   = "M5-E-1902" // 合同查询失败
+	ErrOccupancyStatFailed   = "M5-E-1903" // 入驻率统计失败
+	ErrExpiringQueryFailed   = "M5-E-1904" // 到期合同查询失败
+	// W 级: 参数校验(HTTP 400)
+	ErrLeaseParamInvalid = "M5-W-1001" // 招商参数非法(HTTP 400)
+
+	// 调度 dispatch (2001~2999)
+	ErrTaskNotFound         = "M5-E-2001" // 调度工单不存在
+	ErrTaskCreateFailed     = "M5-E-2002" // 调度工单创建失败
+	ErrTaskUpdateFailed     = "M5-E-2003" // 调度工单更新失败
+	ErrTaskStatusInvalid    = "M5-E-2004" // 调度工单状态不允许该操作
+	ErrAssigneeLoadFailed   = "M5-E-2005" // 候选处理人加载失败
+	ErrAssignFailed         = "M5-E-2006" // 指派失败
+	ErrNoAssignee           = "M5-E-2007" // 暂无可用处理人
+	ErrTaskConflict         = "M5-E-2008" // 调度工单并发冲突
+	ErrTaskListFailed       = "M5-E-2901" // 调度工单列表查询失败
+	ErrTaskQueryFailed      = "M5-E-2902" // 调度工单查询失败
+	// W 级: 参数校验(HTTP 400)
+	ErrDispatchParamInvalid = "M5-W-2001" // 调度参数非法(HTTP 400)
+
+	// 大屏 dashboard (3001~3999)
+	ErrDashboardStatFailed   = "M5-E-3001" // 大屏统计失败
+	ErrDashboardParamInvalid = "M5-W-3001" // 大屏参数非法(HTTP 400)
 )

@@ -13,7 +13,7 @@ import (
 const epochMillis = int64(1_700_000_000_000)
 
 const (
-	workerBits  = 10 // 工作节点 10 位(整合 datacenter+worker), 支持 0~1023
+	workerBits   = 10 // 工作节点 10 位(整合 datacenter+worker), 支持 0~1023
 	sequenceBits = 12 // 序列号 12 位, 每毫秒单节点 4096 个
 
 	maxWorkerID  = (1 << workerBits) - 1

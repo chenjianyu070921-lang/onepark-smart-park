@@ -50,8 +50,9 @@ type WorkOrderProvider interface {
 }
 
 // AlarmProvider 告警数据源端口.
+// tenantId 为 0 表示不过滤(系统级视图); 非 0 时按租户隔离聚合.
 type AlarmProvider interface {
-	Stat(ctx context.Context) (AlarmStat, error)
+	Stat(ctx context.Context, tenantId int64) (AlarmStat, error)
 }
 
 // DeviceProvider 设备数据源端口.

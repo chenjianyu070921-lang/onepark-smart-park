@@ -28,8 +28,8 @@ func main() {
 	sqlDB.SetMaxIdleConns(1)
 
 	var result struct {
-		One   int
-		Now   string
+		One    int
+		Now    string
 		DbName string
 	}
 

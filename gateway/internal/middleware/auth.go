@@ -13,13 +13,23 @@ import (
 
 // Auth 网关统一鉴权中间件: 校验 Bearer Token, 并向转发请求注入身份 Header,
 // 供下游业务服务通过 common/middleware.IdentityFromHeader 提升进 ctxdata.
-// skip 为公开路径白名单(精确匹配, 如 /api/auth/login); 命中直接放行.
+//
+// 鉴权策略: 全接口强制 JWT. 仅"鉴权引导端点"(login/refresh/verify)对公众开,
+// 因为获取 Token 本身不能要求先持有 Token(否则无法登录); 其余所有接口
+// (含 /api/users、/api/roles、/api/users/roles 等业务接口)无有效 Token 一律 401.
+// 该公开集合必须与 auth-service 的 publicPaths 保持一致.
 //
 // 这是 RBAC 数据权限生效的前置阻塞项: 只有网关注入 x-tenant-id, 下游才能按租户隔离.
-func Auth(secret string, skip map[string]bool) func(http.HandlerFunc) http.HandlerFunc {
+func Auth(secret string) func(http.HandlerFunc) http.HandlerFunc {
+	// publicPaths 鉴权引导端点(获取/刷新 Token 的入口), 无需 JWT 即可访问.
+	publicPaths := map[string]bool{
+		"/api/auth/login":   true,
+		"/api/auth/refresh": true,
+		"/api/auth/verify":  true,
+	}
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			if skip[r.URL.Path] {
+			if publicPaths[r.URL.Path] {
 				next(w, r)
 				return
 			}
