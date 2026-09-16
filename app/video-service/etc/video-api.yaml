@@ -1,3 +1,9 @@
 Name: video-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8011
+
+# Redis 连接配置 (Day2 预留占位, 摄像头状态缓存业务尚未接入)
+Redis:
+  Host: ${REDIS_ADDR}
+  Type: node
+  Pass: ${REDIS_PASS}
