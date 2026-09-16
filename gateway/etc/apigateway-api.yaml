@@ -17,9 +17,18 @@ Upstreams:
     Target: http://127.0.0.1:8093
   - Prefix: /api/notice
     Target: http://127.0.0.1:8094
+  # ===== M5 运营招商 + 指挥调度 =====
+  # 端口口径: 按《接口与链路技术点清单》(8051/8052/8053), 与 M2 实际使用的 8091(清单口径)一致.
   - Prefix: /api/leasing
-    Target: http://127.0.0.1:8015
+    Target: http://127.0.0.1:8051
   - Prefix: /api/dashboard
-    Target: http://127.0.0.1:8016
+    Target: http://127.0.0.1:8052
   - Prefix: /api/dispatch
-    Target: http://127.0.0.1:8017
+    Target: http://127.0.0.1:8053
+
+  # 大屏 WebSocket 实时推送(清单 #73)。
+  # 路径打全 /ws/dashboard 而不是 /ws —— 网关是最长前缀优先匹配,
+  # 若用 /ws, 将来 M3 的 WebSocket 会被一并转发到 M5, 造成冲突。
+  # 标准库 httputil.ReverseProxy 原生支持 Upgrade 转发, 无需改代理代码。
+  - Prefix: /ws/dashboard
+    Target: http://127.0.0.1:8052

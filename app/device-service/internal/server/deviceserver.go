@@ -4,11 +4,13 @@ package server
 
 import (
 	"context"
+	"fmt"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"onepark/app/device-service/internal/logic"
+	"onepark/app/device-service/internal/model"
 	"onepark/app/device-service/internal/svc"
 	"onepark/app/device-service/internal/types"
 	"onepark/common/errorx"
@@ -92,6 +94,40 @@ func (s *DeviceServer) GetDevice(ctx context.Context, in *devicepb.GetDeviceReq)
 	if d.LastOnlineAt != nil {
 		resp.LastSeen = d.LastOnlineAt.Unix()
 	}
+	return resp, nil
+}
+
+// GetDeviceStat 设备数量统计, 供 M5 dashboard-service 大屏计算在线率(清单 #69/#72).
+// 只返回台数不返回列表, 避免把全量设备拉到消费方计数; 恒等关系 total = online + offline + fault.
+func (s *DeviceServer) GetDeviceStat(ctx context.Context, in *devicepb.GetDeviceStatReq) (*devicepb.GetDeviceStatResp, error) {
+	// device 表当前没有 type 列, 类型过滤需待补列后启用(与 GetDeviceResp.type 的 TODO 同批).
+	// 显式拒绝而不是静默忽略, 避免调用方拿到"看似已过滤"的全量数.
+	if in.GetType() != 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			fmt.Sprintf("暂不支持按设备类型筛选(type=%d): device 表尚无 type 列", in.GetType()))
+	}
+
+	counts, err := s.svcCtx.DeviceModel.CountGroupByStatus(ctx, in.GetProductKey())
+	if err != nil {
+		logx.WithContext(ctx).Errorf("gRPC 设备统计失败: productKey=%s, err=%v", in.GetProductKey(), err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	resp := &devicepb.GetDeviceStatResp{}
+	for st, cnt := range counts {
+		switch st {
+		case model.DeviceStatusOffline:
+			resp.Offline = cnt
+		case model.DeviceStatusOnline:
+			resp.Online = cnt
+		case model.DeviceStatusFault:
+			resp.Fault = cnt
+		default:
+			// 枚举外状态不计入三分项, 仅留日志, 提醒双方同步契约后再消费该取值.
+			logx.WithContext(ctx).Errorf("GetDeviceStat 出现未知 device.status=%d (cnt=%d), 未计入统计分项", st, cnt)
+		}
+	}
+	resp.Total = resp.Online + resp.Offline + resp.Fault
 	return resp, nil
 }
 
