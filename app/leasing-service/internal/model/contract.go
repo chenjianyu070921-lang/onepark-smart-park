@@ -21,6 +21,15 @@ const (
 	BillStatusPaid   int8 = 2 // 已缴
 )
 
+// 自动续约开关. 默认关闭: 自动延长租期等于替承租方做决定, 必须由合同条款显式约定.
+const (
+	AutoRenewOff int8 = 0
+	AutoRenewOn  int8 = 1
+)
+
+// DefaultRenewNoticeDays 默认"到期前多少天进入续签提醒窗口".
+const DefaultRenewNoticeDays int64 = 30
+
 // LeaseContract 租赁合同.
 // 金额字段一律用 decimal.Decimal, 禁止 float64 —— 浮点累加会产生精度误差.
 type LeaseContract struct {
@@ -35,6 +44,10 @@ type LeaseContract struct {
 	StartDate   time.Time       `gorm:"column:start_date"`
 	EndDate     time.Time       `gorm:"column:end_date"`
 	Status      int8            `gorm:"column:status"`
+	// AutoRenew 约定自动续约时才为 1; 到期时由定时任务按原租期长度顺延。
+	AutoRenew int8 `gorm:"column:auto_renew"`
+	// RenewNoticeDays 到期前多少天进入续签提醒窗口(仅影响提醒, 不影响状态流转)。
+	RenewNoticeDays int64 `gorm:"column:renew_notice_days"`
 	Version     int64           `gorm:"column:version"`
 	CreatedAt   time.Time       `gorm:"column:created_at"`
 	UpdatedAt   time.Time       `gorm:"column:updated_at"`

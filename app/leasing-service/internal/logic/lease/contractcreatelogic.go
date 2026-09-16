@@ -66,6 +66,12 @@ func (l *ContractCreateLogic) ContractCreate(req *types.ContractCreateReq) (*typ
 	if req.ZoneCode == "" {
 		return nil, errorx.NewError(errorx.ErrBadRequest, "区域编码不能为空")
 	}
+	if !validAutoRenew(req.AutoRenew) {
+		return nil, errorx.NewError(errorx.ErrBadRequest, "auto_renew 仅支持 0(到期即止) / 1(自动续约)")
+	}
+	if !validNoticeDays(req.RenewNoticeDays) {
+		return nil, errorx.NewError(errorx.ErrBadRequest, "renew_notice_days 应在 0~365 之间")
+	}
 
 	from, _ := state.Next(0, state.ActionCreate)
 	contract := &model.LeaseContract{
@@ -76,9 +82,11 @@ func (l *ContractCreateLogic) ContractCreate(req *types.ContractCreateReq) (*typ
 		AreaSqm:     req.AreaSqm,
 		MonthlyRent: monthlyRent,
 		Deposit:     deposit,
-		StartDate:   startDate,
-		EndDate:     endDate,
-		Status:      model.StatusPending,
+		StartDate:       startDate,
+		EndDate:         endDate,
+		Status:          model.StatusPending,
+		AutoRenew:       int8(req.AutoRenew),
+		RenewNoticeDays: req.RenewNoticeDays,
 	}
 
 	// 合同与审计流水必须同事务, 避免"有合同没流水"。

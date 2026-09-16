@@ -121,3 +121,41 @@ CREATE TABLE IF NOT EXISTS `dispatch_task_log` (
   PRIMARY KEY (`id`),
   KEY `idx_task` (`task_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='M5 调度工单流转审计';
+
+-- 调度人员技能池: 智能派单的候选来源(清单 #77 / 组长 P2「基于人员负载与技能标签」)。
+--
+-- 为什么由 M5 自持而不是读 M6: 截至 2026-09-16, proto/user 与 proto/auth 仍是 rpc Ping 骨架,
+-- 团队没有人员主数据接口, 而技能标签是明确要求 -> 先在本服务库内自持(每服务独立库),
+-- 待 M6 提供后改为「同步 + 本地缓存」, 指派算法无需改动。
+--
+-- skills 用逗号分隔而不是拆子表: 园区处理人规模在几十人量级, 指派时全量载入内存比较,
+-- 拆表带来的 JOIN 成本换不来收益; 若将来人员规模上千, 再规范化为 dispatch_staff_skill。
+CREATE TABLE IF NOT EXISTS `dispatch_staff` (
+  `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `staff_id`   BIGINT UNSIGNED NOT NULL                COMMENT '人员ID, 与 M6 用户体系对齐',
+  `name`       VARCHAR(64)     NOT NULL DEFAULT ''     COMMENT '姓名',
+  `phone`      VARCHAR(32)     NOT NULL DEFAULT ''     COMMENT '联系电话',
+  `zone_code`  VARCHAR(64)     NOT NULL DEFAULT ''     COMMENT '常驻区域, 就近指派依据, 如 A-3F',
+  `skills`     VARCHAR(255)    NOT NULL DEFAULT ''     COMMENT '技能标签, 逗号分隔, 如 fire,electrical,security',
+  `on_duty`    TINYINT         NOT NULL DEFAULT 1      COMMENT '1在岗 0不在岗, 派单硬过滤条件',
+  `status`     TINYINT         NOT NULL DEFAULT 1      COMMENT '1启用 0停用',
+  `created_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_staff_id` (`staff_id`),
+  KEY `idx_duty_status` (`on_duty`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='M5 调度人员技能池';
+
+-- ###########################################################################
+-- # 增量变更(在已建库的环境上执行)
+-- # 注意: 下方 ALTER 不是幂等的 —— 重复执行会报 1060 Duplicate column name, 可忽略。
+-- # 全新环境由上面的 CREATE TABLE 直接建全(新表已含该列), 无需执行本段。
+-- ###########################################################################
+ALTER TABLE `dispatch_task`
+  ADD COLUMN `required_skill` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '所需技能标签, 空表示不限' AFTER `zone_code`;
+
+-- 合同自动续约条款。默认 0(不自动续约) —— 自动延长租期本质上是在替承租方做决定,
+-- 必须由合同条款显式约定; 未约定的合同到期即停止(转「已到期」), 由业务人员去谈续签。
+ALTER TABLE `lease_contract`
+  ADD COLUMN `auto_renew` TINYINT NOT NULL DEFAULT 0 COMMENT '1 约定自动续约 0 到期即止',
+  ADD COLUMN `renew_notice_days` INT NOT NULL DEFAULT 30 COMMENT '到期前多少天进入续签提醒窗口';

@@ -13,6 +13,10 @@ type Config struct {
 	MySQL gormx.MySQLConf  // MySQL 连接配置(dispatch_db)
 	Redis redisx.RedisConf // Redis 连接配置
 	Kafka KafkaConf        // 告警事件消费配置
+
+	// JwtSecret HTTP 接口鉴权密钥; 为空时放行。
+	// 填上后审计流水的 operator_id 才有值(来自 token 的 userId claim), 否则恒为 0。
+	JwtSecret string `json:",env=JWT_SECRET,optional"`
 }
 
 // KafkaConf 告警事件消费配置(接口清单 #74).

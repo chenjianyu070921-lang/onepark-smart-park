@@ -101,7 +101,7 @@ func (l *OverviewLogic) Overview(req *types.OverviewReq) (*types.OverviewResp, e
 	g.Go(func() error {
 		sctx, c := context.WithTimeout(ctx, sourceTimeout)
 		defer c()
-		stat, err := l.svcCtx.Providers.Alarm.Stat(sctx)
+		stat, err := l.svcCtx.Providers.Alarm.Stat(sctx, req.TenantId)
 		if err != nil {
 			l.Errorf("[overview] source %s failed: %v", sourceAlarm, err)
 			markDegraded(sourceAlarm)
@@ -112,6 +112,7 @@ func (l *OverviewLogic) Overview(req *types.OverviewReq) (*types.OverviewResp, e
 			Critical: stat.Critical,
 			Major:    stat.Major,
 			Minor:    stat.Minor,
+			Info:     stat.Info,
 		}
 		return nil
 	})

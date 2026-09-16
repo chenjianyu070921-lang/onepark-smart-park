@@ -51,13 +51,15 @@ func (l *TaskCreateLogic) TaskCreate(req *types.TaskCreateReq) (*types.TaskCreat
 	}
 
 	task := &model.DispatchTask{
-		TaskNo:      model.NewTaskNo(),
-		Title:       req.Title,
-		Source:      model.SourceManual,
-		ZoneCode:    req.ZoneCode,
-		Priority:    int8(req.Priority),
-		Status:      model.StatusPendingAssign,
-		Description: req.Description,
+		TaskNo:   model.NewTaskNo(),
+		Title:    req.Title,
+		Source:   model.SourceManual,
+		ZoneCode: req.ZoneCode,
+		// 归一化技能标签, 保证与人员池中的写法能匹配上(大小写/空格/重复都抹平)
+		RequiredSkill: model.NormalizeSkills(req.RequiredSkill),
+		Priority:      int8(req.Priority),
+		Status:        model.StatusPendingAssign,
+		Description:   req.Description,
 	}
 
 	if err := l.svcCtx.DB.Transaction(func(tx *gorm.DB) error {

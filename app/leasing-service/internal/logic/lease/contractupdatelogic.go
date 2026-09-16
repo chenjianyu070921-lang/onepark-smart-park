@@ -109,13 +109,32 @@ func (l *ContractUpdateLogic) ContractUpdate(req *types.ContractUpdateReq) (*typ
 		if state.IsTerminal(contract.Status) {
 			return nil, errorx.NewError(errorx.ErrBadRequest, "已终止的合同不可修改")
 		}
+
+		// AutoRenew / RenewNoticeDays 未传时为 -1(契约 default), 表示"本次不改动"
+		changed := false
 		if req.MonthlyRent != "" {
 			rent, rerr := decimal.NewFromString(req.MonthlyRent)
 			if rerr != nil || rent.IsNegative() {
 				return nil, errorx.NewError(errorx.ErrBadRequest, "月租金格式非法")
 			}
 			updates["monthly_rent"] = rent
-		} else {
+			changed = true
+		}
+		if req.AutoRenew >= 0 {
+			if !validAutoRenew(req.AutoRenew) {
+				return nil, errorx.NewError(errorx.ErrBadRequest, "auto_renew 仅支持 0(到期即止) / 1(自动续约)")
+			}
+			updates["auto_renew"] = int8(req.AutoRenew)
+			changed = true
+		}
+		if req.RenewNoticeDays >= 0 {
+			if !validNoticeDays(req.RenewNoticeDays) {
+				return nil, errorx.NewError(errorx.ErrBadRequest, "renew_notice_days 应在 0~365 之间")
+			}
+			updates["renew_notice_days"] = req.RenewNoticeDays
+			changed = true
+		}
+		if !changed {
 			return nil, errorx.NewError(errorx.ErrBadRequest, "未提供需要变更的字段")
 		}
 
