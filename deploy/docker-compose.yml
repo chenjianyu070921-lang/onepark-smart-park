@@ -274,6 +274,18 @@ services:
         condition: service_completed_successfully
       auth-service:
         condition: service_healthy
+      workorder-service:
+        condition: service_healthy
+      alarm-service:
+        condition: service_healthy
+      dispatch-service:
+        condition: service_healthy
+      leasing-service:
+        condition: service_healthy
+      dashboard-service:
+        condition: service_healthy
+      billing-service:
+        condition: service_healthy
       device-service:
         condition: service_healthy
       user-manage:
@@ -326,6 +338,196 @@ services:
       timeout: 5s
       retries: 20
 
+  # ---- 业务服务: workorder-service (M6 工单, 端口 8082, 依赖 MySQL+Redis+Kafka) ----
+  workorder-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/workorder-service
+        MAIN: workorder.go
+        PORT: 8082
+        CFG: workorder-api.yaml
+    image: onepark/workorder-service:latest
+    container_name: onepark-workorder-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      WORKORDER_MYSQL_DSN: ${WORKORDER_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+    ports:
+      - "${WORKORDER_SERVICE_PORT:-8082}:8082"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: alarm-service (M6 安防告警, 端口 8009, 依赖 MySQL+Redis+Kafka) ----
+  alarm-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/alarm-service
+        MAIN: alarm.go
+        PORT: 8009
+        CFG: alarm-api.yaml
+    image: onepark/alarm-service:latest
+    container_name: onepark-alarm-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      ALARM_MYSQL_DSN: ${ALARM_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      ALARM_KAFKA_GROUP: ${ALARM_KAFKA_GROUP}
+    ports:
+      - "${ALARM_SERVICE_PORT:-8009}:8009"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8009/"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: dispatch-service (M5/M6 指挥调度, 端口 8053, 依赖 MySQL+Redis) ----
+  dispatch-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/dispatch-service
+        MAIN: dispatch.go
+        PORT: 8053
+        CFG: dispatch-api.yaml
+    image: onepark/dispatch-service:latest
+    container_name: onepark-dispatch-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DISPATCH_MYSQL_DSN: ${DISPATCH_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+    ports:
+      - "${DISPATCH_SERVICE_PORT:-8053}:8053"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8053/"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: leasing-service (M5/M6 运营招商, 端口 8051, 依赖 MySQL+Redis) ----
+  leasing-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/leasing-service
+        MAIN: leasing.go
+        PORT: 8051
+        CFG: leasing-api.yaml
+    image: onepark/leasing-service:latest
+    container_name: onepark-leasing-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      LEASING_MYSQL_DSN: ${LEASING_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+    ports:
+      - "${LEASING_SERVICE_PORT:-8051}:8051"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8051/"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: dashboard-service (M5/M6 运营大屏, 端口 8052, 依赖 MySQL+Redis) ----
+  dashboard-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/dashboard-service
+        MAIN: dashboard.go
+        PORT: 8052
+        CFG: dashboard-api.yaml
+    image: onepark/dashboard-service:latest
+    container_name: onepark-dashboard-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DASHBOARD_MYSQL_DSN: ${DASHBOARD_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+    ports:
+      - "${DASHBOARD_SERVICE_PORT:-8052}:8052"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8052/"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: billing-service (M2/M6 计费, 端口 8063, 依赖 Redis) ----
+  billing-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/billing-service
+        MAIN: billing.go
+        PORT: 8063
+        CFG: billing-api.yaml
+    image: onepark/billing-service:latest
+    container_name: onepark-billing-service
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+    ports:
+      - "${BILLING_SERVICE_PORT:-8063}:8063"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8063/"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
   # ---- 初始化: 将网关上游表发布到 Nacos 配置中心(幂等, 失败不阻断) ----
   nacos-init:
     image: curlimages/curl:latest
@@ -339,8 +541,8 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        for i in $(seq 1 30); do
-          code=$(curl -s -o /dev/null -w "%{http_code}" -u "$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}" "http://nacos:8848/nacos/v1/cs/configs?dataId=gateway-upstreams&group=$${NACOS_GROUP:-DEFAULT_GROUP}")
+        for i in $$(seq 1 30); do
+          code=$$(curl -s -o /dev/null -w "%{http_code}" -u "$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}" "http://nacos:8848/nacos/v1/cs/configs?dataId=gateway-upstreams&group=$${NACOS_GROUP:-DEFAULT_GROUP}")
           if [ "$$code" = "200" ]; then echo "gateway-upstreams already exists"; exit 0; fi
           if curl -s -u "$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}" -X POST "http://nacos:8848/nacos/v1/cs/configs" \
                --data-urlencode "dataId=gateway-upstreams" \

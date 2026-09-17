@@ -6,6 +6,11 @@ Port: 8080
 DefaultTenantId: 1
 DefaultUserId: 0
 
+# 网关统一鉴权密钥: 必须与 auth-service 的 JWT_SECRET 一致(由 compose 注入 AUTH_SECRET).
+# dev/test 默认不启用(见 apigateway.go 中 isLocalMode 判定); prod/pre 强制启用(失败即拒绝启动).
+Auth:
+  Secret: ${AUTH_SECRET}
+
 # 路由前缀 -> 上游服务(最长前缀优先匹配)
 # 说明: /api/workorder 前缀同时覆盖 /api/workorders 与 /api/workorder/:id
 Upstreams:

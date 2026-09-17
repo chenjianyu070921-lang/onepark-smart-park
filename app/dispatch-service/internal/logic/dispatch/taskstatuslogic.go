@@ -17,6 +17,9 @@ import (
 	"onepark/common/errorx"
 )
 
+// errVersionConflict 乐观锁冲突: 更新 affected rows=0, 说明 version 已被他人抢占.
+var errVersionConflict = errors.New("dispatch task version conflict")
+
 // TaskStatusLogic 状态回写: start 开始处理 / finish 完成 / close 关闭.
 type TaskStatusLogic struct {
 	logx.Logger

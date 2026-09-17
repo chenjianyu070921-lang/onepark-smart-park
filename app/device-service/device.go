@@ -19,7 +19,6 @@ import (
 	"onepark/app/device-service/internal/svc"
 	"onepark/common/middleware"
 	devicepb "onepark/proto/device"
-	"onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -46,10 +45,8 @@ func main() {
 	restServer.Use(middleware.IdentityFromHeader)
 	defer restServer.Stop()
 
-	// 全局中间件: 请求ID -> 租户上下文 -> JWT 鉴权(未配置密钥时放行)
+	// 全局中间件: 请求ID -> 下游只透传(网关已校验并注入身份/租户 Header)
 	restServer.Use(middleware.RequestIdMiddleware)
-	restServer.Use(middleware.Tenant)
-	restServer.Use(middleware.JWT(c.JwtSecret))
 
 	handler.RegisterHandlers(restServer, ctx)
 

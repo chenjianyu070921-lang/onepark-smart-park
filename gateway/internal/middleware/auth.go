@@ -34,11 +34,15 @@ func Auth(secret string) func(http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			auth := r.Header.Get("Authorization")
-			if auth == "" {
+			token := strings.TrimPrefix(auth, "Bearer ")
+			if token == "" && strings.HasPrefix(r.URL.Path, "/ws/") {
+				// WebSocket 握手浏览器无法携带 Authorization 头, 仅对 /ws/ 路径允许从 ?token= 读取.
+				token = r.URL.Query().Get("token")
+			}
+			if token == "" {
 				response.Fail(w, errorx.NewError(errorx.ErrUnauthorized, "缺少身份凭证"))
 				return
 			}
-			token := strings.TrimPrefix(auth, "Bearer ")
 			claims, err := jwt.Parse(secret, token)
 			if err != nil || claims.Type != jwt.TypeAccess {
 				response.Fail(w, errorx.NewError(errorx.ErrUnauthorized, "身份凭证无效或已过期"))

@@ -25,6 +25,7 @@ import (
 	"onepark/app/dashboard-service/internal/svc"
 	"onepark/app/dashboard-service/internal/types"
 	"onepark/app/dashboard-service/internal/wshub"
+	"onepark/common/ctxdata"
 	"onepark/common/jwt"
 )
 
@@ -47,25 +48,28 @@ func Handler(hub *wshub.Hub, jwtSecret string) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// M6 网关已就绪: 必须校验 token, 否则任何人可连 WS 获取大屏聚合数据.
-		if jwtSecret == "" {
-			logx.WithContext(r.Context()).Errorf("[ws] jwt secret not configured, refuse ws connection")
-			http.Error(w, "server misconfigured", http.StatusInternalServerError)
-			return
-		}
-		tokenStr := r.URL.Query().Get("token")
-		if tokenStr == "" {
-			http.Error(w, "missing token", http.StatusUnauthorized)
-			return
-		}
-		claims, err := jwt.Parse(jwtSecret, tokenStr)
-		if err != nil {
-			http.Error(w, "invalid token", http.StatusUnauthorized)
-			return
-		}
-		if claims.Type != jwt.TypeAccess {
-			http.Error(w, "refresh token not allowed", http.StatusUnauthorized)
-			return
+		// 收口到网关: 生产环境网关已校验 ?token= 并注入 x-user-id(经 IdentityFromHeader 提升进 ctx);
+		// 直连/本地联调(网关未启用鉴权, 无注入头)时回退到本地 ?token= 校验, 避免大屏裸奔.
+		if ctxdata.GetUserId(r.Context()) == 0 {
+			if jwtSecret == "" {
+				logx.WithContext(r.Context()).Errorf("[ws] jwt secret not configured, refuse ws connection")
+				http.Error(w, "server misconfigured", http.StatusInternalServerError)
+				return
+			}
+			tokenStr := r.URL.Query().Get("token")
+			if tokenStr == "" {
+				http.Error(w, "missing token", http.StatusUnauthorized)
+				return
+			}
+			claims, err := jwt.Parse(jwtSecret, tokenStr)
+			if err != nil {
+				http.Error(w, "invalid token", http.StatusUnauthorized)
+				return
+			}
+			if claims.Type != jwt.TypeAccess {
+				http.Error(w, "refresh token not allowed", http.StatusUnauthorized)
+				return
+			}
 		}
 
 		conn, err := upgrader.Upgrade(w, r, nil)

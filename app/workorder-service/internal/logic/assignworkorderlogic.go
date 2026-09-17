@@ -75,7 +75,7 @@ func (l *AssignWorkOrderLogic) AssignWorkOrder(req *types.AssignWorkOrderReq) (r
 		}
 		if r.RowsAffected == 0 {
 			// 乐观锁冲突: 版本已被其它请求改走, 回滚本次派单.
-			return errorx.NewError(errorx.ErrWorkOrderAssignFailed, "派单冲突, 请刷新后重试")
+			return errorx.NewError(errorx.ErrWorkOrderAssignConflict, "派单冲突, 请刷新后重试")
 		}
 
 		flow := &model.WorkOrderFlow{WorkOrderID: wo.ID, FromStatus: wo.Status, ToStatus: next, Action: state.ActionAssign, OperatorID: operatorID}

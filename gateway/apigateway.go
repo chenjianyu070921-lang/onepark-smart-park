@@ -15,6 +15,7 @@ import (
 	"onepark/gateway/internal/svc"
 
 	"github.com/zeromicro/go-zero/core/conf"
+	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/rest"
 )
 
@@ -30,11 +31,12 @@ func main() {
 
 	gw := ctx.Gateway
 	var notFound http.Handler = gw
-	// 网关统一鉴权(配置开关控制): 启用时校验 Bearer Token 并注入身份 Header,
-	// 未命中白名单且无有效 Token 直接 401; 关闭时退化为默认身份注入(联调模式).
-	if c.Auth.Enabled {
+	// 网关统一鉴权: 本地(dev/test)默认关闭(便于无 token 联调); 非本地(prod/pre 等)强制开启,
+	// 落实"JWT 校验/租户注入收口到网关", 下游业务服务仅透传身份 Header.
+	authEnabled := c.Auth.Enabled || !isLocalMode(c.Mode)
+	if authEnabled {
 		if c.Auth.Secret == "" {
-			log.Fatalf("gateway: Auth.Enabled=true but Auth.Secret is empty (set AUTH_SECRET or Auth.Secret)")
+			log.Fatalf("gateway: 鉴权已启用但 Auth.Secret 为空 (set AUTH_SECRET or Auth.Secret)")
 		}
 		// 全接口强制 JWT: 仅鉴权引导端点(login/refresh/verify)公开, 见 middleware.Auth.
 		notFound = middleware.Auth(c.Auth.Secret)(gw.ServeHTTP)
@@ -44,6 +46,12 @@ func main() {
 	server := rest.MustNewServer(c.RestConf, rest.WithNotFoundHandler(notFound))
 	defer server.Stop()
 
-	fmt.Printf("Starting gateway at %s:%d (auth=%v)...\n", c.Host, c.Port, c.Auth.Enabled)
+	fmt.Printf("Starting gateway at %s:%d (auth=%v)...\n", c.Host, c.Port, authEnabled)
 	server.Start()
+}
+
+// isLocalMode 本地联调(dev/test)返回 true: 网关鉴权在此类环境默认关闭, 便于无 token 联调;
+// 其余环境(prod/pre 等)强制开启, 落实"JWT 校验/租权注入收口到网关".
+func isLocalMode(mode string) bool {
+	return mode == service.DevMode || mode == service.TestMode
 }
