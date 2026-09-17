@@ -18,6 +18,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			{Method: http.MethodGet, Path: "/api/users/:id", Handler: UserDetailHandler(serverCtx)},
 			{Method: http.MethodGet, Path: "/api/users", Handler: UserListHandler(serverCtx)},
 			{Method: http.MethodPost, Path: "/api/roles", Handler: RoleCreateHandler(serverCtx)},
+			{Method: http.MethodGet, Path: "/api/roles", Handler: RoleListHandler(serverCtx)},
 			{Method: http.MethodPost, Path: "/api/users/roles", Handler: RoleAssignHandler(serverCtx)},
 			{Method: http.MethodPost, Path: "/api/menus", Handler: MenuCreateHandler(serverCtx)},
 			{Method: http.MethodPost, Path: "/api/roles/menus", Handler: RoleMenuAssignHandler(serverCtx)},

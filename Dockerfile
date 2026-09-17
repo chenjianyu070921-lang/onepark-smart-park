@@ -28,13 +28,17 @@ RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/app ${MAIN}
 
 # 运行阶段: 精简 alpine, busybox 自带 wget 用于健康检查.
+# 注意: 每个 FROM 阶段都要重新 ARG 声明, 跨阶段不会自动传递.
 FROM alpine:3.20
+ARG SVC_DIR
 ARG PORT
 ARG CFG
 ENV APP_CFG=${CFG}
 RUN apk add --no-cache ca-certificates wget
 WORKDIR /app
 COPY --from=builder /out/app /app/app
+# 防御: 先建空目录, 某些服务可能没有 etc/ 时也不报错
+RUN mkdir -p /app/etc
 COPY --from=builder /src/${SVC_DIR}/etc /app/etc
 EXPOSE ${PORT}
 # 用 shell + exec 形式, 使 ENV 变量生效且 Go 进程成为 PID1(正确接收 SIGTERM 优雅退出).

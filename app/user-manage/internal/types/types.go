@@ -19,6 +19,7 @@ type CreateUserReq struct {
 	Password string `json:"password"`
 	Nickname string `json:"nickname"`
 	Status   int8   `json:"status"`
+	RoleId   uint64 `json:"role_id"`
 }
 
 type CreateUserResp struct {
@@ -57,6 +58,14 @@ type CreateRoleReq struct {
 
 type CreateRoleResp struct {
 	Id uint64 `json:"id"`
+}
+
+type RoleListReq struct {
+}
+
+type RoleListResp struct {
+	List  []RoleInfo `json:"list"`
+	Total int64      `json:"total"`
 }
 
 type AssignRoleReq struct {

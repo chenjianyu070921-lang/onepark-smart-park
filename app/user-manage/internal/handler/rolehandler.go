@@ -42,3 +42,19 @@ func RoleAssignHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		httpx.OkJsonCtx(r.Context(), w, nil)
 	}
 }
+
+func RoleListHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req types.RoleListReq
+		if err := httpx.Parse(r, &req); err != nil {
+			response.Fail(w, errorx.NewError(errorx.ErrBadRequest, err.Error()))
+			return
+		}
+		resp, err := logic.NewRoleListLogic(r.Context(), svcCtx).RoleList(&req)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		httpx.OkJsonCtx(r.Context(), w, resp)
+	}
+}

@@ -56,6 +56,20 @@ func (l *UserCreateLogic) UserCreate(req *types.CreateUserReq) (resp *types.Crea
 		l.Errorf("写入用户失败: %v", ierr)
 		return nil, errorx.NewError(errorx.ErrInternal, "写入用户失败")
 	}
+	// 可选: 创建时内联分配角色(场景: 管理员一次提交 用户名+密码+角色)
+	if req.RoleId != 0 {
+		if _, rerr := l.svcCtx.RoleModel.FindByID(l.ctx, req.RoleId); rerr != nil {
+			if errors.Is(rerr, gorm.ErrRecordNotFound) {
+				return nil, errorx.NewError(errorx.ErrRoleNotFound, "角色不存在")
+			}
+			l.Errorf("查询角色失败: %v", rerr)
+			return nil, errorx.NewError(errorx.ErrInternal, "查询角色失败")
+		}
+		if aerr := l.svcCtx.UserRoleModel.Assign(l.ctx, user.ID, req.RoleId); aerr != nil {
+			l.Errorf("分配角色失败: %v", aerr)
+			return nil, errorx.NewError(errorx.ErrInternal, "分配角色失败")
+		}
+	}
 	return &types.CreateUserResp{Id: user.ID}, nil
 }
 

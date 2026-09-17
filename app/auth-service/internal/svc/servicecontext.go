@@ -16,11 +16,10 @@ type ServiceContext struct {
 	DB         *gormx.DB
 }
 
-// NewServiceContext 构建服务上下文: 校验 JWT 密钥并初始化 sys_db 连接.
+// NewServiceContext 构建服务上下文: 初始化 sys_db 连接.
+// 注: JWT 密钥的空值策略统一由启动期 validateJwtSecret 把关(非本地为空即 fatal, 本地 dev/test 放行),
+// 此处不再重复无条件 panic —— 否则"本地放行"不可达, 即遗留台账 #11 所指的"放行形同虚设".
 func NewServiceContext(c config.Config) *ServiceContext {
-	if c.JwtSecret == "" {
-		panic("auth-service: JWT_SECRET is required, set environment variable JWT_SECRET")
-	}
 	expire := c.JwtExpire
 	if expire <= 0 {
 		expire = 7200

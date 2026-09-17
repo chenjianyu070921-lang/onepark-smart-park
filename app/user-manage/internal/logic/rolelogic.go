@@ -82,3 +82,32 @@ func (l *RoleAssignLogic) RoleAssign(req *types.AssignRoleReq) error {
 	}
 	return nil
 }
+
+// ---- RoleList (角色列表, 前端分配角色时拉取) ----
+type RoleListLogic struct {
+	logx.Logger
+	ctx    context.Context
+	svcCtx *svc.ServiceContext
+}
+
+func NewRoleListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *RoleListLogic {
+	return &RoleListLogic{Logger: logx.WithContext(ctx), ctx: ctx, svcCtx: svcCtx}
+}
+
+func (l *RoleListLogic) RoleList(req *types.RoleListReq) (resp *types.RoleListResp, err error) {
+	list, qerr := l.svcCtx.RoleModel.FindList(l.ctx)
+	if qerr != nil {
+		l.Errorf("查询角色列表失败: %v", qerr)
+		return nil, errorx.NewError(errorx.ErrInternal, "查询角色列表失败")
+	}
+	infos := make([]types.RoleInfo, 0, len(list))
+	for _, r := range list {
+		infos = append(infos, types.RoleInfo{
+			Id:       r.ID,
+			RoleKey:  r.RoleKey,
+			RoleName: r.RoleName,
+			Remark:   r.Remark,
+		})
+	}
+	return &types.RoleListResp{List: infos, Total: int64(len(list))}, nil
+}

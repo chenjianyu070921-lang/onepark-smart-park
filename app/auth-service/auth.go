@@ -9,16 +9,16 @@ import (
 	"onepark/app/auth-service/internal/config"
 	"onepark/app/auth-service/internal/handler"
 	grpcserver "onepark/app/auth-service/internal/server"
-	"onepark/common/middleware"
 	"onepark/app/auth-service/internal/svc"
+	"onepark/common/middlewar
 	"onepark/common/response"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/rest"
-	authpb "onepark/proto/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
+"
 )
 
 var configFile = flag.String("f", "etc/auth-api.yaml", "the config file")
@@ -29,7 +29,7 @@ func main() {
 	var c config.Config
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
 
-	// 启动强校验: 非本地(dev/test)环境下 JwtSecret 必须显式配置, 为空则拒绝启动.
+	// 启动强校验: 非本地环境(prod/pre 等) JwtSecret 为空则 fatal; 本地(dev/test)告警放行以便联调.
 	validateJwtSecret(c)
 
 	// 统一 API 响应体为 {code,msg,data}
@@ -70,12 +70,16 @@ func main() {
 	}
 }
 
-// validateJwtSecret 启动强校验 JWT 密钥: 无论何种环境, 空密钥一律拒绝启动(fail-closed).
-// auth-service 负责签发令牌(login/refresh), 空密钥会导致令牌不可校验、鉴权形同虚设;
-// 故失败即拒绝启动. 本地联调也须设置环境变量 JWT_SECRET(任意 dev 值即可),
-// 与"网关 dev 不强制鉴权、但本服务仍需密钥签发"的设计一致.
+// validateJwtSecret 启动强校验 JWT 密钥(落实遗留台账 #11):
+//   - 非本地环境(prod/pre 等): 为空直接 fatal 拒绝启动, 避免空密钥签发/校验令牌导致鉴权形同虚设;
+//   - 本地环境(dev/test): 为空仅告警并放行, 与"网关鉴权 dev 默认关、本地联调不打扰"保持一致.
 func validateJwtSecret(c config.Config) {
-	if c.JwtSecret == "" {
-		log.Fatalf("auth-service: JwtSecret 为空, 禁止启动; 请配置环境变量 JWT_SECRET")
+	if c.JwtSecret != "" {
+		return
 	}
+	if c.Mode == service.DevMode || c.Mode == service.TestMode {
+		log.Printf("auth-service: [WARN] JwtSecret 为空, mode=%s 本地联调放行; 生产请配置环境变量 JWT_SECRET", c.Mode)
+		return
+	}
+	log.Fatalf("auth-service: JwtSecret 为空, 非本地环境(mode=%s)禁止启动; 请配置环境变量 JWT_SECRET", c.Mode)
 }

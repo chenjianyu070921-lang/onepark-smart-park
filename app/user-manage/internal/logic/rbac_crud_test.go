@@ -88,6 +88,47 @@ func TestRBACCRUD(t *testing.T) {
 	}
 	rid := rresp.Id
 
+	// 5b. RoleList 成功, 应包含刚创建的角色(第 11 个接口)
+	rl, err := NewRoleListLogic(bg, ctx).RoleList(&types.RoleListReq{})
+	if err != nil {
+		t.Fatalf("[RoleList] 成功路径失败: %v", err)
+	}
+	roleFound := false
+	for _, r := range rl.List {
+		if r.Id == rid {
+			roleFound = true
+			break
+		}
+	}
+	if !roleFound {
+		t.Error("[RoleList] 列表中未包含刚创建的角色")
+	}
+
+	// 5c. UserCreate 带 role_id 应内联分配角色(一次提交 用户名+密码+角色)
+	u2, err := NewUserCreateLogic(bg, ctx).UserCreate(&types.CreateUserReq{Username: uname + "_r", Password: "Secret@123", Nickname: "带角色", RoleId: rid})
+	if err != nil {
+		t.Fatalf("[UserCreate+role] 成功路径失败: %v", err)
+	}
+	rIDs, rerr := ctx.UserRoleModel.ListRoleIDs(bg, u2.Id)
+	if rerr != nil {
+		t.Fatalf("[UserCreate+role] 查询用户角色失败: %v", rerr)
+	}
+	hasRole := false
+	for _, r := range rIDs {
+		if r == rid {
+			hasRole = true
+			break
+		}
+	}
+	if !hasRole {
+		t.Error("[UserCreate+role] 未内联分配角色")
+	}
+	ctx.DB.Exec("DELETE FROM sys_user WHERE id = ?", u2.Id)
+	// 5d. UserCreate 带不存在 role_id -> 异常
+	if _, err := NewUserCreateLogic(bg, ctx).UserCreate(&types.CreateUserReq{Username: uname + "_x", Password: "x", RoleId: 999999999}); err == nil {
+		t.Error("[UserCreate+role] 不存在角色应返回错误")
+	}
+
 	// 6. RoleAssign 成功
 	if err := NewRoleAssignLogic(bg, ctx).RoleAssign(&types.AssignRoleReq{UserId: uid, RoleId: rid}); err != nil {
 		t.Fatalf("[RoleAssign] 成功路径失败: %v", err)
