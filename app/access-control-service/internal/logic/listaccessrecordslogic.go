@@ -2,49 +2,74 @@ package logic
 
 import (
 	"context"
+	"strings"
+	"time"
 
 	"onepark/app/access-control-service/internal/model"
 	"onepark/app/access-control-service/internal/svc"
 	"onepark/app/access-control-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
-
-	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// ListAccessRecordsLogic 门禁通行记录分页查询逻辑(支持按点位过滤, 强制租户隔离).
+// ListAccessRecordsLogic 通行记录查询逻辑(docs/m3/04 #48): 分页 + 人员/设备/结果/方式/时间范围筛选.
 type ListAccessRecordsLogic struct {
-	logx.Logger
 	ctx    context.Context
 	svcCtx *svc.ServiceContext
 }
 
 func NewListAccessRecordsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListAccessRecordsLogic {
-	return &ListAccessRecordsLogic{
-		Logger: logx.WithContext(ctx),
-		ctx:    ctx,
-		svcCtx: svcCtx,
-	}
+	return &ListAccessRecordsLogic{ctx: ctx, svcCtx: svcCtx}
 }
 
-// ListAccessRecords 分页返回通行记录列表项(远程开门审计).
-func (l *ListAccessRecordsLogic) ListAccessRecords(req *types.ListAccessRecordsReq) (resp *types.AccessRecordListResp, err error) {
-	// 防御: 部署环境未配置 MySQL 时 svcCtx.DB 为 nil, 提前返回明确错误(M6-E-0005)避免空指针 panic.
-	if l.svcCtx.DB == nil {
-		return nil, errorx.NewError(errorx.ErrInternal, "数据库未初始化")
-	}
+// ListAccessRecords 返回分页通行记录(强制租户隔离, 按 created_at DESC 排序).
+func (l *ListAccessRecordsLogic) ListAccessRecords(req *types.ListAccessRecordsReq) (*types.ListAccessRecordsResp, error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
-
-	// 统一在 WHERE 上追加 tenant_id, 保证 RBAC 行级隔离.
-	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.AccessRecord{}).Where("tenant_id=?", tenantID)
-	if req.GateID != 0 {
-		q = q.Where("gate_id=?", req.GateID)
+	if tenantID == 0 {
+		return nil, errorx.NewError(errorx.ErrAccessParamInvalid, "缺少租户信息(x-tenant-id)")
+	}
+	if l.svcCtx.Records == nil {
+		return nil, errorx.NewError(errorx.ErrDepConnect, "通行记录存储未就绪(MySQL 未配置)")
 	}
 
-	var total int64
-	if e := q.Count(&total).Error; e != nil {
-		l.Errorf("count access records failed: %v", e)
-		return nil, errorx.NewError(errorx.ErrAccessRecord, "统计通行记录失败")
+	f := model.AccessRecordFilter{
+		TenantID: tenantID,
+		PersonID: req.PersonId,
+		Page:     int(req.Page),
+		PageSize: int(req.PageSize),
+	}
+	if req.DeviceId != "" {
+		f.DeviceID = strings.TrimSpace(req.DeviceId)
+	}
+	// Result 不传时 int8 零值是 0(失败), 与"查失败记录"同义不可区分 —— 规定: <0 表示不筛选.
+	if req.Result >= 0 {
+		if req.Result != model.AccessResultFail && req.Result != model.AccessResultSuccess {
+			return nil, errorx.NewError(errorx.ErrAccessParamInvalid, "result 仅支持 0(失败)/1(成功)")
+		}
+		result := req.Result
+		f.Result = &result
+	}
+	if req.OpenType != "" {
+		if !isKnownOpenType(req.OpenType) {
+			return nil, errorx.NewError(errorx.ErrAccessParamInvalid, "open_type 仅支持 card/face/remote/qrcode")
+		}
+		f.OpenType = req.OpenType
+	}
+	if req.StartTime > 0 {
+		start := time.Unix(req.StartTime, 0)
+		f.StartTime = &start
+	}
+	if req.EndTime > 0 {
+		end := time.Unix(req.EndTime, 0)
+		f.EndTime = &end
+	}
+	if f.StartTime != nil && f.EndTime != nil && f.EndTime.Before(*f.StartTime) {
+		return nil, errorx.NewError(errorx.ErrAccessParamInvalid, "end_time 不能早于 start_time")
+	}
+
+	list, total, err := l.svcCtx.Records.List(l.ctx, f)
+	if err != nil {
+		return nil, errorx.NewError(errorx.ErrAccessRecord, "查询通行记录失败")
 	}
 
 	page, size := req.Page, req.PageSize
@@ -55,25 +80,27 @@ func (l *ListAccessRecordsLogic) ListAccessRecords(req *types.ListAccessRecordsR
 		size = 10
 	}
 
-	var list []model.AccessRecord
-	if e := q.Order("id DESC").Offset(int((page - 1) * size)).Limit(int(size)).Find(&list).Error; e != nil {
-		l.Errorf("list access records failed: %v", e)
-		return nil, errorx.NewError(errorx.ErrAccessRecord, "查询通行记录失败")
-	}
-
 	items := make([]types.AccessRecordItem, 0, len(list))
 	for _, r := range list {
 		items = append(items, types.AccessRecordItem{
 			Id:         r.ID,
-			GateID:     r.GateID,
-			DeviceID:   r.DeviceID,
-			Action:     r.Action,
+			PersonId:   r.PersonID,
+			DeviceId:   r.DeviceID,
 			Result:     r.Result,
-			OperatorID: r.OperatorID,
-			Remark:     r.Remark,
+			OpenType:   r.OpenType,
+			FailReason: r.FailReason,
 			CreatedAt:  r.CreatedAt.Unix(),
 		})
 	}
+	return &types.ListAccessRecordsResp{Total: total, Page: page, PageSize: size, List: items}, nil
+}
 
-	return &types.AccessRecordListResp{Total: total, List: items}, nil
+// isKnownOpenType 判定开门方式取值是否合法(§2.2 定义四种).
+func isKnownOpenType(t string) bool {
+	switch t {
+	case model.OpenTypeCard, model.OpenTypeFace, model.OpenTypeRemote, model.OpenTypeQRCode:
+		return true
+	default:
+		return false
+	}
 }

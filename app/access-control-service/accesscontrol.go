@@ -18,19 +18,18 @@ var configFile = flag.String("f", "etc/accesscontrol-api.yaml", "the config file
 func main() {
 	flag.Parse()
 
-	// yaml 中 ${VAR} 占位由环境变量展开(M2 各服务同款); 不调用则占位符按字面量处理.
-	conf.UseEnv()
-
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
+	// conf.UseEnv() 必填: go-zero 的 ${VAR} 环境变量展开默认是关闭的, 不启用则占位符是死字符串.
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()
 
-	// 全链路 RequestId 透传 + 开发环境跨域 + 租户上下文注入(RBAC 行级隔离依赖 x-tenant-id).
+	// 全链路 RequestId 透传 + 开发环境跨域
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
-	server.Use(middleware.Tenant)
+	// 网关注入的租户/操作人身份写入 context(远程开门需要 operator_id 落审计)
+	server.Use(middleware.ContextMiddleware)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
