@@ -87,6 +87,33 @@ type WorkOrderListResp {
 	List  []WorkOrderItem `json:"list"` // 当前页数据
 }
 
+// ---- 工单附件上传 (P2) ----
+type UploadWorkOrderAttachmentReq {
+	Id   int64                `path:"id"`       // 工单ID(路径参数)
+	File multipart.FileHeader `form:"file"`     // 上传文件(表单字段 file)
+}
+
+type UploadWorkOrderAttachmentResp {
+	AttachmentId int64  `json:"attachment_id"` // 附件记录ID
+	ObjectKey    string `json:"object_key"`    // MinIO 对象Key
+	FileName     string `json:"file_name"`     // 原始文件名
+}
+
+type ListWorkOrderAttachmentsReq {
+	Id int64 `path:"id"` // 工单ID(路径参数)
+}
+
+type WorkOrderAttachmentItem {
+	Id        int64  `json:"id"`         // 附件记录ID
+	ObjectKey string `json:"object_key"` // MinIO 对象Key
+	FileName  string `json:"file_name"`  // 原始文件名
+	CreatedAt int64  `json:"created_at"` // 上传时间(秒级时间戳)
+}
+
+type WorkOrderAttachmentListResp {
+	List []WorkOrderAttachmentItem `json:"list"`
+}
+
 service workorder-api {
 	@handler CreateWorkOrder
 	post /api/workorder (CreateWorkOrderReq) returns (WorkOrderResp)
@@ -102,5 +129,11 @@ service workorder-api {
 
 	@handler ListWorkOrders
 	get /api/workorders (ListWorkOrderReq) returns (WorkOrderListResp)
+
+	@handler UploadWorkOrderAttachment
+	post /api/workorder/:id/attachment (UploadWorkOrderAttachmentReq) returns (UploadWorkOrderAttachmentResp)
+
+	@handler ListWorkOrderAttachments
+	get /api/workorder/:id/attachments (ListWorkOrderAttachmentsReq) returns (WorkOrderAttachmentListResp)
 }
 

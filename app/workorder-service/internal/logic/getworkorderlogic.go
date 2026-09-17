@@ -9,6 +9,7 @@ import (
 	"onepark/app/workorder-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/rbac"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -40,6 +41,17 @@ func (l *GetWorkOrderLogic) GetWorkOrder(req *types.IdReq) (resp *types.WorkOrde
 		}
 		l.Errorf("load work order failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "加载工单失败")
+	}
+
+	// RBAC 行级隔离: 受限角色(维修/业主)仅能查看与自己关联的工单(接单人/报修人),
+	// 否则按"不存在"返回, 避免越权探测工单存在性.
+	uid := ctxdata.GetUserId(l.ctx)
+	roles := rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))
+	if !rbac.IsFullScope(roles) {
+		own := (wo.AssigneeID == uid) || (wo.ReporterID == uid)
+		if !own {
+			return nil, errorx.NewError(errorx.ErrWorkOrderNotFound, "工单不存在")
+		}
 	}
 
 	return &types.WorkOrderDetailResp{

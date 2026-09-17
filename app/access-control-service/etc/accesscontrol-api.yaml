@@ -2,8 +2,18 @@ Name: accesscontrol-api
 Host: 0.0.0.0
 Port: 8010
 
-# Redis 连接配置 (Day2 预留占位, 门禁权限缓存业务尚未接入)
+# MySQL 连接配置 (门禁点位/通行记录; DSN 由环境变量注入, 缺省时 DB 不初始化, 接口返回明确错误)
+MySQL:
+  DataSource: ${ACCESSCONTROL_MYSQL_DSN}
+
+# Redis 连接配置 (门禁权限缓存, 预留)
 Redis:
-  Host: ${REDIS_ADDR}
-  Type: node
+  Addr: ${REDIS_ADDR}
   Pass: ${REDIS_PASS}
+  DB: 0
+
+# M1 device-service gRPC(远程开门 SendCommand); NonBlock 允许 M1 未就绪时启动, 调用失败返回明确错误
+DeviceRPC:
+  Endpoints:
+    - 127.0.0.1:9001
+  NonBlock: true

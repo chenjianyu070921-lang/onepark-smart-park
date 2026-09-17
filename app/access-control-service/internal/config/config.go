@@ -1,26 +1,24 @@
 package config
 
 import (
-	"github.com/zeromicro/go-zero/core/stores/redis"
+	"onepark/common/gormx"
+	"onepark/common/redisx"
+
 	"github.com/zeromicro/go-zero/rest"
+	"github.com/zeromicro/go-zero/zrpc"
 )
 
 // Config 服务配置 (M3 首个落地者, 见 KI-4).
-// Day2 各中间件均为可选: 未接入前 yaml 不配置对应段落也能启动(见 P0-6 三服务同时启动验收).
+// P0 门禁基础逻辑接入 MySQL(GORM) 与 M1 device-service gRPC(远程开门);
+// Kafka/ES/Nacos 仍为可选占位, 未配置不影响启动.
 type Config struct {
 	rest.RestConf
-	Redis redis.RedisConf `json:",optional"`
-	MySQL MySQLConf       `json:",optional"`
-	Kafka KafkaConf       `json:",optional"`
-	ES    ESConf          `json:",optional"`
-	Nacos NacosConf       `json:",optional"`
-}
-
-// MySQLConf GORM 数据源配置 (Day3 落地 model 层).
-type MySQLConf struct {
-	DataSource string `json:",default="`
-	MaxIdle    int    `json:",default=10"`
-	MaxOpen    int    `json:",default=100"`
+	MySQL     gormx.MySQLConf    `json:",optional"` // GORM 数据源(门禁点位/通行记录)
+	Redis     redisx.RedisConf   `json:",optional"` // Redis(门禁权限缓存, 预留)
+	DeviceRPC zrpc.RpcClientConf `json:",optional"` // M1 device-service gRPC(远程开门 SendCommand)
+	Kafka     KafkaConf          `json:",optional"` // Kafka 生产/消费配置 (Day6 接入)
+	ES        ESConf             `json:",optional"` // Elasticsearch 配置 (Day13 接入)
+	Nacos     NacosConf          `json:",optional"` // 注册/配置中心 (可选)
 }
 
 // KafkaConf Kafka 生产/消费配置 (Day6 接入).
@@ -32,8 +30,8 @@ type KafkaConf struct {
 // ESConf Elasticsearch 配置 (Day13 接入).
 type ESConf struct {
 	Addresses []string `json:",default=[]"`
-	Username  string   `json:",default="`
-	Password  string   `json:",default=""`
+	Username  string   `json:",optional"`
+	Password  string   `json:",optional"`
 }
 
 // NacosConf 注册/配置中心 (可选).

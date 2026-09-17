@@ -11,6 +11,7 @@ import (
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 	"onepark/common/gormx"
+	"onepark/common/rbac"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -46,6 +47,15 @@ func (l *UpdateWorkOrderStatusLogic) UpdateWorkOrderStatus(req *types.UpdateWork
 		}
 		l.Errorf("load work order failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "加载工单失败")
+	}
+
+	// RBAC 写权限: 维修仅能操作自己接的单, 业主仅能操作自己报的单; 全量角色不受限.
+	roles := rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))
+	if rbac.HasRole(roles, rbac.RoleRepair) && wo.AssigneeID != operatorID {
+		return nil, errorx.NewError(errorx.ErrForbidden, "仅能操作自己接的单")
+	}
+	if rbac.HasRole(roles, rbac.RoleOwner) && wo.ReporterID != operatorID {
+		return nil, errorx.NewError(errorx.ErrForbidden, "仅能操作自己报的单")
 	}
 
 	// FSM 校验目标状态.
