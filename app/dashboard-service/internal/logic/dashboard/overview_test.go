@@ -101,7 +101,8 @@ func okStubs() (*stubWorkOrder, *stubAlarm, *stubDevice, *stubEnergy) {
 			CompleteRate: 0.75,
 		}},
 		&stubAlarm{stat: provider.AlarmStat{Total: 6, Critical: 1, Major: 2, Minor: 2, Info: 1}},
-		&stubDevice{stat: provider.DeviceStat{Total: 1263, Online: 1240, Offline: 23}},
+		// device.status 有三个取值, 三项分之和需等于总数(1240+12+11=1263)
+		&stubDevice{stat: provider.DeviceStat{Total: 1263, Online: 1240, Offline: 12, Fault: 11}},
 		&stubEnergy{stat: provider.EnergyStat{TotalKwh: 12483.5, TotalWater: &water}}
 }
 
@@ -136,8 +137,12 @@ func TestOverview_AllSourcesOK(t *testing.T) {
 	if resp.WorkOrder.AvgHandleSec == nil || *resp.WorkOrder.AvgHandleSec != 3600.5 {
 		t.Errorf("AvgHandleSec 应为 3600.5: %+v", resp.WorkOrder.AvgHandleSec)
 	}
-	if resp.Device.Online != 1240 || resp.Device.Offline != 23 {
+	if resp.Device.Online != 1240 || resp.Device.Offline != 12 || resp.Device.Fault != 11 {
 		t.Errorf("设备卡片数值不符: %+v", resp.Device)
+	}
+	// 设备三项分之和必须等于总数, 否则大屏上"总数与状态分项对不上"
+	if sum := resp.Device.Online + resp.Device.Offline + resp.Device.Fault; sum != resp.Device.Total {
+		t.Errorf("设备分项之和 %d != total %d", sum, resp.Device.Total)
 	}
 	if resp.Alarm.Critical != 1 || resp.Alarm.Major != 2 || resp.Alarm.Minor != 2 || resp.Alarm.Info != 1 {
 		t.Errorf("告警卡片数值不符: %+v", resp.Alarm)

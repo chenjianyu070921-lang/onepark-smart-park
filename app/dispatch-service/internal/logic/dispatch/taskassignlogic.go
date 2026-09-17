@@ -74,7 +74,7 @@ func (l *TaskAssignLogic) TaskAssign(req *types.TaskAssignReq) (*types.TaskAssig
 		return nil, errorx.NewError(errorx.ErrBadRequest, "处理人不能为空")
 	}
 
-	expireAt := time.Now().Add(assignExpireWindow)
+	expireAt := time.Now().Add(model.AssignExpireWindow)
 	res := l.svcCtx.DB.WithContext(l.ctx).Model(&model.DispatchTask{}).
 		Where("id = ? AND version = ?", task.Id, task.Version).
 		Updates(map[string]interface{}{
@@ -82,7 +82,12 @@ func (l *TaskAssignLogic) TaskAssign(req *types.TaskAssignReq) (*types.TaskAssig
 			"assignee_name":    assigneeName,
 			"status":           to,
 			"assign_expire_at": expireAt,
-			"version":          gorm.Expr("version+1"),
+			// 人工/接口指派视为「重新开始一轮」, 把自动重派额度还给这张单。
+			// 不重置的话会出现: 被自动重派 3 次 -> 释放 -> 人工再指派 -> 又超时
+			// -> 因为计数仍为 3 而立刻被再次释放, 人刚指派的对象连一个接单窗口都拿不到。
+			// 注意: cron 的自动改派走 reassignTask, 那边是 reassign_count+1, 不受此处影响。
+			"reassign_count": 0,
+			"version":        gorm.Expr("version+1"),
 		})
 	if res.Error != nil {
 		l.Errorf("[dispatch] assign task failed: %v", res.Error)
@@ -109,20 +114,11 @@ func (l *TaskAssignLogic) TaskAssign(req *types.TaskAssignReq) (*types.TaskAssig
 //
 // 指派决策必须可解释: 打分依据会写进日志, 便于事后追溯"为什么派给了他"。
 func (l *TaskAssignLogic) pickAutoAssignee(task *model.DispatchTask) (assign.Candidate, bool, error) {
-	candidates, err := assign.LoadStaffCandidates(l.ctx, l.svcCtx.DB)
+	// 候选池载入与超时重派共用同一份实现(internal/assign/pool.go), 避免两处逻辑漂移
+	candidates, pool, err := assign.Pool(l.ctx, l.svcCtx.DB)
 	if err != nil {
-		l.Errorf("[dispatch] load staff candidates failed: %v", err)
+		l.Errorf("[dispatch] load candidates failed: %v", err)
 		return assign.Candidate{}, false, errorx.NewError(errorx.ErrInternal, "加载候选处理人失败")
-	}
-
-	pool := "staff"
-	if len(candidates) == 0 {
-		pool = "history"
-		candidates, err = assign.LoadCandidates(l.ctx, l.svcCtx.DB)
-		if err != nil {
-			l.Errorf("[dispatch] load history candidates failed: %v", err)
-			return assign.Candidate{}, false, errorx.NewError(errorx.ErrInternal, "加载候选处理人失败")
-		}
 	}
 
 	best, found := assign.Pick(task.ZoneCode, task.RequiredSkill, candidates)

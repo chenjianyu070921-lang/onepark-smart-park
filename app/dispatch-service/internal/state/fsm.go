@@ -9,10 +9,14 @@ import "onepark/app/dispatch-service/internal/model"
 // 工单动作.
 const (
 	ActionCreate = "create" // 建单: -> 待指派
-	ActionAssign = "assign" // 指派: 待指派/已指派 -> 已指派
-	ActionStart  = "start"  // 开始处理: 已指派 -> 处理中
-	ActionFinish = "finish" // 完成: 处理中 -> 已完成
-	ActionClose  = "close"  // 关闭: 任意非终态 -> 已关闭
+	ActionAssign = "assign" // 指派: 待指派/已指派 -> 已指派(含超时自动改派)
+	// ActionRelease 释放: 已指派 -> 待指派。
+	// 用于「指派超时且无人可接管」或「重派次数达上限」——把工单放回待指派池交人工处理。
+	// 为什么需要它: 若一直挂在「已指派」, 工单会永久卡住且不会出现在任何待办列表里。
+	ActionRelease = "release"
+	ActionStart   = "start"  // 开始处理: 已指派 -> 处理中
+	ActionFinish  = "finish" // 完成: 处理中 -> 已完成
+	ActionClose   = "close"  // 关闭: 任意非终态 -> 已关闭
 )
 
 // transitions 合法状态转移表: from -> action -> to.
@@ -22,9 +26,10 @@ var transitions = map[int8]map[string]int8{
 		ActionClose:  model.StatusClosed,
 	},
 	model.StatusAssigned: {
-		ActionAssign: model.StatusAssigned, // 改派
-		ActionStart:  model.StatusProcessing,
-		ActionClose:  model.StatusClosed,
+		ActionAssign:  model.StatusAssigned,      // 改派(含超时自动重派)
+		ActionRelease: model.StatusPendingAssign, // 释放回待指派池(见 ActionRelease 注释)
+		ActionStart:   model.StatusProcessing,
+		ActionClose:   model.StatusClosed,
 	},
 	model.StatusProcessing: {
 		ActionFinish: model.StatusCompleted,

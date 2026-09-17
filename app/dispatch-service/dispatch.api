@@ -21,8 +21,12 @@ type (
 		AssigneeId    int64  `json:"assignee_id"`
 		AssigneeName  string `json:"assignee_name"`
 		Description   string `json:"description"`
-		CreatedAt     int64  `json:"created_at"`
-		UpdatedAt     int64  `json:"updated_at"`
+		// AssignExpireAt 指派超时时刻(秒级时间戳); null 表示当前没有待接单的指派窗口
+		AssignExpireAt *int64 `json:"assign_expire_at"`
+		// ReassignCount 已被 cron 自动重派的次数; 达上限后会被释放回「待指派」
+		ReassignCount int64 `json:"reassign_count"`
+		CreatedAt     int64 `json:"created_at"`
+		UpdatedAt     int64 `json:"updated_at"`
 	}
 	// ==================== 创建调度工单 ====================
 	TaskCreateReq {

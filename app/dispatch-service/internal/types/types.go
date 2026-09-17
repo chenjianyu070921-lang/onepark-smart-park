@@ -4,20 +4,22 @@
 package types
 
 type DispatchTask struct {
-	Id            int64  `json:"id"`
-	TaskNo        string `json:"task_no"`
-	Title         string `json:"title"`
-	Source        int32  `json:"source"`         // 1 人工创建 2 告警自动创建
-	AlarmId       string `json:"alarm_id"`       // 来源告警 ID(自动创建时非空)
-	ZoneCode      string `json:"zone_code"`      // 事发区域, 用于就近指派
-	RequiredSkill string `json:"required_skill"` // 所需技能标签, 空表示不限
-	Priority      int32  `json:"priority"`       // 1 紧急 2 高 3 普通
-	Status        int32  `json:"status"`         // 1 待指派 2 已指派 3 处理中 4 已完成 5 已关闭
-	AssigneeId    int64  `json:"assignee_id"`
-	AssigneeName  string `json:"assignee_name"`
-	Description   string `json:"description"`
-	CreatedAt     int64  `json:"created_at"`
-	UpdatedAt     int64  `json:"updated_at"`
+	Id             int64  `json:"id"`
+	TaskNo         string `json:"task_no"`
+	Title          string `json:"title"`
+	Source         int32  `json:"source"`         // 1 人工创建 2 告警自动创建
+	AlarmId        string `json:"alarm_id"`       // 来源告警 ID(自动创建时非空)
+	ZoneCode       string `json:"zone_code"`      // 事发区域, 用于就近指派
+	RequiredSkill  string `json:"required_skill"` // 所需技能标签, 空表示不限
+	Priority       int32  `json:"priority"`       // 1 紧急 2 高 3 普通
+	Status         int32  `json:"status"`         // 1 待指派 2 已指派 3 处理中 4 已完成 5 已关闭
+	AssigneeId     int64  `json:"assignee_id"`
+	AssigneeName   string `json:"assignee_name"`
+	Description    string `json:"description"`
+	AssignExpireAt *int64 `json:"assign_expire_at"`
+	ReassignCount  int64  `json:"reassign_count"`
+	CreatedAt      int64  `json:"created_at"`
+	UpdatedAt      int64  `json:"updated_at"`
 }
 
 type StaffItem struct {

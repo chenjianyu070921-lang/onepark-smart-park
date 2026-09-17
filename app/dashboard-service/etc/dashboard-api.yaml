@@ -21,6 +21,14 @@ Redis:
 # NonBlock=true: 上游未启动时不阻塞本服务启动, 调用失败由聚合层逐源降级为 null。
 # 未配置的那一路会自动退化为降级占位, 不会导致启动失败。
 
+# M1 device-service 设备卡片 (app/device-service/etc/device-api.yaml: Rpc.ListenOn 0.0.0.0:9001)
+# 注意: 该服务的 REST(8001) 与 gRPC(9001) 由同一个进程启动, 这里连的是 gRPC 口。
+Device:
+  Endpoints:
+    - 127.0.0.1:9001
+  NonBlock: true
+  Timeout: 600
+
 # M2 workorder-service 工单卡片 (app/workorder-service/etc/workorder-grpc.yaml)
 Workorder:
   Endpoints:
