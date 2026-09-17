@@ -30,3 +30,15 @@ jobs:
             echo "== build $d =="
             (cd "$d" && go build ./...) || exit 1
           done
+
+  # M6-P2: 明文密钥/硬编码凭据扫描. 默认仅扫描 PR/push 的增量 diff, 不翻历史, 避免误伤 docs 示例.
+  secret-scan:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

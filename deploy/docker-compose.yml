@@ -217,7 +217,8 @@ services:
     networks: [onepark]
     healthcheck:
       # go-zero rest 无内置 /ping, 探测根路径(服务监听即返回 HTTP 响应)作为存活探针.
-      test: ["CMD", "wget", "-qO-", "http://localhost:8001/"]
+      # 连接级探活: go-zero rest 未注册 "/" 路由(返回 404), 用 TCP 连通性判存活, 避免 wget 因 404 误判不健康.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8001 && exit 0 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -247,7 +248,7 @@ services:
       - "${USER_MANAGE_PORT:-8086}:8086"
     networks: [onepark]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8086/"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8086 && exit 0 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -303,7 +304,7 @@ services:
       - "${GATEWAY_PORT:-8080}:8080"
     networks: [onepark]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && exit 0 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -333,7 +334,7 @@ services:
       - "${AUTH_SERVICE_PORT:-8088}:8088"
     networks: [onepark]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8088/"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8088 && exit 0 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -367,7 +368,7 @@ services:
       - "${WORKORDER_SERVICE_PORT:-8082}:8082"
     networks: [onepark]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8082/"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8082 && exit 0 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -402,7 +403,7 @@ services:
       - "${ALARM_SERVICE_PORT:-8009}:8009"
     networks: [onepark]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8009/"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8009 && exit 0 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -433,7 +434,7 @@ services:
       - "${DISPATCH_SERVICE_PORT:-8053}:8053"
     networks: [onepark]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8053/"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8053 && exit 0 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -464,7 +465,7 @@ services:
       - "${LEASING_SERVICE_PORT:-8051}:8051"
     networks: [onepark]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8051/"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8051 && exit 0 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -495,7 +496,7 @@ services:
       - "${DASHBOARD_SERVICE_PORT:-8052}:8052"
     networks: [onepark]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8052/"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8052 && exit 0 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -523,7 +524,7 @@ services:
       - "${BILLING_SERVICE_PORT:-8063}:8063"
     networks: [onepark]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8063/"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8063 && exit 0 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20

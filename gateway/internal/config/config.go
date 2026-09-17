@@ -41,5 +41,5 @@ type AuthConf struct {
 // UpstreamConf 单条上游路由配置.
 type UpstreamConf struct {
 	Prefix string // 路径前缀, 如 /api/workorder
-	Target string // 上游基址, 如 http://127.0.0.1:8091
+	Target string // 上游基址, 如 http://127.0.0.1:8082
 }

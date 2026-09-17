@@ -10,15 +10,16 @@ import (
 	"onepark/app/auth-service/internal/handler"
 	grpcserver "onepark/app/auth-service/internal/server"
 	"onepark/app/auth-service/internal/svc"
-	"onepark/common/middlewar
+	"onepark/common/middleware"
 	"onepark/common/response"
+
+	authpb "onepark/proto/auth"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/rest"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
-"
 )
 
 var configFile = flag.String("f", "etc/auth-api.yaml", "the config file")
