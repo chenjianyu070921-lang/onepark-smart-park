@@ -2,6 +2,16 @@ Name: video-api
 Host: 0.0.0.0
 Port: 8011
 
+# MySQL 连接配置 (video_db, DSN 由环境变量注入; 未配置时降级为不落库)
+MySQL:
+  DataSource: ${VIDEO_MYSQL_DSN}
+
+# 视频流下发配置 (#51): M3 只下发地址, 不转码/推流
+# FlvBaseURL 未配置时只返回 RTSP 地址(不编造不可用的 FLV 地址)
+Stream:
+  FlvBaseURL: ${VIDEO_FLV_BASE_URL}
+  ExpiresSeconds: 3600
+
 # Redis 连接配置 (Day2 预留占位, 摄像头状态缓存业务尚未接入)
 Redis:
   Host: ${REDIS_ADDR}

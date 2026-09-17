@@ -1,15 +1,82 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+// video-service 视频服务 API 契约
+// 对齐 docs/m3/04-接口与数据契约.md §1.3:
+//   #49 POST /api/video/camera         添加摄像头
+//   #50 GET  /api/video/cameras        摄像头列表 + 在线状态
+//   #51 GET  /api/video/stream/:id     获取视频流地址
+// 统一响应体见 common/response {code,msg,data}, 成功 code="0"; 各 handler 通过 response.Ok/Fail 回包.
+// 说明: M3 只管理摄像头元数据与流地址下发, 不实现转码/推流(docs/m3/11).
+
+// Location 摄像头位置
+type Location {
+	Lng   float64 `json:"lng"`           // 经度
+	Lat   float64 `json:"lat"`           // 纬度
+	Floor string  `json:"floor,optional"` // 楼层
 }
 
-type Response {
-	Message string `json:"message"`
+// AddCameraReq 添加摄像头请求(#49)
+type AddCameraReq {
+	Name     string    `json:"name"`               // 摄像头名称
+	DeviceId string    `json:"device_id"`          // 关联 M1 设备ID(租户内唯一)
+	AreaId   int64     `json:"area_id,optional"`   // 区域ID
+	RtspUrl  string    `json:"rtsp_url"`           // RTSP 拉流地址
+	Location *Location `json:"location,optional"`  // 位置信息
+	Status   int8      `json:"status,optional"`    // 1在线/0离线/2故障, 默认 0 离线
+}
+
+// AddCameraResp 添加摄像头响应
+type AddCameraResp {
+	Id int64 `json:"id"` // 新建摄像头ID
+}
+
+// CameraItem 摄像头列表项(#50)
+type CameraItem {
+	Id              int64  `json:"id"`
+	Name            string `json:"name"`
+	DeviceId        string `json:"device_id"`
+	AreaId          int64  `json:"area_id"`
+	Status          int8   `json:"status"`            // 1在线/0离线/2故障
+	LastHeartbeatAt int64  `json:"last_heartbeat_at"` // 最近心跳(秒级时间戳, 0表示从未上报)
+	CreatedAt       int64  `json:"created_at"`
+}
+
+// ListCamerasReq 摄像头列表请求
+type ListCamerasReq {
+	AreaId   int64 `form:"area_id,optional"` // 区域筛选, 0表示全部
+	Status   int8  `form:"status,optional"`  // 状态筛选: -1或不传表示全部
+	Page     int64 `form:"page"`
+	PageSize int64 `form:"page_size"`
+}
+
+// ListCamerasResp 摄像头分页列表响应
+type ListCamerasResp {
+	Total    int64        `json:"total"`
+	Page     int64        `json:"page"`
+	PageSize int64        `json:"page_size"`
+	List     []CameraItem `json:"list"`
+}
+
+// IdReq 按ID查询请求
+type IdReq {
+	Id int64 `path:"id"` // 摄像头ID(路径参数)
+}
+
+// StreamResp 视频流地址响应(#51)
+type StreamResp {
+	CameraId  int64  `json:"camera_id"`
+	RtspUrl   string `json:"rtsp_url"`
+	FlvUrl    string `json:"flv_url"`     // 未配置流媒体服务时为空串
+	ExpiresAt int64  `json:"expires_at"`  // 有效期截止(秒级时间戳)
 }
 
 service video-api {
-	@handler VideoHandler
-	get /from/:name (Request) returns (Response)
-}
+	@handler AddCamera
+	post /api/video/camera (AddCameraReq) returns (AddCameraResp)
 
+	@handler ListCameras
+	get /api/video/cameras (ListCamerasReq) returns (ListCamerasResp)
+
+	@handler GetStream
+	get /api/video/stream/:id (IdReq) returns (StreamResp)
+}

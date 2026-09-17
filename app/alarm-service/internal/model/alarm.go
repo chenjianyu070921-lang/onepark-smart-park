@@ -22,15 +22,20 @@ type BaseModel struct {
 // Alarm 告警记录表(alarm_db.alarm).
 type Alarm struct {
 	BaseModel
-	AlarmNo   string     `gorm:"column:alarm_no;type:varchar(32);not null;uniqueIndex" json:"alarm_no"`
-	RuleID    int64      `gorm:"column:rule_id;not null;default:0" json:"rule_id"`
-	DeviceID  string     `gorm:"column:device_id;type:varchar(64);not null;default:''" json:"device_id"`
-	AreaID    int64      `gorm:"column:area_id;not null;default:0" json:"area_id"`
-	EventType string     `gorm:"column:event_type;type:varchar(32);not null;default:''" json:"event_type"`
-	Level     int8       `gorm:"column:level;not null;default:2" json:"level"`
-	Status    int8       `gorm:"column:status;not null;default:0" json:"status"`
+	AlarmNo string `gorm:"column:alarm_no;type:varchar(32);not null;uniqueIndex" json:"alarm_no"`
+	// RuleID 与 RequestID 组成复合唯一索引 uk_request_rule: 同一事件命中多条规则时各生成一条告警,
+	// 互不被去重; 同一事件 + 同一规则重复上报才被拦截(L3).
+	RuleID    int64  `gorm:"column:rule_id;not null;default:0;uniqueIndex:uk_request_rule,priority:1" json:"rule_id"`
+	DeviceID  string `gorm:"column:device_id;type:varchar(64);not null;default:''" json:"device_id"`
+	AreaID    int64  `gorm:"column:area_id;not null;default:0" json:"area_id"`
+	EventType string `gorm:"column:event_type;type:varchar(32);not null;default:''" json:"event_type"`
+	// Level/Status 不设 default 标签: GORM 创建时会跳过带 default 的零值字段,
+	// 若依赖列默认值, status=0(未处理)/level=0 都可能在换库改默认值时静默写错.
+	// 列默认值仅作为直接 SQL 插入的兜底, 应用层必须显式提供这两个字段.
+	Level     int8       `gorm:"column:level;not null" json:"level"`
+	Status    int8       `gorm:"column:status;not null" json:"status"`
 	Content   string     `gorm:"column:content;type:varchar(512);not null;default:''" json:"content"`
-	RequestID string     `gorm:"column:request_id;type:varchar(64);not null;uniqueIndex" json:"request_id"`
+	RequestID string     `gorm:"column:request_id;type:varchar(64);not null;uniqueIndex:uk_request_rule,priority:2" json:"request_id"`
 	AckBy     int64      `gorm:"column:ack_by;not null;default:0" json:"ack_by"`
 	AckAt     *time.Time `gorm:"column:ack_at" json:"ack_at"`
 	ResolveBy int64      `gorm:"column:resolve_by;not null;default:0" json:"resolve_by"`
@@ -50,8 +55,10 @@ type AlarmRule struct {
 	RuleType      string `gorm:"column:rule_type;type:varchar(16);not null;default:threshold" json:"rule_type"`
 	Conditions    string `gorm:"column:conditions;type:json" json:"conditions"`
 	WindowSeconds int    `gorm:"column:window_seconds;not null;default:0" json:"window_seconds"`
-	Level         int8   `gorm:"column:level;not null;default:2" json:"level"`
-	Status        int8   `gorm:"column:status;not null;default:1" json:"status"`
+	// Level/Status 同样不可加 default 标签: 否则 status=0(禁用)会被 GORM 当作零值跳过,
+	// 取列默认值 1(启用) —— 规则禁用功能会静默失效(与 access_record.result 同一陷阱).
+	Level  int8 `gorm:"column:level;not null" json:"level"`
+	Status int8 `gorm:"column:status;not null" json:"status"`
 }
 
 // TableName 指定告警规则表名.

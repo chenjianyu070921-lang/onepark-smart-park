@@ -1,19 +1,32 @@
 syntax = "v1"
 
 // alarm-service 安防告警服务 API 契约
-// 对齐 docs/m3/04-接口与数据契约.md §1.1 的 #36 告警详情 / #38 活跃告警列表 / #39 确认 / #40 解决.
+// 对齐 docs/m3/04-接口与数据契约.md §1.1 的 #36 告警详情 / #38 活跃告警列表 / #39 确认 / #40 解决 / #41 历史检索.
 // 统一响应体见 common/response {code,msg,data}, 成功 code="0"; 各 handler 通过 response.Ok/Fail 回包.
 // 说明: 以下 returns 类型均为 data 载荷, 由 handler 二次包装为统一响应体.
 // #39 与 #40 合并为 PUT /api/alarm/:id/status (action=ack|resolve), 保持三个接口的粒度.
 
-// ListAlarmsReq 告警列表请求(分页 + 等级/状态/区域/设备筛选)
+// ListAlarmsReq 历史告警检索请求(#41: ES 检索 + 等级聚合), ES 不可用时降级 MySQL
 type ListAlarmsReq {
-	Level    int8   `form:"level,optional"` // 告警等级筛选: 1提示 2一般 3严重 4紧急; 不传或<0表示全部
-	Status   int8   `form:"status,optional"` // 告警状态筛选: 0未处理 1已确认 2已解决; 不传或<0表示全部
-	AreaId   int64  `form:"area_id,optional"` // 区域ID筛选, 0表示全部
+	StartTime int64  `form:"start_time,optional"` // 起始时间(秒级时间戳), 0或不传表示不限
+	EndTime   int64  `form:"end_time,optional"`   // 结束时间(秒级时间戳), 0或不传表示不限
+	Level     int8   `form:"level,optional"`      // 告警等级筛选: 1提示 2一般 3严重 4紧急; 不传或<0表示全部
+	Status    int8   `form:"status,optional"`     // 告警状态: 0未处理 1已确认 2已解决; 不传即 0(只查未处理), 查全部状态请传负数
+	AreaId    int64  `form:"area_id,optional"`    // 区域ID筛选, 0表示全部
+	DeviceId  string `form:"device_id,optional"`  // 设备ID筛选, 空表示全部
+	EventType string `form:"event_type,optional"` // 事件类型筛选, 空表示全部
+	Page      int64  `form:"page,optional"`       // 页码(从1开始), 不传默认 1
+	PageSize  int64  `form:"page_size,optional"`  // 每页大小, 不传默认 10, 上限 100
+}
+
+// ListActiveAlarmsReq 活跃告警列表请求(#38).
+// 与 #41 的区别: 只查未处理(status=0), 不接受 status 入参 —— 否则"活跃列表"语义可被调用方改写.
+type ListActiveAlarmsReq {
+	Level    int8   `form:"level,optional"`     // 告警等级筛选: 1提示 2一般 3严重 4紧急; 不传或<0表示全部
+	AreaId   int64  `form:"area_id,optional"`   // 区域ID筛选, 0表示全部
 	DeviceId string `form:"device_id,optional"` // 设备ID筛选, 空表示全部
-	Page     int64  `form:"page"` // 页码(从1开始)
-	PageSize int64  `form:"page_size"` // 每页大小
+	Page     int64  `form:"page,optional"`      // 页码(从1开始), 不传默认 1
+	PageSize int64  `form:"page_size,optional"` // 每页大小, 不传默认 10, 上限 100
 }
 
 // UpdateAlarmStatusReq 告警状态流转请求: 确认(未处理→已确认) / 解决(已确认→已解决)
@@ -41,12 +54,19 @@ type AlarmItem {
 	CreatedAt int64  `json:"created_at"` // 创建时间(秒级时间戳)
 }
 
-// AlarmListResp 告警分页列表响应, 按 level DESC, created_at DESC 排序
+// AlarmLevelAgg 历史告警按等级的分布聚合(#41)
+type AlarmLevelAgg {
+	LevelCount map[string]int64 `json:"level_count"` // 等级 -> 条数, 如 {"3":5,"4":2}
+}
+
+// AlarmListResp 告警分页列表响应, 按 level DESC, created_at DESC 排序.
+// Aggs 仅在 #41 历史检索时返回(活跃告警列表不返回聚合).
 type AlarmListResp {
-	Total    int64       `json:"total"` // 符合条件的总数
-	Page     int64       `json:"page"` // 当前页码
-	PageSize int64       `json:"page_size"` // 每页大小
-	List     []AlarmItem `json:"list"` // 当前页数据
+	Total    int64         `json:"total"` // 符合条件的总数
+	Page     int64         `json:"page"` // 当前页码
+	PageSize int64         `json:"page_size"` // 每页大小
+	List     []AlarmItem   `json:"list"` // 当前页数据
+	Aggs     *AlarmLevelAgg `json:"aggs,omitempty"` // 等级分布聚合(#41); 活跃告警列表不返回该字段
 }
 
 // AlarmDetailResp 告警详情响应
@@ -76,7 +96,98 @@ type UpdateAlarmStatusResp {
 	Status int8  `json:"status"` // 流转后的状态
 }
 
+// CreateRuleReq 创建告警规则请求(docs/m3/04 #34)
+type CreateRuleReq {
+	Name          string `json:"name"`                    // 规则名称
+	DeviceId      string `json:"device_id,optional"`      // 设备ID, 为空表示按 event_type 全局生效
+	AreaId        int64  `json:"area_id,optional"`        // 区域ID, 0表示不限
+	EventType     string `json:"event_type"`              // 事件类型
+	Level         int8   `json:"level"`                   // 告警等级 1-4
+	RuleType      string `json:"rule_type"`               // threshold/combination/time_window
+	Conditions    string `json:"conditions"`              // 规则条件 JSON 字符串
+	WindowSeconds int    `json:"window_seconds,optional"` // 时间窗口(秒), 仅 time_window/combination 使用
+	Status        int8   `json:"status"`                  // 1启用 0禁用
+}
+
+// CreateRuleResp 创建告警规则响应
+type CreateRuleResp {
+	Id int64 `json:"id"` // 新建规则ID
+}
+
+// UpdateRuleReq 更新规则请求(#35): 字段可选, 传什么改什么
+// Level/Status 用指针: status=0(禁用)是有效取值, 零值判断"是否传入"会误把规则禁用
+type UpdateRuleReq {
+	Id            int64  `path:"id"`                      // 规则ID(路径参数)
+	Name          string `json:"name,optional"`           // 规则名称
+	DeviceId      string `json:"device_id,optional"`      // 设备ID
+	AreaId        int64  `json:"area_id,optional"`        // 区域ID
+	EventType     string `json:"event_type,optional"`     // 事件类型
+	Level         *int8  `json:"level,optional"`          // 告警等级
+	RuleType      string `json:"rule_type,optional"`      // 规则类型
+	Conditions    string `json:"conditions,optional"`     // 规则条件 JSON
+	WindowSeconds int    `json:"window_seconds,optional"` // 时间窗口(秒)
+	Status        *int8  `json:"status,optional"`         // 1启用 0禁用(启用/禁用开关)
+}
+
+// UpdateRuleResp 更新规则响应
+type UpdateRuleResp {
+	Id int64 `json:"id"` // 规则ID
+}
+
+// RuleItem 告警规则列表项
+type RuleItem {
+	Id            int64  `json:"id"`
+	Name          string `json:"name"`
+	DeviceId      string `json:"device_id"`
+	AreaId        int64  `json:"area_id"`
+	EventType     string `json:"event_type"`
+	Level         int8   `json:"level"`
+	RuleType      string `json:"rule_type"`
+	Conditions    string `json:"conditions"`
+	WindowSeconds int    `json:"window_seconds"`
+	Status        int8   `json:"status"`
+	CreatedAt     int64  `json:"created_at"` // 秒级时间戳
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
+// RuleDetailResp 规则详情响应(#36)
+type RuleDetailResp {
+	RuleItem
+}
+
+// ListRulesReq 规则分页列表请求(#37)
+type ListRulesReq {
+	DeviceId  string `form:"device_id,optional"`  // 设备ID筛选
+	EventType string `form:"event_type,optional"` // 事件类型筛选
+	Status    int8   `form:"status,optional"`     // 状态筛选: -1或不传表示全部
+	Page      int64  `form:"page"`
+	PageSize  int64  `form:"page_size"`
+}
+
+// ListRulesResp 规则分页列表响应
+type ListRulesResp {
+	Total    int64      `json:"total"`
+	Page     int64      `json:"page"`
+	PageSize int64      `json:"page_size"`
+	List     []RuleItem `json:"list"`
+}
+
 service alarm-api {
+	@handler CreateRule
+	post /api/alarm/rule (CreateRuleReq) returns (CreateRuleResp)
+
+	@handler UpdateRule
+	put /api/alarm/rule/:id (UpdateRuleReq) returns (UpdateRuleResp)
+
+	@handler GetRule
+	get /api/alarm/rule/:id (IdReq) returns (RuleDetailResp)
+
+	@handler ListRules
+	get /api/alarm/rules (ListRulesReq) returns (ListRulesResp)
+
+	@handler ListActiveAlarms
+	get /api/alarm/active (ListActiveAlarmsReq) returns (AlarmListResp)
+
 	@handler ListAlarms
 	get /api/alarms (ListAlarmsReq) returns (AlarmListResp)
 

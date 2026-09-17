@@ -119,6 +119,10 @@ run-apigateway:
 run-shadow:
 	go run .\app\shadow-service\shadow.go -f .\app\shadow-service\etc\shadow.yaml
 
+# alarm gRPC(9009), 供 M5 dashboard-service 大屏聚合 GetActiveAlarms
+run-alarm-grpc:
+	go run .\app\alarm-service\grpcserver\main.go -f .\app\alarm-service\etc\alarm-grpc.yaml
+
 # ============ 设备网关与后台进程启动命令 ============
 run-gateway-service:
 	go run .\app\gateway-service\gateway.go -f .\app\gateway-service\etc\gateway.yaml

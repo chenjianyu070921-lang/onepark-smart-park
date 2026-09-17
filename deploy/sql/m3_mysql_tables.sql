@@ -24,7 +24,7 @@ CREATE TABLE `alarm` (
   `level`       TINYINT      NOT NULL DEFAULT 2  COMMENT '告警等级: 1提示 2一般 3严重 4紧急',
   `status`      TINYINT      NOT NULL DEFAULT 0  COMMENT '0未处理 1已确认 2已解决',
   `content`     VARCHAR(512) NOT NULL DEFAULT '' COMMENT '告警内容',
-  `request_id`  VARCHAR(64)  NOT NULL             COMMENT '幂等键(L3唯一索引兜底): 消息request_id或缺失时指纹',
+  `request_id`  VARCHAR(64)  NOT NULL             COMMENT '幂等键(L3兜底): 消息request_id或缺失时指纹',
   `ack_by`      BIGINT       NOT NULL DEFAULT 0  COMMENT '确认人(操作员 user_id)',
   `ack_at`      DATETIME     NULL DEFAULT NULL   COMMENT '确认时间',
   `resolve_by`  BIGINT       NOT NULL DEFAULT 0  COMMENT '解决人',
@@ -33,7 +33,9 @@ CREATE TABLE `alarm` (
   `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_alarm_no` (`alarm_no`),
-  UNIQUE KEY `uk_request_id` (`request_id`),
+  -- 复合唯一: 同一事件(request_id)命中不同规则应各生成一条告警, 互不覆盖;
+  -- 只有"同一事件 + 同一规则"的重复上报才被拦截.
+  UNIQUE KEY `uk_request_rule` (`rule_id`, `request_id`),
   KEY `idx_tenant` (`tenant_id`),
   KEY `idx_device` (`device_id`),
   KEY `idx_event_type` (`event_type`),
@@ -68,7 +70,34 @@ CREATE TABLE `alarm_rule` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='告警规则表';
 
 -- ############################################################
--- 3. alarm_operate_log 告警处理流水(审计)
+-- 3. alarm_dlq 死信台账(docs/m3/06 §5.3)
+-- 说明: 消费链路最终失败(坏消息或可重试错误耗尽重试)的消息落此表,
+--       便于后台按设备/时间排查与人工重放(§5.4). 相比文档补充 tenant_id 保持 RBAC 一致.
+--       Kafka DLQ topic(方案 A)为后续补强项, 当前以台账为准(文档: "先做 B").
+-- ############################################################
+CREATE TABLE IF NOT EXISTS `alarm_dlq` (
+  `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+  `tenant_id`    BIGINT       NOT NULL DEFAULT 0  COMMENT '园区ID(解析不出时为0)',
+  `topic`        VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '源 topic',
+  `partition_no` INT          NOT NULL DEFAULT 0  COMMENT '分区号',
+  `msg_offset`   BIGINT       NOT NULL DEFAULT 0  COMMENT '原始消息位移',
+  `request_id`   VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '幂等键(便于关联)',
+  `device_id`    VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '设备ID(便于按设备排查)',
+  `event_type`   VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '事件类型',
+  `payload`      TEXT         NULL                 COMMENT '原始报文',
+  `error_msg`    VARCHAR(512) NOT NULL DEFAULT '' COMMENT '失败原因',
+  `retry_count`  INT          NOT NULL DEFAULT 0  COMMENT '已重试次数',
+  `status`       TINYINT      NOT NULL DEFAULT 0  COMMENT '0待处理/1已重放/2已丢弃',
+  `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_status_created` (`status`, `created_at`),
+  KEY `idx_device` (`device_id`),
+  KEY `idx_request` (`request_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='告警消费死信台账';
+
+-- ############################################################
+-- 4. alarm_operate_log 告警处理流水(审计)
 -- ############################################################
 DROP TABLE IF EXISTS `alarm_operate_log`;
 CREATE TABLE `alarm_operate_log` (
