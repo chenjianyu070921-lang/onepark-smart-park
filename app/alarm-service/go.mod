@@ -3,7 +3,10 @@ module onepark/app/alarm-service
 go 1.25.2
 
 require (
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+	github.com/redis/go-redis/v9 v9.21.0
 	github.com/zeromicro/go-zero v1.10.3
+	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
 	onepark/common v0.0.0
 	onepark/proto v0.0.0
@@ -34,7 +37,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/redis/go-redis/v9 v9.21.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.21 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.21 // indirect
@@ -50,7 +52,6 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	gorm.io/driver/mysql v1.5.7 // indirect
 	k8s.io/api v0.34.3 // indirect
 	k8s.io/apimachinery v0.34.3 // indirect
 	k8s.io/client-go v0.34.3 // indirect

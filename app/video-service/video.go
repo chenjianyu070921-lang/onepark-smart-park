@@ -8,7 +8,6 @@ import (
 	"onepark/app/video-service/internal/handler"
 	"onepark/app/video-service/internal/svc"
 	"onepark/common/middleware"
-	"onepark/common/response"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
@@ -20,10 +19,8 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
+	// conf.UseEnv() 必填: go-zero 的 ${VAR} 环境变量展开默认是关闭的, 不启用则占位符是死字符串.
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
-
-	// 统一 API 响应体为 {code,msg,data}
-	response.Init()
 
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()
@@ -31,7 +28,8 @@ func main() {
 	// 全链路 RequestId 透传 + 开发环境跨域
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
-	server.Use(middleware.IdentityFromHeader)
+	// 网关注入的租户/操作人身份写入 context(摄像头数据按租户隔离)
+	server.Use(middleware.ContextMiddleware)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)

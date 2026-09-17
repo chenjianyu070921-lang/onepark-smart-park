@@ -2,6 +2,24 @@ Name: accesscontrol-api
 Host: 0.0.0.0
 Port: 8010
 
+# MySQL 连接配置 (access_db, DSN 由环境变量注入; 未配置时降级为不落审计)
+MySQL:
+  DataSource: ${ACCESS_MYSQL_DSN}
+
+# 远程开门设备白名单 (M6 CheckPermission 就绪前的 interim 权限兜底)
+# 语义: 仅清单内的设备允许被远程开门; 列表为空 = 拒绝一切远程开门(fail-closed).
+# M6 上线后由 /api/access/remote-open 的权限校验接管本段配置下线.
+RemoteOpen:
+  AllowedDeviceIds:
+    - door-01
+    - door-02
+
+# M1 device-service gRPC 客户端 (远程开门下发 open_door 命令)
+DeviceRPC:
+  Endpoints:
+    - 127.0.0.1:9001
+  Timeout: 1000 # ms, 略大于 logic 内 800ms 短超时, 避免客户端先于业务超时
+
 # Redis 连接配置 (Day2 预留占位, 门禁权限缓存业务尚未接入)
 Redis:
   Host: ${REDIS_ADDR}
