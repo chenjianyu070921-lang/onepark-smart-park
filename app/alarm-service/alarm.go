@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 
 	"onepark/app/alarm-service/internal/config"
 	"onepark/app/alarm-service/internal/handler"
@@ -34,8 +35,15 @@ func main() {
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+	// WebSocket 推送需 HTTP Upgrade, go-zero REST handler 的响应已被包装不可用,
+	// 故用原生 http.HandlerFunc 挂载(docs/m3/09 §3); 注意 Use 中间件不作用于此路由.
+	server.AddRoutes([]rest.Route{
+		{Method: http.MethodGet, Path: "/ws/alarm", Handler: ctx.Hub.Handler()},
+	})
 	// 启动后台 Kafka 消费者(设备遥测 -> 安防告警), 主服务退出时随进程结束.
 	ctx.StartConsumers(context.Background())
+	// 启动 WebSocket 跨实例广播(Redis Pub/Sub), 多副本部署时各实例的大屏都能收到告警.
+	ctx.StartWSRelay(context.Background())
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()

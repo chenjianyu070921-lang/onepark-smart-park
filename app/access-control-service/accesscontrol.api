@@ -1,15 +1,100 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+// access-control-service 门禁服务 API 契约
+// 对齐 docs/m3/04-接口与数据契约.md:
+//   #45 POST /api/access/grant        授权门禁权限(批量 person × device)
+//   #46 DELETE /api/access/revoke     撤销门禁权限
+//   #47 POST /api/access/remote-open  远程开门(gRPC 调 M1)
+//   #48 GET /api/access/records       通行记录查询(分页 + 多维筛选)
+// 统一响应体见 common/response {code,msg,data}, 成功 code="0"; 各 handler 通过 response.Ok/Fail 回包.
+// 说明: 以下 returns 类型均为 data 载荷, 由 handler 二次包装为统一响应体.
+
+// TimeWindow 时间段权限: days 为周几(1=周一 ... 7=周日)
+type TimeWindow {
+	Start string  `json:"start"`       // 起始时间 "HH:mm", 如 "08:00"
+	End   string  `json:"end"`         // 结束时间 "HH:mm", 如 "20:00"
+	Days  []int64 `json:"days"`        // 生效日 1-7
 }
 
-type Response {
-	Message string `json:"message"`
+// RemoteOpenReq 远程开门请求
+type RemoteOpenReq {
+	DeviceId string `json:"device_id"`       // 门禁设备ID(来自 M1)
+	Reason   string `json:"reason,optional"` // 开门缘由, 如"访客放行", 写入审计
+}
+
+// RemoteOpenResp 远程开门响应
+type RemoteOpenResp {
+	Success  bool   `json:"success"`   // 命令是否下发成功
+	DeviceId string `json:"device_id"` // 实际下发命令的设备ID
+	Message  string `json:"message"`   // M1/设备返回信息
+}
+
+// GrantAccessReq 门禁授权请求(支持批量: 人员 × 设备笛卡尔积)
+type GrantAccessReq {
+	PersonIds  []int64    `json:"person_ids"`            // 人员ID列表(必填, 支持批量)
+	DeviceIds  []string   `json:"device_ids"`            // 门禁设备ID列表(必填, 支持批量)
+	TimeWindow *TimeWindow `json:"time_window,optional"` // 时间段权限; 为空表示全天
+	Whitelist  bool       `json:"whitelist,optional"`    // 白名单(跳过时间段校验)
+	ExpireAt   string     `json:"expire_at,optional"`    // 过期时间(RFC3339), 空表示长期有效
+}
+
+// GrantAccessResp 门禁授权响应
+type GrantAccessResp {
+	Granted int64 `json:"granted"` // 写入/更新的权限条数
+}
+
+// RevokeAccessReq 门禁撤权请求
+type RevokeAccessReq {
+	PersonIds []int64  `json:"person_ids"` // 人员ID列表
+	DeviceIds []string `json:"device_ids"` // 门禁设备ID列表
+}
+
+// RevokeAccessResp 门禁撤权响应
+type RevokeAccessResp {
+	Revoked int64 `json:"revoked"` // 实际删除的权限条数
+}
+
+// AccessRecordItem 通行记录列表项
+type AccessRecordItem {
+	Id         int64  `json:"id"`
+	PersonId   int64  `json:"person_id"`
+	DeviceId   string `json:"device_id"`
+	Result     int8   `json:"result"`      // 1成功/0失败
+	OpenType   string `json:"open_type"`   // card/face/remote/qrcode
+	FailReason string `json:"fail_reason"` // 失败原因
+	CreatedAt  int64  `json:"created_at"`  // 通行时间(秒级时间戳)
+}
+
+// ListAccessRecordsReq 通行记录查询请求(分页 + 筛选)
+type ListAccessRecordsReq {
+	PersonId  int64  `form:"person_id,optional"`  // 人员ID筛选, 0表示全部
+	DeviceId  string `form:"device_id,optional"`  // 设备ID筛选, 空表示全部
+	Result    int8   `form:"result,optional"`     // 结果筛选: -1或不传表示全部
+	OpenType  string `form:"open_type,optional"`  // 开门方式筛选, 空表示全部
+	StartTime int64  `form:"start_time,optional"` // 起始时间(秒级时间戳, 0表示不限)
+	EndTime   int64  `form:"end_time,optional"`   // 结束时间(秒级时间戳, 0表示不限)
+	Page      int64  `form:"page"`                // 页码(从1开始)
+	PageSize  int64  `form:"page_size"`           // 每页大小
+}
+
+// ListAccessRecordsResp 通行记录分页响应, 按 created_at DESC 排序
+type ListAccessRecordsResp {
+	Total    int64              `json:"total"` // 符合条件的总数
+	Page     int64              `json:"page"`  // 当前页码
+	PageSize int64              `json:"page_size"`
+	List     []AccessRecordItem `json:"list"`
 }
 
 service accesscontrol-api {
-	@handler AccesscontrolHandler
-	get /from/:name (Request) returns (Response)
-}
+	@handler GrantAccess
+	post /api/access/grant (GrantAccessReq) returns (GrantAccessResp)
 
+	@handler RevokeAccess
+	delete /api/access/revoke (RevokeAccessReq) returns (RevokeAccessResp)
+
+	@handler RemoteOpen
+	post /api/access/remote-open (RemoteOpenReq) returns (RemoteOpenResp)
+
+	@handler ListAccessRecords
+	get /api/access/records (ListAccessRecordsReq) returns (ListAccessRecordsResp)
+}

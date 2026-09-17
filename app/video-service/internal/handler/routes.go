@@ -13,9 +13,19 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				Method:  http.MethodPost,
+				Path:    "/api/video/camera",
+				Handler: AddCameraHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: VideoHandler(serverCtx),
+				Path:    "/api/video/cameras",
+				Handler: ListCamerasHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/video/stream/:id",
+				Handler: GetStreamHandler(serverCtx),
 			},
 		},
 	)

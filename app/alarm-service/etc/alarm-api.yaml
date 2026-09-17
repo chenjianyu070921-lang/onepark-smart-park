@@ -17,3 +17,25 @@ Redis:
 Kafka:
   Brokers: ${KAFKA_BROKERS}
   GroupID: ${ALARM_KAFKA_GROUP}
+
+# 告警事件通知 M5 (docs/m3/04 #40: 解决告警后生产 Kafka 事件, 触发 M5 大屏/调度闭环)
+# broker 复用上面的 Kafka.Brokers: 未配置 broker 时通知整体停用(启动日志 WARN), 接口链路照常.
+# topic 归属需与 M5 / 组长确认后再联调: 它与 M1 生产的 alarm-event 是两条不同 topic,
+# 载荷结构不同(alarm_id/severity vs request_id/occurred_at), 混用会让消费方解码互相打架.
+Notify:
+  Topic: onepark.alarm.event
+
+# WebSocket 跨实例广播 (docs/m3/09 §4 方案B: Redis Pub/Sub)
+# 多副本部署时, WS 连接分散在不同实例上, 产生告警的实例必须经总线才能推到别处的大屏;
+# 留空则退化为单实例内存广播(仅在单副本/本地开发时可接受).
+WS:
+  BroadcastChannel: alarm:ws:broadcast
+
+# Elasticsearch (历史告警检索 #41 / 告警双写 #44)
+# 未注入 ALARM_ES_URL 时该值为 ${ALARM_ES_URL} 字面量, 服务视其为"未配置 ES":
+# 历史检索降级 MySQL, 双写跳过, 启动不受影响; 宿主机的 ES 地址见 deploy/.env(ES_PORT 映射 9200).
+ES:
+  Addresses:
+    - ${ALARM_ES_URL}
+  # Index: alarm_history  # 留空用默认索引 alarm_history
+  # 开启 xpack.security 时再补 Username / Password
