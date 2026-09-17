@@ -73,7 +73,7 @@ func main() {
 		}
 	}()
 
-	go cron.NewCommandTimeoutTask(ctx, c.TimeoutScanIntervalSec, 200, 2).Start(taskCtx)
+	go cron.NewCommandTimeoutTask(ctx, c.TimeoutScanIntervalSec, c.TimeoutScanBatchLimit, c.CommandMaxResend).Start(taskCtx)
 
 	fmt.Printf("Starting device-service: HTTP %s:%d, gRPC %s\n", c.Host, c.Port, c.Rpc.ListenOn)
 	group.Start()
