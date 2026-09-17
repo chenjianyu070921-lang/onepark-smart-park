@@ -1,11 +1,13 @@
 package svc
 
 import (
+	"context"
 	"log"
 
 	"onepark/app/workorder-service/internal/config"
 	"onepark/common/gormx"
 	"onepark/common/kafka"
+	"onepark/common/minio"
 	"onepark/common/redisx"
 )
 
@@ -16,6 +18,7 @@ type ServiceContext struct {
 	DB       *gormx.DB       // GORM MySQL 连接
 	Redis    *redisx.Client  // Redis 客户端
 	Producer *kafka.Producer // Kafka 生产者(发布工单状态事件 workorder-event)
+	MinIO    *miniox.Client  // MinIO 对象存储客户端(工单附件)
 }
 
 // NewServiceContext 根据配置初始化全局依赖.
@@ -40,10 +43,26 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		log.Printf("[warn] workorder-service kafka brokers empty, producer not initialized")
 	}
 
+	// MinIO 客户端: 未配置 Endpoint 时为 nil, 附件上传接口会返回"对象存储未配置".
+	var minioClient *miniox.Client
+	if c.MinIO.Endpoint != "" {
+		mc, err := miniox.NewClient(c.MinIO)
+		if err != nil {
+			log.Fatalf("init minio failed: %v", err)
+		}
+		if err := miniox.EnsureBucket(context.Background(), mc, c.MinIO.Bucket); err != nil {
+			log.Printf("[warn] ensure minio bucket %q failed: %v", c.MinIO.Bucket, err)
+		}
+		minioClient = mc
+	} else {
+		log.Printf("[warn] workorder-service minio endpoint empty, attachment upload disabled")
+	}
+
 	return &ServiceContext{
 		Config:   c,
 		DB:       db,
 		Redis:    redisx.NewClient(&c.Redis),
 		Producer: producer,
+		MinIO:    minioClient,
 	}
 }

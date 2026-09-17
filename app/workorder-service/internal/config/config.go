@@ -3,6 +3,7 @@ package config
 import (
 	"github.com/zeromicro/go-zero/rest"
 	"onepark/common/gormx"
+	"onepark/common/minio"
 	"onepark/common/redisx"
 )
 
@@ -13,6 +14,7 @@ type Config struct {
 	MySQL gormx.MySQLConf  // MySQL 连接配置
 	Redis redisx.RedisConf // Redis 连接配置(分布式锁防重)
 	Kafka KafkaConf        // Kafka 连接配置
+	MinIO miniox.MinIOConf // MinIO 对象存储(工单附件上传)
 
 	// EscalationCron 工单超时升级定时任务(复用 leasing 的 Redis 锁防重模式).
 	EscalationCron EscalationCronConf
@@ -42,7 +44,7 @@ type KafkaConf struct {
 // 把"超过 PendingTimeoutHours 小时仍处于活跃态且非紧急"的工单自动提升为紧急优先级,
 // 并写一条 system 升级流水, 便于后续 SLA 考核与催办.
 type EscalationCronConf struct {
-	Enabled             bool   `json:",default=false"`       // 默认关闭, 部署时显式开启
-	Spec                string `json:",default=*/30 * * * *"` // 扫描周期, 默认每 30 分钟
-	PendingTimeoutHours int64  `json:",default=24"`          // 活跃态超过该小时数未处理即升级为紧急
+	Enabled             bool   `json:",default=false"` // 默认关闭, 部署时显式开启
+	Spec                string `json:",optional"`      // 扫描周期(标准 5 位 cron), 由 yaml 显式指定(默认每 30 分钟)
+	PendingTimeoutHours int64  `json:",default=24"`    // 活跃态超过该小时数未处理即升级为紧急
 }
