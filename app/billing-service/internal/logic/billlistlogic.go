@@ -5,6 +5,7 @@ import (
 
 	"onepark/app/billing-service/internal/svc"
 	"onepark/app/billing-service/internal/types"
+	"onepark/common/errorx"
 )
 
 const (
@@ -25,6 +26,17 @@ func NewBillListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *BillList
 }
 
 func (l *BillListLogic) BillList(req *types.BillListRequest) (*types.BillListResponse, error) {
+	// 0. 租户上下文: 只能看到本园区的账单
+	tenantID, err := tenantOf(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// 防御: 部署环境未配置 MySQL 时 svcCtx.DB 为 nil, 提前返回明确错误(M2-E-5001)避免空指针 panic.
+	if l.svcCtx.DB == nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
+	}
+
 	// 1. 分页参数兜底
 	page := req.Page
 	if page <= 0 {
@@ -39,7 +51,7 @@ func (l *BillListLogic) BillList(req *types.BillListRequest) (*types.BillListRes
 	}
 
 	status := StatusOf(req.Status)
-	list, total, err := l.svcCtx.Billing.ListBill(l.ctx, req.ZoneId, status, page, pageSize)
+	list, total, err := l.svcCtx.Billing.ListBill(l.ctx, tenantID, req.ZoneId, status, page, pageSize)
 	if err != nil {
 		return nil, wrapErr("查询账单列表", err)
 	}

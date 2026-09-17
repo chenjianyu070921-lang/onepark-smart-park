@@ -20,7 +20,7 @@ import (
 // TaskAssignLogic 指派调度人员.
 //
 // assignee_id > 0: 手动指派指定人员
-// assignee_id = 0: 自动指派 —— 从历史指派记录中选"就近 + 负载低"的人
+// assignee_id = 0: 自动指派 —— 按「技能 > 就近 > 负载均衡」打分选人(见 internal/assign)
 type TaskAssignLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -61,12 +61,10 @@ func (l *TaskAssignLogic) TaskAssign(req *types.TaskAssignReq) (*types.TaskAssig
 	assigneeName := l.lookupAssigneeName(assigneeId)
 
 	if assigneeId == 0 {
-		candidates, cerr := assign.LoadCandidates(l.ctx, l.svcCtx.DB)
-		if cerr != nil {
-			l.Errorf("[dispatch] load candidates failed: %v", cerr)
-			return nil, errorx.NewError(errorx.ErrInternal, "加载候选处理人失败")
+		best, found, perr := l.pickAutoAssignee(&task)
+		if perr != nil {
+			return nil, perr
 		}
-		best, found := assign.Pick(task.ZoneCode, candidates)
 		if !found {
 			return nil, errorx.NewError(errorx.ErrBadRequest, "暂无可用处理人, 请指定 assignee_id")
 		}
@@ -104,16 +102,64 @@ func (l *TaskAssignLogic) TaskAssign(req *types.TaskAssignReq) (*types.TaskAssig
 	}, nil
 }
 
-// lookupAssigneeName 从历史指派记录中反查处理人姓名.
-// M5 不持有人员主数据(属 M6 user 服务), 因此只能从本服务历史记录中取一个可用姓名;
+// pickAutoAssignee 自动选定处理人: 按「技能 > 就近 > 负载」打分(见 internal/assign).
+//
+// 候选池优先用 dispatch_staff(带技能标签), 人员池为空时回退到历史指派记录(不带技能)--
+// 保证技能池尚未录入时自动指派仍可用, 老行为不退化。
+//
+// 指派决策必须可解释: 打分依据会写进日志, 便于事后追溯"为什么派给了他"。
+func (l *TaskAssignLogic) pickAutoAssignee(task *model.DispatchTask) (assign.Candidate, bool, error) {
+	candidates, err := assign.LoadStaffCandidates(l.ctx, l.svcCtx.DB)
+	if err != nil {
+		l.Errorf("[dispatch] load staff candidates failed: %v", err)
+		return assign.Candidate{}, false, errorx.NewError(errorx.ErrInternal, "加载候选处理人失败")
+	}
+
+	pool := "staff"
+	if len(candidates) == 0 {
+		pool = "history"
+		candidates, err = assign.LoadCandidates(l.ctx, l.svcCtx.DB)
+		if err != nil {
+			l.Errorf("[dispatch] load history candidates failed: %v", err)
+			return assign.Candidate{}, false, errorx.NewError(errorx.ErrInternal, "加载候选处理人失败")
+		}
+	}
+
+	best, found := assign.Pick(task.ZoneCode, task.RequiredSkill, candidates)
+	if !found {
+		return assign.Candidate{}, false, nil
+	}
+
+	bd := assign.Explain(task.ZoneCode, task.RequiredSkill, best)
+	l.Infof("[dispatch] 自动指派: taskId=%d, pool=%s, requiredSkill=%q -> assignee=%d(%s), "+
+		"技能命中=%v, 距离=%d, 负载=%d, 得分=%d, 候选数=%d",
+		task.Id, pool, task.RequiredSkill, best.AssigneeId, best.AssigneeName,
+		bd.SkillMatched, bd.Distance, bd.Load, bd.Score, len(candidates))
+
+	return best, true, nil
+}
+
+// lookupAssigneeName 反查处理人姓名: 先查人员池(权威来源), 再退回历史指派记录.
+// 人员池尚未自持之前, 人名只能从历史工单里取; 现在人员池是首选。
 // 查不到时返回空串, 不影响指派本身.
 func (l *TaskAssignLogic) lookupAssigneeName(assigneeId int64) string {
 	if assigneeId <= 0 {
 		return ""
 	}
+
 	var name string
+	if err := l.svcCtx.DB.WithContext(l.ctx).Model(&model.DispatchStaff{}).
+		Select("COALESCE(name, '')").
+		Where("staff_id = ?", assigneeId).
+		Scan(&name).Error; err != nil {
+		l.Errorf("[dispatch] lookup staff name failed: %v", err)
+	}
+	if name != "" {
+		return name
+	}
+
+	// 无匹配行时 MAX 返回 NULL, 必须 COALESCE 成空串, 否则 Scan 到 string 会报错.
 	err := l.svcCtx.DB.WithContext(l.ctx).Model(&model.DispatchTask{}).
-		// 无匹配行时 MAX 返回 NULL, 必须 COALESCE 成空串, 否则 Scan 到 string 会报错.
 		Select("COALESCE(MAX(assignee_name), '')").
 		Where("assignee_id = ? AND assignee_name <> ''", assigneeId).
 		Scan(&name).Error

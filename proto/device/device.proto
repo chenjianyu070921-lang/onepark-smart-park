@@ -16,6 +16,29 @@ service DeviceService {
 
   // GetDevice 查询设备详情(停车地磁/门禁等), 供 parking-service 校验设备与获取状态
   rpc GetDevice(GetDeviceReq) returns (GetDeviceResp);
+
+  // GetDeviceStat 设备数量统计, 供 M5 dashboard-service 大屏计算在线率(清单 #69 / #72).
+  // 注意: 返回的是"统计数", 不是设备列表 —— 大屏只需要台数, 避免全量拉取后在消费方计数.
+  rpc GetDeviceStat(GetDeviceStatReq) returns (GetDeviceStatResp);
+}
+
+// GetDeviceStatReq 设备统计查询条件
+message GetDeviceStatReq {
+  string product_key = 1; // 产品Key, 空表示全部产品
+  // 设备类型(1地磁 2门禁 3摄像头...), 0 表示全部类型.
+  // 注意: device 表当前没有 type 列, 传非 0 会返回 InvalidArgument,
+  // 待 device 表补 type 列后再启用该过滤(与 GetDeviceResp.type 的 TODO 同批).
+  int32 type = 2;
+}
+
+// GetDeviceStatResp 设备数量统计
+// 四个字段的关系恒为: total = online + offline + fault
+// (device.status 有三个取值, 若只返回 online/offline, 故障设备两边都不计入, total 会对不上)
+message GetDeviceStatResp {
+  int64 total   = 1; // 设备总台数(未删除)
+  int64 online  = 2; // status = 1 在线
+  int64 offline = 3; // status = 0 离线/未激活
+  int64 fault   = 4; // status = 2 故障
 }
 
 // GetDeviceReq 设备查询请求

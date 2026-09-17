@@ -13,6 +13,14 @@ import (
 	"onepark/app/dispatch-service/internal/model"
 )
 
+// 技能标签取值。与 dispatch_staff.skills 中的写法保持一致(均为小写)。
+// 这三个值同时出现在告警映射与人工建单入口, 收敛到常量避免拼写漂移。
+const (
+	skillFire       = "fire"       // 消防
+	skillSecurity   = "security"   // 安防
+	skillElectrical = "electrical" // 强弱电/设备
+)
+
 // AlarmEvent 是 M1 event-dispatcher 投递到 alarm-event 的告警消息体。
 //
 // 字段与 app/event-dispatcher/internal/dispatch.Message 对齐。
@@ -27,21 +35,24 @@ type AlarmEvent struct {
 	Source     string          `json:"source"`
 }
 
-// eventMetaT 告警类型对应的工单标题与优先级。
+// eventMetaT 告警类型对应的工单标题、优先级与所需技能。
 // 优先级取值与 dispatch_task.priority 一致: 1 紧急 / 2 高 / 3 普通。
 type eventMetaT struct {
 	Title    string
 	Priority int8
+	// Skill 是处理该类告警所需的技能标签, 供自动指派按技能选人;
+	// 空字符串表示不限技能(算法自动退化为就近+负载)。
+	Skill string
 }
 
-// eventMeta 告警类型映射表。取值与 M1 event-dispatcher 的 alarmEventTypes 对齐。
+// eventMeta 告警类型映射表。事件类型取值与 M1 event-dispatcher 的 alarmEventTypes 对齐。
 var eventMeta = map[string]eventMetaT{
-	"fire":          {Title: "火灾告警", Priority: model.PriorityUrgent},
-	"smoke":         {Title: "烟雾告警", Priority: model.PriorityUrgent},
-	"intrusion":     {Title: "非法入侵告警", Priority: model.PriorityHigh},
-	"door_force":    {Title: "门禁强开告警", Priority: model.PriorityHigh},
-	"fault":         {Title: "设备故障告警", Priority: model.PriorityNormal},
-	"offline_alert": {Title: "设备离线告警", Priority: model.PriorityNormal},
+	"fire":          {Title: "火灾告警", Priority: model.PriorityUrgent, Skill: skillFire},
+	"smoke":         {Title: "烟雾告警", Priority: model.PriorityUrgent, Skill: skillFire},
+	"intrusion":     {Title: "非法入侵告警", Priority: model.PriorityHigh, Skill: skillSecurity},
+	"door_force":    {Title: "门禁强开告警", Priority: model.PriorityHigh, Skill: skillSecurity},
+	"fault":         {Title: "设备故障告警", Priority: model.PriorityNormal, Skill: skillElectrical},
+	"offline_alert": {Title: "设备离线告警", Priority: model.PriorityNormal, Skill: skillElectrical},
 }
 
 // DecodeAlarm 解析一条告警消息。
@@ -62,11 +73,12 @@ func DecodeAlarm(value []byte) (AlarmEvent, error) {
 
 // TaskDraft 由告警事件推导出的调度工单草稿。
 type TaskDraft struct {
-	AlarmID     string // 幂等键, 取 request_id
-	Title       string
-	ZoneCode    string
-	Priority    int8
-	Description string
+	AlarmID       string // 幂等键, 取 request_id
+	Title         string
+	ZoneCode      string
+	RequiredSkill string // 所需技能, 供自动指派按技能选人
+	Priority      int8
+	Description   string
 }
 
 // payloadZone 告警 payload 中可能携带的位置字段。
@@ -91,11 +103,12 @@ func BuildTaskDraft(evt AlarmEvent) TaskDraft {
 	}
 
 	return TaskDraft{
-		AlarmID:     evt.RequestID,
-		Title:       meta.Title,
-		ZoneCode:    extractZone(evt.Payload),
-		Priority:    meta.Priority,
-		Description: fmt.Sprintf("设备 %s 触发 %s (event_type=%s), 需现场处置", evt.DeviceID, meta.Title, evt.EventType),
+		AlarmID:       evt.RequestID,
+		Title:         meta.Title,
+		ZoneCode:      extractZone(evt.Payload),
+		RequiredSkill: meta.Skill,
+		Priority:      meta.Priority,
+		Description:   fmt.Sprintf("设备 %s 触发 %s (event_type=%s), 需现场处置", evt.DeviceID, meta.Title, evt.EventType),
 	}
 }
 

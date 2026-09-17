@@ -29,6 +29,18 @@ func NewBillGenerateLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Bill
 }
 
 func (l *BillGenerateLogic) BillGenerate(req *types.BillGenerateRequest) (*types.BillGenerateResponse, error) {
+	// 0. 租户上下文: 账单按园区隔离, 缺租户直接拒绝(HTTP 接口走网关注入)
+	tenantID, err := tenantOf(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+	return l.Generate(tenantID, req)
+}
+
+// Generate 出账核心: 给定租户 + 区域 + 账期, 完成用量统计/选规则/计费/幂等落库。
+// HTTP 接口与月度自动出账 cron 共用本方法; cron 在重复出账(ErrBillExists)、
+// 无用量(ErrNoUsage)、无规则(ErrNoRuleMatch)时按"跳过"处理, 实现幂等不重复扣钱。
+func (l *BillGenerateLogic) Generate(tenantID uint64, req *types.BillGenerateRequest) (*types.BillGenerateResponse, error) {
 	// 1. 参数校验
 	if strings.TrimSpace(req.ZoneId) == "" {
 		return nil, errorx.NewError(errorx.ErrBadRequest, "zoneId 不能为空")
@@ -40,6 +52,7 @@ func (l *BillGenerateLogic) BillGenerate(req *types.BillGenerateRequest) (*types
 	lastDay := LastDay(end)
 
 	// 2. 先算这个区域这个月用了多少度
+	// ⚠️ 暂不按租户过滤: M4 写入侧尚未填充 energy_reading.tenant_id, 以 zone_id 为隔离维度
 	usage, err := l.svcCtx.EnergyReading.TotalUsage(l.ctx, req.ZoneId, start, end)
 	if err != nil {
 		return nil, wrapErr("统计用量", err)
@@ -50,7 +63,7 @@ func (l *BillGenerateLogic) BillGenerate(req *types.BillGenerateRequest) (*types
 	}
 
 	// 3. 找用哪条规则算钱
-	rule, err := l.pickRule(req)
+	rule, err := l.pickRule(tenantID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +75,7 @@ func (l *BillGenerateLogic) BillGenerate(req *types.BillGenerateRequest) (*types
 	}
 
 	// 5. 同一个区域同一个账期只能出一次账, 出过了就报错(防止重复扣钱)
-	if old, err := l.svcCtx.Billing.FindBillByPeriod(l.ctx, req.ZoneId, start, lastDay); err == nil {
+	if old, err := l.svcCtx.Billing.FindBillByPeriod(l.ctx, tenantID, req.ZoneId, start, lastDay); err == nil {
 		return nil, errorx.NewError(ecode.ErrBillExists,
 			fmt.Sprintf("该账期已经出过账了, 账单号 %s", old.BillNo))
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -71,6 +84,7 @@ func (l *BillGenerateLogic) BillGenerate(req *types.BillGenerateRequest) (*types
 
 	// 6. 落库: 同时存下规则快照和计费明细, 以后规则改了老账单也能对得上
 	bill := &model.Bill{
+		TenantID:     tenantID,
 		BillNo:       fmt.Sprintf("B%s-%s", start.Format("200601"), req.ZoneId),
 		ZoneID:       req.ZoneId,
 		RuleID:       rule.ID,
@@ -99,10 +113,10 @@ func (l *BillGenerateLogic) BillGenerate(req *types.BillGenerateRequest) (*types
 	}, nil
 }
 
-// pickRule 挑规则: 指定了 ruleId 就用它, 没指定就自动找该区域能用的
-func (l *BillGenerateLogic) pickRule(req *types.BillGenerateRequest) (*model.BillingRule, error) {
+// pickRule 挑规则: 指定了 ruleId 就用它, 没指定就自动找该区域能用的; 均限定本租户
+func (l *BillGenerateLogic) pickRule(tenantID uint64, req *types.BillGenerateRequest) (*model.BillingRule, error) {
 	if req.RuleId > 0 {
-		rule, err := l.svcCtx.Billing.FindRule(l.ctx, uint64(req.RuleId))
+		rule, err := l.svcCtx.Billing.FindRule(l.ctx, tenantID, uint64(req.RuleId))
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, errorx.NewError(ecode.ErrRuleNotFound,
@@ -113,7 +127,7 @@ func (l *BillGenerateLogic) pickRule(req *types.BillGenerateRequest) (*model.Bil
 		return rule, nil
 	}
 
-	rule, err := l.svcCtx.Billing.FindApplicableRule(l.ctx, req.ZoneId)
+	rule, err := l.svcCtx.Billing.FindApplicableRule(l.ctx, tenantID, req.ZoneId)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errorx.NewError(ecode.ErrNoRuleMatch,

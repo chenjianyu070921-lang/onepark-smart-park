@@ -14,3 +14,9 @@ Redis:
   Addr: "127.0.0.1:6380"
   Pass: "onepark123"
   DB: 0
+
+# ===== JWT 鉴权 =====
+# 为空 = 放行(开发联调期; 中间件会打告警日志), 不改变现有调用方式。
+# 部署时填 ${JWT_SECRET} —— 注意 go-zero 的 ${} 需 main 使用 conf.UseEnv() 才展开,
+# 否则会保留字面量, 故也可直接写密钥。
+JwtSecret: ""

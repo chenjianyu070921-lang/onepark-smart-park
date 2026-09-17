@@ -32,6 +32,11 @@ func NewListNoticesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListN
 func (l *ListNoticesLogic) ListNotices(req *types.ListNoticeReq) (resp *types.NoticeListResp, err error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 
+	// 防御: 部署环境未配置 MySQL 时 svcCtx.DB 为 nil, 提前返回明确错误(M2-E-5001)避免空指针 panic.
+	if l.svcCtx.DB == nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
+	}
+
 	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.Notice{}).Where("tenant_id=?", tenantID)
 	if req.Type != 0 {
 		q = q.Where("type=?", req.Type)

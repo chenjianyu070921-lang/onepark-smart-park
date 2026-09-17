@@ -45,7 +45,7 @@ type stubAlarm struct {
 	block time.Duration
 }
 
-func (s *stubAlarm) Stat(ctx context.Context) (provider.AlarmStat, error) {
+func (s *stubAlarm) Stat(ctx context.Context, _ int64) (provider.AlarmStat, error) {
 	if s.block > 0 {
 		select {
 		case <-time.After(s.block):
@@ -93,15 +93,16 @@ func (s *stubEnergy) Stat(ctx context.Context) (provider.EnergyStat, error) {
 // okStubs 四路全部正常的桩.
 func okStubs() (*stubWorkOrder, *stubAlarm, *stubDevice, *stubEnergy) {
 	avg := 3600.5
+	water := 321.2
 	return &stubWorkOrder{stat: provider.WorkOrderStat{
 			TodayTotal:   12,
 			Unfinished:   7,
 			AvgHandleSec: &avg,
 			CompleteRate: 0.75,
 		}},
-		&stubAlarm{stat: provider.AlarmStat{Total: 3, Critical: 1, Major: 2}},
+		&stubAlarm{stat: provider.AlarmStat{Total: 6, Critical: 1, Major: 2, Minor: 2, Info: 1}},
 		&stubDevice{stat: provider.DeviceStat{Total: 1263, Online: 1240, Offline: 23}},
-		&stubEnergy{stat: provider.EnergyStat{TotalKwh: 12483.5, TotalWater: 321.2}}
+		&stubEnergy{stat: provider.EnergyStat{TotalKwh: 12483.5, TotalWater: &water}}
 }
 
 // newTestCtx 构造仅含聚合所需依赖的 ServiceContext.
@@ -138,8 +139,15 @@ func TestOverview_AllSourcesOK(t *testing.T) {
 	if resp.Device.Online != 1240 || resp.Device.Offline != 23 {
 		t.Errorf("设备卡片数值不符: %+v", resp.Device)
 	}
-	if resp.Alarm.Critical != 1 || resp.Alarm.Major != 2 {
+	if resp.Alarm.Critical != 1 || resp.Alarm.Major != 2 || resp.Alarm.Minor != 2 || resp.Alarm.Info != 1 {
 		t.Errorf("告警卡片数值不符: %+v", resp.Alarm)
+	}
+	// 四个分项之和必须等于 total, 否则大屏上"总数与分组对不上"
+	if sum := resp.Alarm.Critical + resp.Alarm.Major + resp.Alarm.Minor + resp.Alarm.Info; sum != resp.Alarm.Total {
+		t.Errorf("告警分项之和 %d != total %d", sum, resp.Alarm.Total)
+	}
+	if resp.Energy.TotalWater == nil || *resp.Energy.TotalWater != 321.2 {
+		t.Errorf("水耗应为 321.2: %+v", resp.Energy.TotalWater)
 	}
 	if resp.Cached {
 		t.Error("首次请求不应命中缓存")

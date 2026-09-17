@@ -15,6 +15,7 @@ const (
 
 // 工单动作(与 UpdateWorkOrderStatusReq.Action 字段一致)
 const (
+	ActionCreate  = "create"  // 建单: 仅作流水记录, 不参与 FSM 流转(建单即待派单)
 	ActionAssign  = "assign"  // 派单: 待派单→处理中
 	ActionSubmit  = "submit"  // 提交完成: 处理中→待验收
 	ActionApprove = "approve" // 验收通过: 待验收→已完成

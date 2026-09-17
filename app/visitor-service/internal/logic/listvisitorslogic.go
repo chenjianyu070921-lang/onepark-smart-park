@@ -32,6 +32,11 @@ func NewListVisitorsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *List
 func (l *ListVisitorsLogic) ListVisitors(req *types.ListVisitorReq) (resp *types.VisitorListResp, err error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 
+	// 防御: 部署环境未配置 MySQL 时 svcCtx.DB 为 nil, 提前返回明确错误(M2-E-5001)避免空指针 panic.
+	if l.svcCtx.DB == nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
+	}
+
 	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).Where("tenant_id=?", tenantID)
 	if req.Status != 0 {
 		q = q.Where("status=?", req.Status)

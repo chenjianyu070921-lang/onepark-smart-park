@@ -6,8 +6,17 @@ Port: 8063
 MySQL:
   DataSource: root:4ay1nkal3u8ed77y@tcp(115.191.16.159:3306)/onepark-smart-park?charset=utf8mb4&parseTime=true&loc=Local
 
-# Redis: 缓存规则列表
+# Redis: 月度自动出账的分布式锁防重(复用 leasing 模式)
 Redis:
-  Host: 127.0.0.1:6379
-  Type: node
-  Pass: ""
+  Addr: ${REDIS_ADDR}
+  Pass: ${REDIS_PASS}
+  DB: 0
+
+# 自动出账时能耗读数未携带租户(历史/M4 未回填), 统一落到该兜底园区
+DefaultTenantId: 1
+
+# 月度自动出账定时任务(复用 leasing 的 Redis 锁防重模式)
+# 默认关闭, 部署时显式开启; 每月 1 日 02:02 出上月账
+MonthlyCron:
+  Enabled: true
+  Spec: "0 2 1 * *"

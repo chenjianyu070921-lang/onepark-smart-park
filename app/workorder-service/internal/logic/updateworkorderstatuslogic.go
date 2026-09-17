@@ -10,6 +10,7 @@ import (
 	"onepark/app/workorder-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/gormx"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -64,25 +65,36 @@ func (l *UpdateWorkOrderStatusLogic) UpdateWorkOrderStatus(req *types.UpdateWork
 		updates["finished_at"] = now
 	}
 
-	// 乐观锁更新.
-	res := l.svcCtx.DB.WithContext(l.ctx).
-		Model(&model.WorkOrder{}).
-		Where("id=? AND tenant_id=? AND version=?", wo.ID, tenantID, wo.Version).
-		Updates(updates)
-	if res.Error != nil {
-		l.Errorf("update work order status failed: %v", res.Error)
+	// 乐观锁更新与流转流水在**同一事务**执行(修复此前流水 _ = 吞错导致"状态已变但无审计流水"的问题):
+	//   - version 条件不满足(RowsAffected==0) → 返回业务错误 → 事务回滚;
+	//   - 流水写入失败 → 返回错误 → 状态更新一并回滚.
+	res := l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gormx.DB) error {
+		r := tx.WithContext(l.ctx).
+			Model(&model.WorkOrder{}).
+			Where("id=? AND tenant_id=? AND version=?", wo.ID, tenantID, wo.Version).
+			Updates(updates)
+		if r.Error != nil {
+			return r.Error
+		}
+		if r.RowsAffected == 0 {
+			// 乐观锁冲突: 版本已被其它请求改走, 回滚本次流转.
+			return errorx.NewError(errorx.ErrWorkOrderAssignFailed, "状态流转冲突, 请刷新后重试")
+		}
+
+		flow := &model.WorkOrderFlow{WorkOrderID: wo.ID, FromStatus: wo.Status, ToStatus: next, Action: req.Action, OperatorID: operatorID, Remark: req.Remark}
+		flow.TenantID = tenantID
+		flow.CreatedAt = now
+		flow.UpdatedAt = now
+		return tx.WithContext(l.ctx).Create(flow).Error
+	})
+	if res != nil {
+		// 乐观锁冲突是 errorx.CodeError, 原样透出给前端; 其余按内部错误兜底.
+		if ce, ok := res.(*errorx.CodeError); ok {
+			return nil, ce
+		}
+		l.Errorf("update work order status failed: %v", res)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "状态流转失败")
 	}
-	if res.RowsAffected == 0 {
-		return nil, errorx.NewError(errorx.ErrWorkOrderAssignFailed, "状态流转冲突, 请刷新后重试")
-	}
-
-	// 写流转流水.
-	flow := &model.WorkOrderFlow{WorkOrderID: wo.ID, FromStatus: wo.Status, ToStatus: next, Action: req.Action, OperatorID: operatorID, Remark: req.Remark}
-	flow.TenantID = tenantID
-	flow.CreatedAt = now
-	flow.UpdatedAt = now
-	_ = l.svcCtx.DB.WithContext(l.ctx).Create(flow).Error
 
 	// 发布状态流转事件(workorder-event); 失败仅记日志不阻断流转.
 	publishWorkOrderEvent(l.ctx, l.svcCtx, l.Logger, WorkOrderEvent{

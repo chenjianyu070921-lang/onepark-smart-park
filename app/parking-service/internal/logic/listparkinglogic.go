@@ -37,6 +37,11 @@ func (l *ListParkingLogic) ListParking(req *types.ListParkingReq) (resp *types.P
 func (l *ListParkingLogic) query(page, pageSize int64, status int8, plate string) (*types.ParkingListResp, error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 
+	// 防御: 部署环境未配置 MySQL 时 svcCtx.DB 为 nil, 提前返回明确错误(M2-E-5001)避免空指针 panic.
+	if l.svcCtx.DB == nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
+	}
+
 	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.ParkingRecord{}).Where("tenant_id=?", tenantID)
 	if status != 0 {
 		q = q.Where("status=?", status)

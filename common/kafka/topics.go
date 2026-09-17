@@ -24,4 +24,5 @@ const (
 	GroupAlarm     = "alarm-service"
 	GroupNotice    = "notice-service"
 	GroupWorkorder = "workorder-service"
+	GroupDevice    = "device-service" // M1 遥测回写(设备状态/影子/时序库)
 )

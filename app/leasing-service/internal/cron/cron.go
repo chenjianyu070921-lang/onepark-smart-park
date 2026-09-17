@@ -1,7 +1,8 @@
 // Package cron 提供 leasing 的定时任务.
 //
-// 当前任务:
-//   - 合同自动到期: 每日 00:05 将终止日已过的「生效中」合同转为「已到期」。
+// 当前任务(每日维护, 顺序不可颠倒):
+//  1. 自动续约: 把「约定自动续约」且已过终止日的合同按原租期长度顺延
+//  2. 自动到期: 把其余已过终止日的「生效中」合同转为「已到期」
 //
 // 为什么需要启动补偿: 服务可能停机跨过凌晨执行窗口(如周末关机),
 // 启动时先补偿执行一次, 避免到期合同一直挂在「生效中」,
@@ -18,34 +19,31 @@ import (
 	"onepark/common/redisx"
 )
 
-// expireSpec 每日 00:05 执行.
-const expireSpec = "5 0 * * *"
+// dailySpec 每日 00:05 执行.
+const dailySpec = "5 0 * * *"
 
 // Start 启动全部定时任务(先做一次启动补偿), 返回停止函数.
 func Start(ctx context.Context, db *gormx.DB, rdb *redisx.Client) (stop func()) {
 	logger := logx.WithContext(ctx)
 
-	// 启动补偿: 不管现在几点, 先把欠的账补上
-	go func() {
-		n, err := RunExpireOnce(ctx, db, rdb)
+	// tag 用于区分"启动补偿"与"定时触发", 便于日志排查
+	run := func(tag string) {
+		res, err := RunDailyOnce(ctx, db, rdb)
 		if err != nil {
-			logger.Errorf("[cron] 启动补偿-合同到期执行失败: %v", err)
+			logger.Errorf("[cron] %s-每日维护执行失败: %v", tag, err)
 			return
 		}
-		if n > 0 {
-			logger.Infof("[cron] 启动补偿-合同到期: 已自动到期 %d 份合同", n)
+		if res.Renewed > 0 || res.Expired > 0 {
+			logger.Infof("[cron] %s-每日维护完成: 自动续约 %d 份, 自动到期 %d 份",
+				tag, res.Renewed, res.Expired)
 		}
-	}()
+	}
+
+	// 启动补偿: 不管现在几点, 先把欠的账补上
+	go run("启动补偿")
 
 	c := cron.New()
-	if _, err := c.AddFunc(expireSpec, func() {
-		n, err := RunExpireOnce(ctx, db, rdb)
-		if err != nil {
-			logger.Errorf("[cron] 合同到期定时任务失败: %v", err)
-			return
-		}
-		logger.Infof("[cron] 合同到期定时任务执行完成: 本次自动到期 %d 份", n)
-	}); err != nil {
+	if _, err := c.AddFunc(dailySpec, func() { run("定时任务") }); err != nil {
 		// 表达式是常量, 正常不会走到这里; 走到了说明代码有问题, 必须暴露
 		logger.Errorf("[cron] 注册定时任务失败: %v", err)
 	}

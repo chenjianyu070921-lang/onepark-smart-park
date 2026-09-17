@@ -1,3 +1,15 @@
-Name: gateway-service
-Host: ${HOST}
-Port: ${TCP_PORT}
+Host: 0.0.0.0
+Port: 7000
+
+# 网关直连业务库: 设备认证(校验 device_secret)与指令回执回写
+MySQL:
+  DataSource: "${MYSQL_DSN}"
+  MaxOpenConns: 20
+  MaxIdleConns: 10
+
+KafkaBrokers: "${KAFKA_BROKERS}"
+
+# 单帧上限(字节) / 空闲读超时(秒) / 建连认证时限(秒)
+MaxFrameBytes: 8192
+ReadTimeoutSec: 120
+AuthTimeoutSec: 10

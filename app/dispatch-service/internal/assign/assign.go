@@ -1,10 +1,16 @@
 // Package assign 实现调度工单的指派策略.
 //
-// 策略(MVP, 不依赖人员主数据表):
-//  1. 候选池来自本服务的历史指派记录 —— 因此无需跨库读 M6 的用户表(每服务独立库, 禁止跨库查询)
-//  2. 「就近」用区域编码的拓扑距离代替经纬度: 园区场景下 zone_code 形如 A-3F-301,
-//     逐段比较即可表达"同房间 / 同楼层 / 同楼栋 / 跨楼栋", 零依赖且可单测
-//  3. 「负载」用当前在手工单数(已指派 + 处理中)
+// 打分模型(加权求和, 权重设计保证**字典序**: 技能 > 距离 > 负载):
+//
+//	score = 10000 * 技能匹配 + 100 * (3 - 距离) + (99 - min(负载, 99))
+//
+// 权重为什么这么取:
+//   - 技能是"能不能干"的问题, 必须压倒性优先 —— 派错人等于没派;
+//   - 负载项被截断在 99 以内, 保证再大的负载差也翻不过"距离"一档(100),
+//     距离差也翻不过"技能"一档(10000)。三层优先级不会互相污染。
+//
+// 「就近」用区域编码的拓扑距离代替经纬度: 园区场景 zone_code 形如 A-3F-301,
+// 逐段比较即可表达"同房间 / 同楼层 / 同楼栋 / 跨楼栋", 零依赖且可单测。
 package assign
 
 import (
@@ -16,12 +22,29 @@ import (
 	"onepark/app/dispatch-service/internal/model"
 )
 
-// Candidate 候选处理人及其当前负载.
+// 打分权重: 见包注释, 三者需保持 10000 >> 100 >> 99 的量级差.
+const (
+	skillWeight = 10000
+	zoneWeight  = 100
+	loadCap     = 99
+	maxZoneDist = 3
+)
+
+// Candidate 候选处理人及其当前负载与技能.
 type Candidate struct {
 	AssigneeId   int64
 	AssigneeName string
-	ZoneCode     string // 最近一次被指派的区域, 用于就近比较
+	ZoneCode     string   // 常驻/最近被指派的区域, 用于就近比较
+	Skills       []string // 技能标签(已小写)
+	Load         int64    // 当前在手工单数
+}
+
+// ScoreBreakdown 一次打分的明细, 用于日志留痕: 派单决策必须可解释.
+type ScoreBreakdown struct {
+	SkillMatched bool   // 是否命中所需技能(未指定技能时恒为 true)
+	Distance     int    // 拓扑距离 0~3
 	Load         int64  // 当前在手工单数
+	Score        int    // 加权总分
 }
 
 // ZoneDistance 计算两个区域编码的拓扑距离:
@@ -61,27 +84,74 @@ func parts(s string) []string {
 	return strings.Split(strings.Trim(s, "-/"), "-")
 }
 
-// Pick 从候选中选出处理人: 先比拓扑距离(近者优先), 距离相同再比负载(少者优先).
-// 池为空时返回 ok=false.
-func Pick(targetZone string, candidates []Candidate) (Candidate, bool) {
+// HasSkill 判断候选是否具备某技能(大小写不敏感).
+func (c Candidate) HasSkill(skill string) bool {
+	want := strings.ToLower(strings.TrimSpace(skill))
+	if want == "" {
+		return false
+	}
+	for _, s := range c.Skills {
+		if strings.ToLower(strings.TrimSpace(s)) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// Explain 给出该候选人在此工单下的打分明细.
+//
+// requiredSkill 为空表示"不限技能", 此时所有候选的技能分相同 ——
+// 这不是漏洞, 而是刻意设计: 不指定技能时算法自动退化为"就近 + 负载均衡"。
+func Explain(targetZone, requiredSkill string, c Candidate) ScoreBreakdown {
+	skillMatched := requiredSkill == "" || c.HasSkill(requiredSkill)
+
+	dist := ZoneDistance(targetZone, c.ZoneCode)
+
+	skillPart := 0
+	if skillMatched {
+		skillPart = skillWeight
+	}
+	zonePart := zoneWeight * (maxZoneDist - dist)
+
+	load := c.Load
+	if load > loadCap {
+		load = loadCap
+	}
+	loadPart := int(loadCap - load)
+
+	return ScoreBreakdown{
+		SkillMatched: skillMatched,
+		Distance:     dist,
+		Load:         c.Load,
+		Score:        skillPart + zonePart + loadPart,
+	}
+}
+
+// Pick 从候选中选出处理人.
+//
+// 核心保证: **无技能匹配者时不会把工单卡住** —— 全员技能分为 0,
+// 算法自动落到"距离 -> 负载"的次优选择, 而不是返回空。
+// 池为空时返回 ok=false, 由调用方决定是转人工还是报错。
+func Pick(targetZone, requiredSkill string, candidates []Candidate) (Candidate, bool) {
 	if len(candidates) == 0 {
 		return Candidate{}, false
 	}
 
 	best := candidates[0]
-	bestDist := ZoneDistance(targetZone, best.ZoneCode)
+	bestScore := Explain(targetZone, requiredSkill, best).Score
 
 	for _, c := range candidates[1:] {
-		d := ZoneDistance(targetZone, c.ZoneCode)
-		if d < bestDist || (d == bestDist && c.Load < best.Load) {
-			best, bestDist = c, d
+		if s := Explain(targetZone, requiredSkill, c).Score; s > bestScore {
+			best, bestScore = c, s
 		}
 	}
 	return best, true
 }
 
-// LoadCandidates 从 dispatch_task 中推导候选处理人及其负载.
-// 说明: MAX(assignee_name) 仅用于从历史记录里取出一个可用姓名, 不作为"最新"语义依赖.
+// LoadCandidates 从 dispatch_task 的历史指派记录推导候选处理人.
+//
+// 这是**兜底池**: 当 dispatch_staff 表尚未录入人员时使用, 保证老行为不退化。
+// 代价是拿不到技能标签(历史记录里没有该信息), 只能按就近+负载派。
 func LoadCandidates(ctx context.Context, db *gorm.DB) ([]Candidate, error) {
 	var rows []struct {
 		AssigneeId   int64
