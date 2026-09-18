@@ -79,7 +79,23 @@ func (l *CreateRuleLogic) CreateRule(req *types.CreateRuleReq) (*types.CreateRul
 		l.Errorf("create rule failed: %v", err)
 		return nil, errorx.NewError(errorx.ErrAlarmRuleCreate, "创建告警规则失败")
 	}
+	invalidateRuleCache(l.svcCtx, l.Logger, r.ID, "create")
 	return &types.CreateRuleResp{Id: r.ID}, nil
+}
+
+// invalidateRuleCache 规则写库成功后主动失效引擎快照, 使新规则对下一条事件立即生效.
+//
+// 不失效的后果: 引擎快照有 30s TTL(ruleCacheTTL), 期间仍按旧规则判定。
+// 其中"禁用一条正在误报的规则后它又报了 30 秒"最难排查 —— 现象与"规则没配好"无法区分。
+//
+// 引擎未初始化(MySQL 未配置)时静默跳过: 此时规则库本身不可用, 也没有快照可失效。
+// 失效是纯内存操作且不会失败, 因此不改写对外结果 —— 规则已入库是事实, 不因缓存动作失败而回滚.
+func invalidateRuleCache(svcCtx *svc.ServiceContext, log logx.Logger, ruleID int64, action string) {
+	if svcCtx == nil || svcCtx.Engine == nil {
+		return
+	}
+	svcCtx.Engine.Invalidate()
+	log.Infof("alarm rule cache invalidated after %s rule_id=%d", action, ruleID)
 }
 
 // normalizeRuleType 归一化规则类型名(兼容 docs/m3/04 的 composite/window 写法).
@@ -172,6 +188,8 @@ func (l *UpdateRuleLogic) UpdateRule(req *types.UpdateRuleReq) (*types.UpdateRul
 		l.Errorf("update rule failed: %v", err)
 		return nil, errorx.NewError(errorx.ErrAlarmRuleCreate, "更新告警规则失败")
 	}
+	// 含"禁用规则"(status=0): 这条最需要立即生效, 否则被禁用的规则还会继续产生告警到 TTL 结束.
+	invalidateRuleCache(l.svcCtx, l.Logger, req.Id, "update")
 	return &types.UpdateRuleResp{Id: req.Id}, nil
 }
 

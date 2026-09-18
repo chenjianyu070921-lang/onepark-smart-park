@@ -61,6 +61,26 @@ func (e *Engine) HasRules(ctx context.Context) bool {
 	return err == nil && len(rules) > 0
 }
 
+// Invalidate 主动失效规则快照, 使下一次评估重新从 Store 加载.
+//
+// 为什么必须有: 只等 TTL 自然过期时, 规则变更后最长有 cacheTTL(当前 30s) 的窗口内引擎仍按旧规则判定。
+// 最危险的一条是"运维禁用了误报规则, 它却又报了 30 秒" —— 现象与"规则没配好"完全一样, 无法区分。
+//
+// 为什么是失效而不是立即重载:
+//  1. 连续改 N 条规则会退化成 N 次全表查询, 而失效只需 O(1) 且天然合并;
+//  2. 立即重载要把 DB 错误暴露在"改规则"这条路径上, 一次临时抖动就会导致规则改不动;
+//     懒加载把错误留给评估路径, 那边已有成熟处理(上抛 -> 消费端重投), 且不丢事件。
+//
+// 注意: 失效后若加载失败, snapshot 不再有"旧快照"可保, 将返回空规则集并上抛错误,
+// 由调用方按 DisableLegacyFallback 决定丢弃或回退 —— 不拿陈旧规则继续判定。
+func (e *Engine) Invalidate() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.cached = nil
+	e.cacheLoad = false
+	e.cachedAt = time.Time{}
+}
+
 // Evaluate 评估事件, 返回命中的告警草稿列表(可能为空).
 // 规则本身解析失败只跳过该条规则, 不影响其它规则(docs/m3/07: 单规则异常不应拖垮整条链路).
 func (e *Engine) Evaluate(ctx context.Context, f Fields, idempotentID string) ([]*Draft, error) {
