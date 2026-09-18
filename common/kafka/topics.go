@@ -16,6 +16,7 @@ const (
 	TopicAlarmEvent = "onepark.alarm.event"
 	TopicNotice     = "notice-event"    // 公告发布事件(通知类消费)
 	TopicWorkorder  = "workorder-event" // 工单状态事件(workorder-service 发布, M5/通知类消费)
+	TopicVisitor    = "visitor-event"   // 访客事件(visitor-service 发布 invite/checkin/checkout, 大屏等消费方)
 )
 
 // 消费者组常量(同一服务多实例共享消费位移).

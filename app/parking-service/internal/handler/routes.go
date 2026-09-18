@@ -41,6 +41,30 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/parking/records",
 				Handler: ListParkingHandler(serverCtx),
 			},
+			{
+				// 创建月卡(P2)
+				Method:  http.MethodPost,
+				Path:    "/api/parking/monthly-card",
+				Handler: CreateMonthlyCardHandler(serverCtx),
+			},
+			{
+				// 月卡续费(P2)
+				Method:  http.MethodPost,
+				Path:    "/api/parking/monthly-card/renew",
+				Handler: RenewMonthlyCardHandler(serverCtx),
+			},
+			{
+				// 月卡停用(P2, 幂等)
+				Method:  http.MethodPost,
+				Path:    "/api/parking/monthly-card/disable",
+				Handler: DisableMonthlyCardHandler(serverCtx),
+			},
+			{
+				// 月卡分页列表+到期提醒筛选(P2)
+				Method:  http.MethodGet,
+				Path:    "/api/parking/monthly-cards",
+				Handler: ListMonthlyCardsHandler(serverCtx),
+			},
 		},
 	)
 }

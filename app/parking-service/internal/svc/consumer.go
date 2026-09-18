@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"onepark/app/parking-service/internal/model"
+	"onepark/common/gormx"
 	"onepark/common/kafka"
 
 	kafkago "github.com/segmentio/kafka-go"
@@ -46,6 +48,7 @@ type telemetryPayload struct {
 // 事件时间缺省回落到当前时间, 保证 EntryTime 恒有值.
 func normalizeTelemetry(raw *deviceTelemetry) *deviceTelemetry {
 	t := &deviceTelemetry{
+		RequestID:   raw.RequestID,
 		TenantID:    raw.TenantID,
 		DeviceID:    raw.DeviceID,
 		Event:       raw.EventType,
@@ -107,12 +110,20 @@ func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Messag
 }
 
 // onTelemetryEntry 入场: 新建停车记录(停车中).
+// 月卡车辆识别(P2): 事件未携带车型(vehicle_type=0)时按月卡表自动判定,
+// 命中生效月卡按月卡计费(fee=0), 否则按临时车计费; 判定结果随入场定格, 离场按此计费.
 func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetry) error {
 	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
 	now := time.Now()
+
+	vehicleType := t.VehicleType
+	if vehicleType == 0 {
+		vehicleType = ResolveVehicleType(s.DB, t.TenantID, t.PlateNo, eventTime)
+	}
+
 	rec := &model.ParkingRecord{
 		PlateNo:     t.PlateNo,
-		VehicleType: t.VehicleType,
+		VehicleType: vehicleType,
 		DeviceIDIn:  t.DeviceID,
 		EntryTime:   &eventTime,
 		Status:      model.ParkingStatusParking,
@@ -120,7 +131,18 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 	rec.TenantID = t.TenantID
 	rec.CreatedAt = now
 	rec.UpdatedAt = now
+	// 入场幂等(设计文档"按 requestId 幂等"): 标准信封携带 request_id 时落库,
+	// Kafka 至少一次投递的重复入场消息由 uk_request 唯一键兜底去重.
+	if t.RequestID != "" {
+		rid := t.RequestID
+		rec.RequestID = &rid
+	}
 	if err := s.DB.WithContext(ctx).Create(rec).Error; err != nil {
+		if isDuplicateEntry(err) {
+			// 重复投递的同一入场事件: 已建过记录, 跳过且不再发布 parking-entry.
+			fmt.Printf("[warn] parking duplicate entry skipped request_id=%s plate=%s\n", t.RequestID, t.PlateNo)
+			return nil
+		}
 		return err
 	}
 	// 发布车辆入场事件, 供大屏/告警订阅.
@@ -180,6 +202,16 @@ func (s *ServiceContext) publish(ctx context.Context, topic, key string, value [
 	}
 }
 
+// ResolveVehicleType 月卡车辆识别(P2): 入场时事件未携带车型时调用.
+// 命中生效月卡(时间窗覆盖入场时刻)按月卡计费, 否则按临时车计费;
+// DB 未初始化时降级为临时车, 不阻断入场.
+func ResolveVehicleType(db *gormx.DB, tenantID int64, plateNo string, at time.Time) int8 {
+	if model.HasActiveMonthlyCard(db, tenantID, plateNo, at) {
+		return model.VehicleTypeMonthly
+	}
+	return model.VehicleTypeTemp
+}
+
 // CalcFee 简化计费: 月卡/VIP 免费, 临时车首 15 分钟免费, 之后 5 元/小时向上取整.
 func CalcFee(entry, exit *time.Time, vehicleType int8) float64 {
 	switch vehicleType {
@@ -195,6 +227,15 @@ func CalcFee(entry, exit *time.Time, vehicleType int8) float64 {
 	}
 	hours := (mins + 59) / 60 // 向上取整到小时
 	return float64(hours) * 5.0
+}
+
+// isDuplicateEntry 判断写库错误是否为唯一键冲突(MySQL 1062 Duplicate entry).
+// 入场幂等去重依赖该判定: uk_request 冲突即视为重复投递, 静默跳过不报错.
+func isDuplicateEntry(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "duplicate entry")
 }
 
 // msgOf 将停车记录序列化为事件消息体.

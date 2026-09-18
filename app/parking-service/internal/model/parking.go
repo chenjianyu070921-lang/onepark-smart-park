@@ -19,6 +19,7 @@ type BaseModel struct {
 type ParkingRecord struct {
 	BaseModel
 	PlateNo     string     `gorm:"column:plate_no;type:varchar(32);not null" json:"plate_no"`             // 车牌号
+	RequestID   *string    `gorm:"column:request_id;type:char(36)" json:"request_id,omitempty"`           // 幂等键: M1 遥测 request_id, 重复投递去重(唯一键在 DDL: uk_request)
 	EntryTime   *time.Time `gorm:"column:entry_time" json:"entry_time"`                                   // 入场时间
 	ExitTime    *time.Time `gorm:"column:exit_time" json:"exit_time"`                                     // 离场时间
 	DurationMin *int       `gorm:"column:duration_min" json:"duration_min"`                               // 停车时长(分钟)

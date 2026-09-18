@@ -64,5 +64,16 @@ func (l *VisitorCheckoutLogic) VisitorCheckout(req *types.VisitorCheckoutReq) (r
 		return nil, errorx.NewError(errorx.ErrM2Internal, "签出失败")
 	}
 
+	// 发布访客事件(评审 P1): checkout → Kafka visitor-event, 供大屏等消费方实时感知; 尽力而为不阻断.
+	publishVisitorEvent(l.ctx, l.svcCtx, l.Logger, VisitorEvent{
+		Event:        "checkout",
+		TenantId:     rec.TenantID,
+		VisitorId:    rec.ID,
+		VisitorName:  rec.VisitorName,
+		VisitorPhone: rec.VisitorPhone,
+		InviterId:    rec.InviterID,
+		Status:       model.VisitorStatusCheckout,
+	})
+
 	return &types.VisitorCheckoutResp{Id: rec.ID, Status: model.VisitorStatusCheckout, CheckoutAt: now.Unix()}, nil
 }

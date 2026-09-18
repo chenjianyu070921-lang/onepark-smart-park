@@ -37,6 +37,21 @@ type NoticeListResp struct {
 	List  []NoticeItem `json:"list"`  // 当前页数据
 }
 
+// NoticeUnreadCountResp 未读计数响应(站内信送达未读数, 来源于 notice_read).
+type NoticeUnreadCountResp struct {
+	UnreadCount int64 `json:"unread_count"` // 当前用户送达未读的站内信条数
+}
+
+// MarkNoticeReadReq 公告已读回填请求(当前登录用户对指定公告回填已读时间).
+type MarkNoticeReadReq struct {
+	NoticeId int64 `json:"notice_id"` // 公告ID
+}
+
+// MarkNoticeReadResp 公告已读回填响应.
+type MarkNoticeReadResp struct {
+	Updated int64 `json:"updated"` // 实际回填条数(0=无未读记录或已读)
+}
+
 // NoticeResp 发布公告响应.
 type NoticeResp struct {
 	Id        int64  `json:"id"`                  // 公告ID
