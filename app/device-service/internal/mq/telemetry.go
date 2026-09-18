@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -186,33 +187,48 @@ func (h *Handler) handleTelemetry(ctx context.Context, m *Message) error {
 	return nil
 }
 
-// mergeReported 将遥测指标合并进影子 reported 后覆盖写入.
+// mergeReportedMaxAttempts 影子写入版本冲突的最大重试次数.
+const mergeReportedMaxAttempts = 3
+
+// mergeReported 将遥测指标合并进影子 reported 后写入(乐观锁, 冲突重试).
+// 语义与 shadow-service gRPC UpdateReported 一致: version 条件更新, 0 行即冲突.
 func (h *Handler) mergeReported(ctx context.Context, deviceID string, metrics map[string]any) error {
-	shadow, err := h.svcCtx.ShadowModel.FindByDeviceID(ctx, deviceID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// 影子缺失(如历史设备), 补建后再写, 保证上报不丢
-			shadow = &model.Shadow{DeviceID: deviceID, Desired: []byte(`{}`), Reported: []byte(`{}`)}
-			if err := h.svcCtx.ShadowModel.Insert(ctx, shadow); err != nil {
+	for attempt := 0; attempt < mergeReportedMaxAttempts; attempt++ {
+		s, err := h.svcCtx.ShadowModel.FindByDeviceID(ctx, deviceID)
+		if err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
-		} else {
+			// 影子缺失(如历史设备), 补建后再走正常路径, 保证上报不丢
+			s = &model.Shadow{DeviceID: deviceID, Desired: []byte(`{}`), Reported: []byte(`{}`)}
+			if err := h.svcCtx.ShadowModel.Insert(ctx, s); err != nil {
+				return err
+			}
+		}
+
+		reported := map[string]any{}
+		if len(s.Reported) > 0 {
+			_ = json.Unmarshal(s.Reported, &reported)
+		}
+		for k, v := range metrics {
+			reported[k] = v
+		}
+		b, err := json.Marshal(reported)
+		if err != nil {
 			return err
 		}
-	}
 
-	reported := map[string]any{}
-	if len(shadow.Reported) > 0 {
-		_ = json.Unmarshal(shadow.Reported, &reported)
+		rows, err := h.svcCtx.ShadowModel.UpdateReported(ctx, deviceID, b, s.Version)
+		if err != nil {
+			return err
+		}
+		if rows > 0 {
+			return nil
+		}
+		// 0 行: 并发写入导致版本冲突, 重读快照后重试
+		h.Infof("影子写入版本冲突, 重试: deviceId=%s, attempt=%d", deviceID, attempt+1)
 	}
-	for k, v := range metrics {
-		reported[k] = v
-	}
-	b, err := json.Marshal(reported)
-	if err != nil {
-		return err
-	}
-	return h.svcCtx.ShadowModel.SaveReported(ctx, deviceID, b)
+	return fmt.Errorf("影子 reported 写入重试耗尽: deviceId=%s", deviceID)
 }
 
 func toFloat(v any) (float64, bool) {
