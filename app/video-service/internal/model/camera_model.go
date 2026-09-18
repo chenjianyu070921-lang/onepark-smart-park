@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
@@ -44,6 +45,106 @@ func (m *cameraModel) FindByID(ctx context.Context, tenantID, id int64) (*Camera
 		return nil, err
 	}
 	return &c, nil
+}
+
+// Update 按租户+主键增量更新. 只写 patch 中非 nil 的字段,
+// 未提供的字段保持原值 —— 否则调用方只想改 rtsp 却把 location 清空了.
+func (m *cameraModel) Update(ctx context.Context, tenantID, id int64, patch CameraPatch) error {
+	fields := map[string]interface{}{}
+	if patch.Name != nil {
+		fields["name"] = *patch.Name
+	}
+	if patch.AreaID != nil {
+		fields["area_id"] = *patch.AreaID
+	}
+	if patch.RtspURL != nil {
+		fields["rtsp_url"] = *patch.RtspURL
+	}
+	if patch.Location != nil {
+		fields["location"] = *patch.Location
+	}
+	if patch.Status != nil {
+		fields["status"] = *patch.Status
+	}
+	if len(fields) == 0 {
+		// 空更新视为无操作而非"全量清空": 调用方多半是参数解析出错, 报错比静默改数据好.
+		return ErrCameraNotFound
+	}
+	fields["updated_at"] = time.Now()
+
+	res := m.db.WithContext(ctx).Model(&Camera{}).
+		Where("id = ? AND tenant_id = ?", id, tenantID).
+		Updates(fields)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrCameraNotFound
+	}
+	return nil
+}
+
+// Delete 地址簿下架. 采用物理删除: camera 只承载"当前在用的摄像机地址簿",
+// 无历史流记录引用它; 若将来需要保留审计, 应改为软删而不是在这里留半套逻辑.
+func (m *cameraModel) Delete(ctx context.Context, tenantID, id int64) error {
+	res := m.db.WithContext(ctx).
+		Where("id = ? AND tenant_id = ?", id, tenantID).
+		Delete(&Camera{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrCameraNotFound
+	}
+	return nil
+}
+
+// TouchHeartbeat 按设备ID登记心跳.
+//
+// 跨租户约束: M1 的遥测报文不带 tenant_id(见 app/event-dispatcher 的 Message 结构),
+// 只能按 device_id 反查. 若同一 device_id 在多个租户下都存在, 逐条更新会写成"某园区的心跳
+// 更新到别的园区摄像头上", 因此只在全局唯一命中时才写入, 否则回 false 让调用方告警.
+func (m *cameraModel) TouchHeartbeat(ctx context.Context, deviceID string, at time.Time) (int, error) {
+	var ids []int64
+	if err := m.db.WithContext(ctx).Model(&Camera{}).
+		Where("device_id = ?", deviceID).
+		Pluck("id", &ids).Error; err != nil {
+		return 0, err
+	}
+	switch len(ids) {
+	case 0:
+		return 0, nil
+	case 1:
+		res := m.db.WithContext(ctx).Model(&Camera{}).
+			Where("id = ?", ids[0]).
+			Updates(map[string]interface{}{
+				"last_heartbeat_at": at,
+				"status":            CameraStatusOnline,
+				"updated_at":        at,
+			})
+		if res.Error != nil {
+			return 0, res.Error
+		}
+		return len(ids), nil
+	default:
+		// 不写入: 无法判断这条心跳属于哪个园区, 写任何一个都是把 A 园区的在线状态安到 B 园区头上.
+		return len(ids), nil
+	}
+}
+
+// MarkOffline 心跳超时转离线. 只扫 status=1 的行: 故障态(2)由人工排障后恢复,
+// 不能被"没心跳"自动洗成离线, 否则故障会被静默抹掉.
+func (m *cameraModel) MarkOffline(ctx context.Context, deadline time.Time) (int64, error) {
+	res := m.db.WithContext(ctx).Model(&Camera{}).
+		Where("status = ? AND (last_heartbeat_at IS NULL OR last_heartbeat_at < ?)", CameraStatusOnline, deadline).
+		Updates(map[string]interface{}{
+			"status":     CameraStatusOffline,
+			"updated_at": time.Now(),
+		})
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
 }
 
 func (m *cameraModel) List(ctx context.Context, f CameraListFilter) ([]*Camera, int64, error) {

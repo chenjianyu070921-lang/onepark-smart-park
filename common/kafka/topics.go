@@ -25,4 +25,5 @@ const (
 	GroupNotice    = "notice-service"
 	GroupWorkorder = "workorder-service"
 	GroupDevice    = "device-service" // M1 遥测回写(设备状态/影子/时序库)
+	GroupVideo     = "video-service"  // M3 摄像头心跳(更新 camera.last_heartbeat_at / status)
 )

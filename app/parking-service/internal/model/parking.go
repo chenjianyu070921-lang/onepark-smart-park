@@ -3,7 +3,13 @@
 // 所有业务表统一携带 tenant_id(RBAC 数据隔离) 与时间戳.
 package model
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrDuplicateRequest 幂等键冲突(uk_request 命中), 表示该遥测消息此前已建过停车记录.
+var ErrDuplicateRequest = errors.New("parking: duplicate request")
 
 // BaseModel 业务表公共基础字段: 物理主键 + 租户隔离 + 时间戳.
 // TenantID 由网关注入的 x-tenant-id 写入, 作为 RBAC 行级隔离维度.
@@ -27,6 +33,10 @@ type ParkingRecord struct {
 	Status      int8       `gorm:"column:status;not null;default:1" json:"status"`                        // 1停车中 2已完成
 	DeviceIDIn  string     `gorm:"column:device_id_in;type:varchar(64);default:''" json:"device_id_in"`   // 入场地磁设备ID
 	DeviceIDOut string     `gorm:"column:device_id_out;type:varchar(64);default:''" json:"device_id_out"` // 出场地磁设备ID
+	// RequestID 消费幂等键(L3 兜底): 同一条地磁遥测重复投递时靠唯一索引拦截, 避免重复建单/重复计费.
+	// 用指针且不加 not null: HTTP 联调入口不携带幂等键时写入 NULL,
+	// MySQL 唯一索引允许多个 NULL, 空串则会互相撞键(多行 '' 直接 1062).
+	RequestID *string `gorm:"column:request_id;type:varchar(64);uniqueIndex:uk_request" json:"request_id,omitempty"`
 }
 
 // TableName 指定停车记录表名(对齐 parking_db 库).

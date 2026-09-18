@@ -31,6 +31,13 @@ Notify:
 WS:
   BroadcastChannel: alarm:ws:broadcast
 
+# 规则引擎开关 (docs/m3/07 §4)
+# DisableLegacyFallback=true 时, 引擎无启用规则将不再回退硬编码门禁规则, 而是丢弃事件并打 WARN.
+# 规则体系正式启用后建议置 true: 隐式回退会让"规则配了却没生效"伪装成"没有匹配事件", 极难排查.
+# 默认 false(未配置该项时保持回退), 保证规则中心不可用时安防主链路不失效.
+Rule:
+  DisableLegacyFallback: false
+
 # Elasticsearch (历史告警检索 #41 / 告警双写 #44)
 # 未注入 ALARM_ES_URL 时该值为 ${ALARM_ES_URL} 字面量, 服务视其为"未配置 ES":
 # 历史检索降级 MySQL, 双写跳过, 启动不受影响; 宿主机的 ES 地址见 deploy/.env(ES_PORT 映射 9200).

@@ -3,6 +3,7 @@ package svc
 import (
 	"log"
 	"strings"
+	"time"
 
 	"onepark/app/video-service/internal/config"
 	"onepark/app/video-service/internal/model"
@@ -18,6 +19,11 @@ type ServiceContext struct {
 	Redis   *redis.Redis
 	DB      *gormx.DB         // GORM MySQL 连接(video_db)
 	Cameras model.CameraModel // 摄像头数据访问层
+	// StatusCache 摄像头在线状态缓存(#50); nil 表示未启用/Redis 不可用,
+	// 读取侧会回退到 MySQL 中的 status, 不因缓存缺席而改变接口语义.
+	StatusCache StatusCacheStore
+	// DeadLetters 心跳消费死信台账; nil 表示未配置 MySQL, 坏消息退回"仅日志"(不可追溯但不停机).
+	DeadLetters model.HeartbeatDLQModel
 }
 
 // NewServiceContext 构造依赖.
@@ -27,6 +33,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Config: c,
 		Redis:  redis.MustNewRedis(c.Redis),
 	}
+	// 心跳缓存 TTL 与离线判定阈值一致: 两者不一致会出现"缓存说在线、扫描判离线"的自我矛盾.
+	svcCtx.StatusCache = NewStatusCache(svcCtx.Redis,
+		time.Duration(c.Heartbeat.OfflineAfterSeconds)*time.Second)
 
 	if dsn := unresolvedToEmpty(c.MySQL.DataSource); dsn != "" {
 		db, err := gormx.NewDB(dsn)
@@ -35,6 +44,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		}
 		svcCtx.DB = db
 		svcCtx.Cameras = model.NewCameraModel(db)
+		svcCtx.DeadLetters = model.NewHeartbeatDLQModel(db)
 		log.Printf("[info] video-service mysql initialized, db=%s", databaseOf(dsn))
 	} else {
 		log.Printf("[warn] video-service mysql data source is empty, db not initialized")

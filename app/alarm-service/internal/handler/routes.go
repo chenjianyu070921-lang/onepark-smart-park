@@ -52,6 +52,18 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/alarm/:id/status",
 				Handler: UpdateAlarmStatusHandler(serverCtx),
 			},
+			// 死信台账(docs/m3/06 §5.4): 可查 + 可重放.
+			// goctl 未安装(KI-13), 以下两条按 goctl 产物格式手写补齐.
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/alarm/dlq",
+				Handler: ListDeadLettersHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/alarm/dlq/:id/replay",
+				Handler: ReplayDeadLetterHandler(serverCtx),
+			},
 		},
 	)
 }

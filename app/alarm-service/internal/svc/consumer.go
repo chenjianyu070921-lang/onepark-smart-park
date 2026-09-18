@@ -351,6 +351,29 @@ func (s *ServiceContext) recordDeadLetter(ctx context.Context, msg kafkago.Messa
 	return nil
 }
 
+// ReplayDeadLetter 重放一条死信(docs/m3/06 §5.4): 用台账里保存的原始报文重新走一遍消费主链路.
+//
+// 为什么先删 L1 幂等键: 死信多是"过了 L1 之后的下游步骤失败"产生的, 此时 alarm:dedup:{requestId}
+// 仍在 24h TTL 内。若不清键, 重放会被 L1 判成"已处理"直接返回 nil,
+// 表现为"点了重放却什么都没发生" —— 这是最难排查的一类静默失败。
+// 人工重放是运维的显式意图, 应当真正重新处理; 重复落库由 L3 唯一索引(uk_request_rule)兜底, 不依赖 L1.
+func (s *ServiceContext) ReplayDeadLetter(ctx context.Context, entry *model.AlarmDLQ) error {
+	if s.Redis != nil && entry.RequestID != "" {
+		if err := s.Redis.Del(ctx, keyDedup+entry.RequestID).Err(); err != nil {
+			// 清键失败不阻断重放: 最坏情况是重放被 L1 跳过, 由上层据返回值判断.
+			logx.WithContext(ctx).Errorf("alarm replay clear dedup key failed request_id=%s err=%v",
+				entry.RequestID, err)
+		}
+	}
+	msg := kafkago.Message{
+		Topic:     entry.Topic,
+		Partition: entry.PartitionNo,
+		Offset:    entry.MsgOffset,
+		Value:     []byte(entry.Payload),
+	}
+	return s.HandleDeviceEvent(ctx, msg)
+}
+
 // truncate 截断超长文本, 避免 error_msg 超过列宽导致整条死信写不进去.
 func truncate(s string, max int) string {
 	if len(s) <= max {
@@ -365,6 +388,14 @@ func truncate(s string, max int) string {
 func (s *ServiceContext) evaluateRules(ctx context.Context, ev *DeviceEvent, idempotentID string) ([]*rule.Draft, error) {
 	if s.Engine != nil && s.Engine.HasRules(ctx) {
 		return s.Engine.Evaluate(ctx, ev.RuleFields(), idempotentID)
+	}
+	// 回退由配置显式控制(Rule.DisableLegacyFallback), 不再隐式兜底:
+	// 关闭时必须留 WARN —— 否则"规则未生效"和"没有匹配事件"在现象上完全一样, 无法区分.
+	if s.Config.Rule.DisableLegacyFallback {
+		logx.WithContext(ctx).Slowf(
+			"alarm no enabled rule and legacy fallback disabled, event dropped device_id=%s device_type=%s event_type=%s",
+			ev.DeviceID, ev.DeviceType, ev.EventType)
+		return nil, nil
 	}
 	if ev.MatchIntrusionRule() {
 		return []*rule.Draft{{

@@ -62,10 +62,11 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "二维码已被核销")
 	}
 
-	// 1) 核销并置为已签入.
-	// 并发安全: 必须带 status=待使用 原子条件, 防止同一二维码被并发签入两次导致重复开门.
-	// 利用 MySQL 行级 UPDATE 的原子性: 仅当记录仍为待使用时才更新成功(RowsAffected==1),
-	// 并发的第二次请求命中 status 已变更 → RowsAffected==0 → 判定为已被核销.
+	// 1) 核销并置为已签入(RBAC 隔离: 带 tenant_id 条件).
+	//
+	// 更新条件必须带上 status=待使用(CAS): 上面的"先查后改"在并发重复扫码下会同时读到
+	// status=1 并各自写入一次, 结果是重复触发开门 + 签入时间被覆盖。
+	// RowsAffected=0 即说明已被另一路请求核销, 此时不能再走开门。
 	res := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).
 		Where("id=? AND tenant_id=? AND status=?", rec.ID, tenantID, model.VisitorStatusPending).
 		Updates(map[string]interface{}{
@@ -73,12 +74,13 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 			"checkin_at": now,
 			"updated_at": now,
 		})
-	if res.Error != nil {
-		l.Errorf("visitor checkin failed: %v", res.Error)
+	if e := res.Error; e != nil {
+		l.Errorf("visitor checkin failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrVisitorCheckinFailed, "签入失败")
 	}
 	if res.RowsAffected == 0 {
-		// 同一条码已被并发/重复核销(状态已非待使用), 直接拒绝, 避免重复触发 M1 开门.
+		// 并发下第二次扫码走到这里: 返回"已核销"而不是成功, 绝不重复开门.
+		l.Infof("visitor checkin skipped, already consumed rec_id=%d", rec.ID)
 		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "二维码已被核销")
 	}
 
