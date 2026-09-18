@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/zeromicro/go-zero/core/logx"
 )
 
 const (
@@ -29,10 +31,13 @@ const (
 	maxPageSize = 100
 )
 
-// indexMapping 索引 mapping(docs/m3/04 §7.1).
-// 注意: docs 建议 content 用 ik_max_word 分词, 但 compose 拉取的是官方镜像(不含 ik 插件),
-// 指定 ik 会导致建索引直接失败; 故用默认分词器, 引入 ik 后再改 mapping.
-const indexMapping = `{
+// indexMappingTemplate 索引 mapping 模板(docs/m3/04 §7.1).
+//
+// %s 处填 content 的分词器: 为空串则省略 analyzer 字段, 用 ES 默认分词器(standard).
+// 不硬编码 ik_max_word 的原因: compose 起的是官方镜像(不含 ik 插件), 直接指定 ik 会让
+// PUT /{index} 以 illegal_argument_exception 失败 —— 表现为"配了检索反而不可用"。
+// 因此分词器由配置 ESConf.Analyzer 决定, 且 EnsureIndex 在插件缺失时自动降级(见该方法注释).
+const indexMappingTemplate = `{
   "settings": {"number_of_shards": 1, "number_of_replicas": 0},
   "mappings": {
     "properties": {
@@ -44,11 +49,19 @@ const indexMapping = `{
       "event_type":  {"type": "keyword"},
       "level":       {"type": "integer"},
       "status":      {"type": "integer"},
-      "content":     {"type": "text"},
+      "content":     {"type": "text"%s},
       "create_time": {"type": "date"}
     }
   }
 }`
+
+// buildIndexMapping 按分词器生成 mapping; analyzer 为空则用默认分词器.
+func buildIndexMapping(analyzer string) string {
+	if a := strings.TrimSpace(analyzer); a != "" {
+		return fmt.Sprintf(indexMappingTemplate, `, "analyzer": "`+a+`"`)
+	}
+	return fmt.Sprintf(indexMappingTemplate, "")
+}
 
 // ESClient 基于标准库 HTTP 实现的 Elasticsearch 客户端.
 // 不引入第三方 ES SDK: 本服务只用到 建索引/单文档写入/一次组合检索+聚合 三个操作,
@@ -58,6 +71,9 @@ type ESClient struct {
 	username string
 	password string
 	index    string
+	// analyzer content 字段的分词器, 来自配置 ESConf.Analyzer.
+	// 空 = ES 默认分词器; 配 ik_max_word / ik_smart 需 ES 已装 ik 插件, 缺失时 EnsureIndex 自动降级.
+	analyzer string
 	client   *http.Client
 }
 
@@ -65,7 +81,7 @@ var _ Searcher = (*ESClient)(nil)
 
 // NewESClient 创建 ES 客户端.
 // addrs 为空返回 nil, 表示"未配置 ES", 由调用方走 MySQL 降级路径.
-func NewESClient(addrs []string, username, password, index string) *ESClient {
+func NewESClient(addrs []string, username, password, index, analyzer string) *ESClient {
 	normalized := normalizeAddrs(addrs)
 	if len(normalized) == 0 {
 		return nil
@@ -78,6 +94,7 @@ func NewESClient(addrs []string, username, password, index string) *ESClient {
 		username: username,
 		password: password,
 		index:    index,
+		analyzer: strings.TrimSpace(analyzer),
 		client:   &http.Client{Timeout: esTimeout},
 	}
 }
@@ -86,15 +103,35 @@ func NewESClient(addrs []string, username, password, index string) *ESClient {
 func (c *ESClient) IndexName() string { return c.index }
 
 // EnsureIndex 幂等创建索引: 已存在(HTTP 400 + resource_already_exists_exception)视为成功.
+//
+// 分词器降级: 配置了 analyzer(如 ik_max_word)而 ES 未装对应插件时, PUT 会以 400 报
+// "analyzer [xx] not found"。此时**用默认分词器重试一次**并记 WARN, 而不是让整个检索不可用 ——
+// 默认分词器下中文按单字切分, 检索质量差但功能在; 建索引失败则检索完全不可用。
+// 降级只在本次进程内有效: 索引一旦建成, 后续启动都会命中 resource_already_exists 直接返回。
 func (c *ESClient) EnsureIndex(ctx context.Context) error {
-	body, status, err := c.do(ctx, http.MethodPut, "/"+c.index, json.RawMessage(indexMapping))
-	if err != nil {
-		if status == http.StatusBadRequest && strings.Contains(string(body), "resource_already_exists_exception") {
+	body, status, err := c.do(ctx, http.MethodPut, "/"+c.index, json.RawMessage(buildIndexMapping(c.analyzer)))
+	if err == nil {
+		return nil
+	}
+	if status == http.StatusBadRequest && strings.Contains(string(body), "resource_already_exists_exception") {
+		return nil // 索引已存在: analyzer 以既有 mapping 为准, 改分词器需重建索引
+	}
+	if c.analyzer != "" && status == http.StatusBadRequest && looksLikeMissingAnalyzer(body) {
+		logx.Errorf("[warn] es analyzer %q 不可用(插件未安装?), 降级为默认分词器: %v",
+			c.analyzer, truncate(string(body), maxErrorBodyBytes))
+		if _, _, err2 := c.do(ctx, http.MethodPut, "/"+c.index, json.RawMessage(buildIndexMapping(""))); err2 == nil {
 			return nil
 		}
-		return err
 	}
-	return nil
+	return err
+}
+
+// looksLikeMissingAnalyzer 判断 400 响应是否由"分词器不存在"引起.
+// ES 的原文形如: "analyzer [ik_max_word] not found" / "failed to find global analyzer [ik_smart]".
+func looksLikeMissingAnalyzer(body []byte) bool {
+	s := strings.ToLower(string(body))
+	return strings.Contains(s, "analyzer") &&
+		(strings.Contains(s, "not found") || strings.Contains(s, "failed to find"))
 }
 
 // Index 按 alarm_id 幂等写入一条告警文档.
@@ -175,6 +212,11 @@ func buildQueryBody(q Query, page, size int) map[string]any {
 	}
 	if q.EventType != "" {
 		filters = append(filters, map[string]any{"term": map[string]any{"event_type": q.EventType}})
+	}
+	if kw := strings.TrimSpace(q.Keyword); kw != "" {
+		// 全文检索放 filter 上下文: 排序固定为 等级降序+时间降序, 不按相关性打分,
+		// 因此不需要 must(打分)语义; 放 filter 还能复用 ES 的 filter 缓存.
+		filters = append(filters, map[string]any{"match": map[string]any{"content": kw}})
 	}
 
 	return map[string]any{

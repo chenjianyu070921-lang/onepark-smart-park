@@ -276,7 +276,7 @@ func TestListAlarms_EndToEndWithESClient(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	svcCtx := &svc.ServiceContext{Search: search.NewESClient([]string{srv.URL}, "", "", "")}
+	svcCtx := &svc.ServiceContext{Search: search.NewESClient([]string{srv.URL}, "", "", "", "")}
 	l := NewListAlarmsLogic(tenantCtx(7), svcCtx)
 
 	resp, err := l.ListAlarms(&types.ListAlarmsReq{Level: 4, Page: 1, PageSize: 10, Status: -1})

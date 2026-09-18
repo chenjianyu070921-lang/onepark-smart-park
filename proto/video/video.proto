@@ -6,7 +6,18 @@ option go_package = "onepark/proto/video;videopb";
 
 import "common/common.proto";
 
+// VideoService 视频服务的 gRPC 契约.
+//
+// 【现状(2026-09-18 确认)】本服务对外只提供 HTTP: 摄像头 CRUD(#49/#50)、取流地址(#51)
+// 由 gateway(8080) 按 /api/video 前缀转发到 video-service(8011), 见 docs/m3/04。
+// 全仓检索确认 **videopb 无任何消费方**(M5 大屏经 HTTP 与 gRPC 调的是 alarm.proto
+// 的 GetActiveAlarms, 不经过本契约), 因此这里保留 Ping 作为连通性探针, 不再补充业务方法。
+//
+// 【何时需要改】若将来出现"服务间同步调用视频能力"的需求(如 M5 大屏要拉在线摄像头数),
+// 再由 M3 与调用方按 docs/m3/04 的契约模板补充方法, 并同步执行 make genproto。
+// 在没有消费方之前新增方法只会产生无人验证的死契约 —— 与 alarm.proto 的
+// GetActiveAlarms(已落地且被 dashboard 真实消费)形成对照。
 service VideoService {
-  // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+  // Ping 连通性探针; 暂无业务方法, 见上方说明.
   rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
 }

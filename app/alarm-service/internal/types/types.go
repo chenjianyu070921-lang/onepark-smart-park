@@ -10,8 +10,13 @@ type ListAlarmsReq struct {
 	AreaId    int64  `form:"area_id,optional"`    // 区域ID筛选, 0表示全部
 	DeviceId  string `form:"device_id,optional"`  // 设备ID筛选, 空表示全部
 	EventType string `form:"event_type,optional"` // 事件类型筛选, 空表示全部
-	Page      int64  `form:"page,optional"`       // 页码(从1开始), 不传默认 1
-	PageSize  int64  `form:"page_size,optional"`  // 每页大小, 不传默认 10, 上限 100
+	// Keyword 告警内容关键词全文检索(docs/m3/04 §7.1: content 建 ik 分词后用 ES match 命中).
+	// 空表示不参与检索, 行为与新增该字段前完全一致.
+	// ES 与 MySQL 两条路径都支持: ES 走 match(分词), MySQL 降级走 LIKE '%kw%'(子串),
+	// 避免"ES 不可用时关键词被静默忽略、返回未过滤的全量"这种比报错更糟的静默错误.
+	Keyword  string `form:"keyword,optional"`   // 告警内容关键词, 空表示不检索
+	Page     int64  `form:"page,optional"`      // 页码(从1开始), 不传默认 1
+	PageSize int64  `form:"page_size,optional"` // 每页大小, 不传默认 10, 上限 100
 }
 
 // ListActiveAlarmsReq 活跃告警列表请求(#38): 固定 status=0, 不接受状态入参.

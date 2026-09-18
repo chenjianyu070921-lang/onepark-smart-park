@@ -46,3 +46,9 @@ ES:
     - ${ALARM_ES_URL}
   # Index: alarm_history  # 留空用默认索引 alarm_history
   # 开启 xpack.security 时再补 Username / Password
+  #
+  # Analyzer: content 字段的分词器. 留空(默认)用 ES 标准分词器.
+  # 中文场景填 ik_max_word, 但要求 ES 已安装 ik 插件 —— deploy/docker-compose.yml 起的是
+  # 官方镜像(不含插件), 此时填 ik 会让建索引失败; 代码已做兜底: 插件缺失时自动降级为
+  # 默认分词器并打 WARN, 检索不会整体不可用.
+  # Analyzer: ik_max_word
