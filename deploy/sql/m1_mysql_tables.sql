@@ -41,6 +41,8 @@ CREATE TABLE `device` (
   `device_name`     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '设备名称',
   `device_secret`   VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'bcrypt 加密后的设备密钥',
   `product_key`     VARCHAR(32)  NOT NULL COMMENT '所属产品 key(逻辑关联 product.product_key)',
+  `tenant_id`       BIGINT       NOT NULL DEFAULT 0 COMMENT '租户 ID(多园区隔离), 0 平台默认',
+  `zone_id`         VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '能源区域编码(M4 计费/分析维度), 空未分区',
   `type`            TINYINT      NOT NULL DEFAULT 0 COMMENT '设备类型: 1地磁 2门禁 3摄像头..., 0未分类',
   `park_id`         VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '园区 ID',
   `building_id`     VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '楼栋 ID',
@@ -57,6 +59,8 @@ CREATE TABLE `device` (
   UNIQUE KEY `uk_device_id` (`device_id`),
   KEY `idx_product_status` (`product_key`, `status`),
   KEY `idx_type` (`type`),
+  KEY `idx_tenant` (`tenant_id`),
+  KEY `idx_zone` (`zone_id`),
   KEY `idx_park` (`park_id`),
   KEY `idx_deleted_at` (`deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备表(设备主数据, 软删除)';

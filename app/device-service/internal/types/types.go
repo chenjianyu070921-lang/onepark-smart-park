@@ -71,6 +71,8 @@ type DeviceListResp struct {
 
 type DeviceRegisterReq struct {
 	ProductKey string `json:"productKey"`
+	TenantId   int64  `json:"tenantId,optional"` // 租户 ID, 缺省 0(平台默认)
+	ZoneId     string `json:"zoneId,optional"`  // 能源区域编码, 缺省未分区
 	DeviceName string `json:"deviceName,optional"`
 	ParkID     string `json:"parkId,optional"`
 	BuildingID string `json:"buildingId,optional"`
