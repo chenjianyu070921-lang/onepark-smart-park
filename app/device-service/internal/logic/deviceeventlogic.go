@@ -18,26 +18,8 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// alarmEventTypes 需要额外投递到告警 topic 的事件类型, M3 alarm-service 消费.
-var alarmEventTypes = map[string]struct{}{
-	"intrusion":     {}, // 非法入侵
-	"fire":          {}, // 火情
-	"smoke":         {}, // 烟感
-	"fault":         {}, // 设备故障
-	"door_force":    {}, // 门禁强开
-	"offline_alert": {}, // 异常离线
-}
-
-// deviceEventMessage 投递到 Kafka 的设备事件消息体, 与 M3 消费端约定.
-type deviceEventMessage struct {
-	RequestID  string          `json:"request_id"`
-	DeviceID   string          `json:"device_id"`
-	DeviceType string          `json:"device_type"`
-	EventType  string          `json:"event_type"`
-	OccurredAt int64           `json:"occurred_at"`
-	Payload    json.RawMessage `json:"payload"`
-	Source     string          `json:"source"` // http-fallback: 不经 EMQX 的降级通道
-}
+// 设备事件消息统一使用 common/kafka.DeviceTelemetry 契约(权威定义),
+// 告警类型判定使用 kafka.IsAlarmEvent, 本地不再维护副本.
 
 type DeviceEventLogic struct {
 	logx.Logger
@@ -75,8 +57,9 @@ func (l *DeviceEventLogic) DeviceEvent(req *types.DeviceEventReq) (resp *types.D
 		return nil, errorx.NewError(errorx.ErrDeviceParamInvalid, "payload 必须是合法 JSON 字符串")
 	}
 
-	// 2. 设备存在性校验
-	if _, err := l.svcCtx.DeviceModel.FindByDeviceID(l.ctx, req.DeviceID); err != nil {
+	// 2. 设备存在性校验(捕获记录, 用于消息充入 tenant_id/zone_id)
+	device, err := l.svcCtx.DeviceModel.FindByDeviceID(l.ctx, req.DeviceID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errorx.NewError(errorx.ErrDeviceNotFound, "设备不存在")
 		}
@@ -104,11 +87,13 @@ func (l *DeviceEventLogic) DeviceEvent(req *types.DeviceEventReq) (resp *types.D
 	if occurredAt <= 0 {
 		occurredAt = time.Now().Unix()
 	}
-	msg := deviceEventMessage{
+	msg := kafka.DeviceTelemetry{
 		RequestID:  requestID,
+		TenantID:   device.TenantID,
 		DeviceID:   req.DeviceID,
 		DeviceType: req.DeviceType,
 		EventType:  req.EventType,
+		ZoneID:     device.ZoneID,
 		OccurredAt: occurredAt,
 		Payload:    json.RawMessage(rawPayload),
 		Source:     "http-fallback",
@@ -126,7 +111,7 @@ func (l *DeviceEventLogic) DeviceEvent(req *types.DeviceEventReq) (resp *types.D
 	}
 
 	// 6. 告警类事件额外投递告警 topic
-	if _, ok := alarmEventTypes[req.EventType]; ok {
+	if kafka.IsAlarmEvent(req.EventType) {
 		if err := l.svcCtx.Producer.Publish(l.ctx, kafka.TopicAlarm, []byte(req.DeviceID), value); err != nil {
 			// 告警投递失败不影响遥测结果, 仅记录
 			l.Errorf("告警事件投递失败: requestId=%s, err=%v", requestID, err)

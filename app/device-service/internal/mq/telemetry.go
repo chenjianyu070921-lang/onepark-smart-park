@@ -21,24 +21,15 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// Message 与 event-dispatcher 的 dispatch.Message 保持一致.
-// 注意: 该结构体后续应下沉到 common 包共享, 避免两处漂移.
-type Message struct {
-	RequestID  string          `json:"request_id"`
-	DeviceID   string          `json:"device_id"`
-	DeviceType string          `json:"device_type"`
-	EventType  string          `json:"event_type"`
-	OccurredAt int64           `json:"occurred_at"`
-	Payload    json.RawMessage `json:"payload"`
-	Source     string          `json:"source"`
-}
+// Message 统一契约别名: 消费端与三处生产端共用 common/kafka 的权威定义.
+type Message = kafka.DeviceTelemetry
 
-// 事件类型
+// 事件类型别名(沿用本包内既有引用, 权威定义在 common/kafka).
 const (
-	EventOnline  = "online"
-	EventOffline = "offline"
-	EventFault   = "fault"
-	EventStatus  = "status"
+	EventOnline  = kafka.EventOnline
+	EventOffline = kafka.EventOffline
+	EventFault   = kafka.EventFault
+	EventStatus  = kafka.EventStatus
 )
 
 // payload 中的上下线字段约定(二选一): {"online":true} 或 {"status":"online"}
