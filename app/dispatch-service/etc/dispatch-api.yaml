@@ -29,6 +29,14 @@ Kafka:
   Group: "m5-dispatch-dev-hjy"
   Enabled: false
 
+# ===== 指派超时重派 =====
+# 工单指派后若在 5 分钟内没人接单(model.AssignExpireWindow), 由 cron 改派他人;
+# 无人可派或重派次数达上限时, 释放回「待指派」交人工。
+# 该任务只读写本服务自己的库, 不碰共享设施, 故没有 Enabled 开关。
+Reassign:
+  IntervalSec: 60   # 扫描周期(秒)
+  MaxReassign: 3    # 单张工单最多被自动重派几次
+
 # ===== JWT 鉴权 =====
 # 为空 = 放行(开发联调期; 中间件会打告警日志)。
 # 填上后审计流水的 operator_id 才会从 token 的 userId claim 取值。

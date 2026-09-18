@@ -3,15 +3,22 @@ package svc
 import (
 	"log"
 	"strings"
+	"time"
 
 	"onepark/app/access-control-service/internal/config"
 	"onepark/app/access-control-service/internal/model"
+	"onepark/common/dedup"
 	"onepark/common/gormx"
+	"onepark/common/redisx"
 	devicepb "onepark/proto/device"
 
 	"github.com/zeromicro/go-zero/core/stores/redis"
 	"github.com/zeromicro/go-zero/zrpc"
 )
+
+// remoteOpenDedupTTL 远程开门幂等键有效期.
+// 取 10 分钟: 覆盖前端重复提交与网关重传的典型窗口, 又不至于让"稍后再次开门"被误判为重复.
+const remoteOpenDedupTTL = 10 * time.Minute
 
 // ServiceContext 持有 access-control-service 运行时的全局依赖.
 // OperateLogs/DeviceRPC 抽成接口是为了让远程开门链路脱离 MySQL/M1 可单测(见 internal/logic 单测).
@@ -21,8 +28,11 @@ type ServiceContext struct {
 	DB          *gormx.DB                    // GORM MySQL 连接(access_db)
 	OperateLogs model.OperateLogModel        // 开门操作审计
 	Permissions model.PermissionModel        // 门禁权限(#45 授权 / #46 撤销)
-	Records     model.RecordModel            // 通行记录(#48 查询)
+	Records     model.RecordModel            // 通行记录(#48 查询 / 远程开门写入)
 	DeviceRPC   devicepb.DeviceServiceClient // M1 device gRPC(远程开门); 未配置时为 nil
+	// Dedup 远程开门幂等键存储(Redis); nil 表示未配置 Redis, 幂等不可用(见 RemoteOpen 注释).
+	// 语义沿用 common/dedup: 不可用即报错, 由调用方拒绝下发 —— 开门这类动作宁可失败也不能重复执行.
+	Dedup dedup.Deduper
 }
 
 // NewServiceContext 构造依赖.
@@ -44,6 +54,17 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		log.Printf("[info] access-control-service mysql initialized, db=%s", databaseOf(dsn))
 	} else {
 		log.Printf("[warn] access-control-service mysql data source is empty, db not initialized")
+	}
+
+	// 幂等键存储: 复用公共组件(与 alarm/parking 同一套语义)。
+	// 未配置 Redis 地址时留 nil, 远程开门的 request_id 幂等自动退化为不启用(而非放行重复开门).
+	if addr := unresolvedToEmpty(strings.TrimSpace(c.Redis.Host)); addr != "" {
+		svcCtx.Dedup = dedup.NewRedisDeduper(
+			redisx.NewClient(&redisx.RedisConf{Addr: addr, Pass: c.Redis.Pass}),
+			remoteOpenDedupTTL,
+		)
+	} else {
+		log.Printf("[warn] access-control-service redis addr empty, remote open idempotency disabled")
 	}
 
 	// M1 设备 gRPC 客户端: 未配置 Endpoints/Target/Etcd 时为 nil, 远程开门直接报错而非降级静默.

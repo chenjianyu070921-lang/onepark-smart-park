@@ -63,15 +63,25 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 	}
 
 	// 1) 核销并置为已签入(RBAC 隔离: 带 tenant_id 条件).
-	if e := l.svcCtx.DB.WithContext(l.ctx).Model(&rec).
-		Where("id=? AND tenant_id=?", rec.ID, tenantID).
+	//
+	// 更新条件必须带上 status=待使用(CAS): 上面的"先查后改"在并发重复扫码下会同时读到
+	// status=1 并各自写入一次, 结果是重复触发开门 + 签入时间被覆盖。
+	// RowsAffected=0 即说明已被另一路请求核销, 此时不能再走开门。
+	res := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).
+		Where("id=? AND tenant_id=? AND status=?", rec.ID, tenantID, model.VisitorStatusPending).
 		Updates(map[string]interface{}{
 			"status":     model.VisitorStatusCheckin,
 			"checkin_at": now,
 			"updated_at": now,
-		}).Error; e != nil {
+		})
+	if e := res.Error; e != nil {
 		l.Errorf("visitor checkin failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrVisitorCheckinFailed, "签入失败")
+	}
+	if res.RowsAffected == 0 {
+		// 并发下第二次扫码走到这里: 返回"已核销"而不是成功, 绝不重复开门.
+		l.Infof("visitor checkin skipped, already consumed rec_id=%d", rec.ID)
+		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "二维码已被核销")
 	}
 
 	// 2) 调 M1 开门并把开门设备ID回填 visitor_record.device_id(失败降级, 不阻断签入).

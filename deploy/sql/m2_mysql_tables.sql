@@ -1,9 +1,13 @@
 -- =====================================================================
 -- OnePark 智慧园区 - M2 物业管理服务建表 SQL (成员3 / 2026-09-16)
--- 覆盖 8 张表, 按业务域分 3 组 (逻辑分组, 禁止跨域 JOIN):
+-- 覆盖 11 张表, 按业务域分 5 组 (逻辑分组, 禁止跨域 JOIN):
 --   工单域 : work_order / work_order_flow / work_order_attachment
 --   计费域 : billing_rule / bill / energy_reading
 --   公告域 : notice / notice_read
+--   停车域 : parking_record / parking_fee_rule
+--   访客域 : visitor_record
+-- 说明(2026-09-17 增补): 初版遗漏停车域与访客域建表, 导致 parking/visitor 服务落库报
+--   Error 1146(Table '...' doesn't exist); 此处补齐, 字段与各服务 internal/model 逐列对齐.
 -- 字段与各服务 internal/model 下的 GORM 模型逐列对齐, 并补充查询索引.
 -- 目标库: 由执行时连接的 DSN 决定(当前部署为单一共享库 onepark-smart-park,
 -- 8 张表名全局唯一, 单库共存无冲突), 脚本内不含 CREATE DATABASE / USE.
@@ -172,3 +176,72 @@ CREATE TABLE IF NOT EXISTS `notice_read` (
   UNIQUE KEY `uk_notice_user` (notice_id, user_id),
   KEY `idx_user_read` (tenant_id, user_id, read_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公告已读/送达记录';
+
+-- ---------------------------------------------------------------------
+-- 4. 停车域 (对齐 app/parking-service/internal/model)
+--    入场/离场由 M1 Kafka 地磁事件驱动(亦提供 HTTP 入口便于联调).
+--    fee 在库中为 DECIMAL(10,2), 接口层格式化为字符串避免浮点误差.
+-- ---------------------------------------------------------------------
+
+-- 停车记录: 一条 = 某车牌某次停车(入场建记录停车中, 离场计费置已完成).
+CREATE TABLE IF NOT EXISTS `parking_record` (
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id     BIGINT       NOT NULL COMMENT '园区ID, RBAC 数据隔离维度',
+  plate_no      VARCHAR(32)  NOT NULL COMMENT '车牌号',
+  entry_time    DATETIME              DEFAULT NULL COMMENT '入场时间',
+  exit_time     DATETIME              DEFAULT NULL COMMENT '离场时间',
+  duration_min  INT                   DEFAULT NULL COMMENT '停车时长(分钟)',
+  fee           DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '停车费(元)',
+  vehicle_type  TINYINT     NOT NULL DEFAULT 1 COMMENT '1月卡 2临时 3VIP 4异常',
+  status        TINYINT     NOT NULL DEFAULT 1 COMMENT '1停车中 2已完成',
+  device_id_in  VARCHAR(64) NOT NULL DEFAULT '' COMMENT '入场地磁设备ID',
+  device_id_out VARCHAR(64) NOT NULL DEFAULT '' COMMENT '出场地磁设备ID',
+  created_at    DATETIME    NOT NULL COMMENT '创建时间',
+  updated_at    DATETIME    NOT NULL COMMENT '更新时间',
+  PRIMARY KEY (id),
+  KEY `idx_tenant` (tenant_id),
+  KEY `idx_plate_entry` (plate_no, entry_time),
+  KEY `idx_status` (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='停车记录';
+
+-- 停车计费规则: 以 JSON 存储阶梯/封顶等配置(当前代码为固定规则, 预留可配置).
+CREATE TABLE IF NOT EXISTS `parking_fee_rule` (
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id     BIGINT       NOT NULL COMMENT '园区ID',
+  rule_json     JSON                 DEFAULT NULL COMMENT '计费规则(JSON)',
+  effective_from DATETIME            DEFAULT NULL COMMENT '生效起',
+  effective_to   DATETIME            DEFAULT NULL COMMENT '生效止',
+  created_at    DATETIME    NOT NULL COMMENT '创建时间',
+  updated_at    DATETIME    NOT NULL COMMENT '更新时间',
+  PRIMARY KEY (id),
+  KEY `idx_tenant` (tenant_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='停车计费规则';
+
+-- ---------------------------------------------------------------------
+-- 5. 访客域 (对齐 app/visitor-service/internal/model)
+--    业主/物业发起邀请生成二维码, 访客扫码签入(核销+调M1开门), 签出.
+--    qr_code 唯一, 签入/签出时更新 device_id 记录开门设备.
+-- ---------------------------------------------------------------------
+
+-- 访客通行记录: 一条 = 一次访客邀约/通行.
+CREATE TABLE IF NOT EXISTS `visitor_record` (
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id     BIGINT       NOT NULL COMMENT '园区ID, RBAC 数据隔离维度',
+  inviter_id    BIGINT       NOT NULL COMMENT '邀请人(业主/物业 user_id)',
+  visitor_name  VARCHAR(64)  NOT NULL COMMENT '访客姓名',
+  visitor_phone VARCHAR(20)  NOT NULL DEFAULT '' COMMENT '访客手机号',
+  visit_time    DATETIME              DEFAULT NULL COMMENT '预期到访时间',
+  expire_time   DATETIME              DEFAULT NULL COMMENT '二维码过期时间',
+  qr_code       VARCHAR(512) NOT NULL COMMENT '加密二维码内容(含签名+有效期)',
+  status        TINYINT      NOT NULL DEFAULT 1 COMMENT '1待使用 2已签入 3已签出 4已过期',
+  checkin_at    DATETIME              DEFAULT NULL COMMENT '签入时间',
+  checkout_at   DATETIME              DEFAULT NULL COMMENT '签出时间',
+  device_id     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '签入/签出开门设备ID',
+  blacklisted   TINYINT      NOT NULL DEFAULT 0 COMMENT '是否黑名单 0否 1是',
+  created_at    DATETIME     NOT NULL COMMENT '创建时间',
+  updated_at    DATETIME     NOT NULL COMMENT '更新时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY `uk_qr_code` (qr_code),
+  KEY `idx_tenant` (tenant_id),
+  KEY `idx_tenant_status_visit` (tenant_id, status, visit_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='访客通行记录';

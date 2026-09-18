@@ -1,9 +1,14 @@
 -- ============================================================================
--- M5 运营招商 + 指挥调度 表结构
+-- M5 运营招商 + 指挥调度 表结构（**全量**, 可重复执行）
 -- 库: leasing_db(招商租赁) / dispatch_db(指挥调度)
 -- 说明: 每服务独立库, 禁止跨库 JOIN; 金额统一 DECIMAL, 禁止 FLOAT/DOUBLE
--- 应用: docker cp deploy/sql/m5_mysql_tables.sql onepark-mysql:/tmp/m5.sql
---       docker exec onepark-mysql sh -c "mysql -uroot -p<密码> < /tmp/m5.sql"
+--
+-- 应用(全新环境 / 重建):
+--   docker cp deploy/sql/m5_mysql_tables.sql onepark-mysql:/tmp/m5.sql
+--   docker exec onepark-mysql sh -c "mysql -uroot -p<密码> < /tmp/m5.sql"
+--
+-- ⚠️ 本文件只含 CREATE TABLE IF NOT EXISTS, 幂等。
+--    已经建过库的环境要加列, 请执行同目录的 m5_mysql_migrations.sql。
 -- ============================================================================
 
 -- ###########################################################################
@@ -25,6 +30,10 @@ CREATE TABLE IF NOT EXISTS `lease_contract` (
   `start_date`   DATE            NOT NULL                COMMENT '起租日',
   `end_date`     DATE            NOT NULL                COMMENT '终止日',
   `status`       TINYINT         NOT NULL DEFAULT 1      COMMENT '1待生效 2生效中 3已到期 4已终止',
+  -- 自动续约条款: 默认关闭。自动延长租期等于替承租方做决定, 必须由合同条款显式约定;
+  -- 未约定的合同到期即转「已到期」, 由业务人员去谈续签。见 internal/cron/daily.go。
+  `auto_renew`        TINYINT     NOT NULL DEFAULT 0      COMMENT '1约定自动续约 0到期即止',
+  `renew_notice_days` INT         NOT NULL DEFAULT 30     COMMENT '到期前多少天进入续签提醒窗口',
   `version`      BIGINT          NOT NULL DEFAULT 0      COMMENT '乐观锁版本',
   `created_at`   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -91,12 +100,14 @@ CREATE TABLE IF NOT EXISTS `dispatch_task` (
   -- alarm_id 必须可空: MySQL 唯一索引允许多个 NULL, 若用 '' 默认值会导致第二张人工单唯一键冲突
   `alarm_id`        VARCHAR(64)     NULL DEFAULT NULL       COMMENT '来源告警ID, 自动建单幂等键',
   `zone_code`       VARCHAR(64)     NOT NULL DEFAULT ''     COMMENT '事发区域, 用于就近指派',
+  `required_skill`  VARCHAR(32)     NOT NULL DEFAULT ''     COMMENT '所需技能标签, 空表示不限; 自动指派按技能优先',
   `priority`        TINYINT         NOT NULL DEFAULT 3      COMMENT '1紧急 2高 3普通',
   `status`          TINYINT         NOT NULL DEFAULT 1      COMMENT '1待指派 2已指派 3处理中 4已完成 5已关闭',
   `assignee_id`     BIGINT UNSIGNED NOT NULL DEFAULT 0      COMMENT '处理人ID',
   `assignee_name`   VARCHAR(64)     NOT NULL DEFAULT ''     COMMENT '处理人姓名(冗余便于列表展示)',
   `description`     VARCHAR(1024)   NOT NULL DEFAULT ''     COMMENT '描述',
-  `assign_expire_at` DATETIME       NULL                    COMMENT '指派超时时间, 超时由 cron 重派',
+  `assign_expire_at` DATETIME       NULL                    COMMENT '指派超时时间, 超时由 cron 重派(见 internal/cron/reassign.go)',
+  `reassign_count`  INT             NOT NULL DEFAULT 0      COMMENT 'cron 自动重派次数; 达上限后释放为待指派交人工',
   `finished_at`     DATETIME        NULL                    COMMENT '完成时间',
   `version`         BIGINT          NOT NULL DEFAULT 0      COMMENT '乐观锁版本',
   `created_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -114,7 +125,7 @@ CREATE TABLE IF NOT EXISTS `dispatch_task_log` (
   `task_id`     BIGINT UNSIGNED NOT NULL,
   `from_status` TINYINT         NOT NULL,
   `to_status`   TINYINT         NOT NULL,
-  `action`      VARCHAR(32)     NOT NULL DEFAULT '' COMMENT 'create/assign/start/finish/close',
+  `action`      VARCHAR(32)     NOT NULL DEFAULT '' COMMENT 'create/assign/release/start/finish/close',
   `remark`      VARCHAR(512)    NOT NULL DEFAULT '',
   `operator_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `created_at`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -146,16 +157,6 @@ CREATE TABLE IF NOT EXISTS `dispatch_staff` (
   KEY `idx_duty_status` (`on_duty`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='M5 调度人员技能池';
 
--- ###########################################################################
--- # 增量变更(在已建库的环境上执行)
--- # 注意: 下方 ALTER 不是幂等的 —— 重复执行会报 1060 Duplicate column name, 可忽略。
--- # 全新环境由上面的 CREATE TABLE 直接建全(新表已含该列), 无需执行本段。
--- ###########################################################################
-ALTER TABLE `dispatch_task`
-  ADD COLUMN `required_skill` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '所需技能标签, 空表示不限' AFTER `zone_code`;
-
--- 合同自动续约条款。默认 0(不自动续约) —— 自动延长租期本质上是在替承租方做决定,
--- 必须由合同条款显式约定; 未约定的合同到期即停止(转「已到期」), 由业务人员去谈续签。
-ALTER TABLE `lease_contract`
-  ADD COLUMN `auto_renew` TINYINT NOT NULL DEFAULT 0 COMMENT '1 约定自动续约 0 到期即止',
-  ADD COLUMN `renew_notice_days` INT NOT NULL DEFAULT 30 COMMENT '到期前多少天进入续签提醒窗口';
+-- ============================================================================
+-- 已建库的环境若需补列, 请执行 m5_mysql_migrations.sql（本文件不含 ALTER, 保证可重复执行）
+-- ============================================================================

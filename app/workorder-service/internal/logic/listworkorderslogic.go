@@ -8,6 +8,7 @@ import (
 	"onepark/app/workorder-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/rbac"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -42,6 +43,22 @@ func (l *ListWorkOrdersLogic) ListWorkOrders(req *types.ListWorkOrderReq) (resp 
 
 	// 统一在 WHERE 上追加 tenant_id, 保证 RBAC 行级隔离.
 	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.WorkOrder{}).Where("tenant_id=?", tenantID)
+
+	// RBAC 行级隔离: 受限角色(维修/业主)仅能查看与自己关联的工单, 全量角色看园区全部.
+	// 维修 → 仅自己接的单(assignee_id); 业主 → 仅自己报的单(reporter_id).
+	uid := ctxdata.GetUserId(l.ctx)
+	roles := rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))
+	if !rbac.IsFullScope(roles) {
+		switch {
+		case rbac.HasRole(roles, rbac.RoleRepair):
+			q = q.Where("assignee_id=?", uid)
+		case rbac.HasRole(roles, rbac.RoleOwner):
+			q = q.Where("reporter_id=?", uid)
+		default:
+			q = q.Where("1=0") // 无对应范围角色, 拒绝查看
+		}
+	}
+
 	if req.Status != 0 {
 		q = q.Where("status=?", req.Status)
 	}

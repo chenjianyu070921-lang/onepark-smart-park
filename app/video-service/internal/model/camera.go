@@ -48,12 +48,33 @@ type CameraListFilter struct {
 	PageSize int
 }
 
+// CameraPatch 摄像头可变字段的增量更新, 指针为 nil 表示"不修改该字段".
+//
+// 为什么不用"零值即不改": status=0(离线) 与 area_id=0(未分配区域) 都是合法取值,
+// 用零值判断"是否传入"会让"把摄像头改成离线/挪到未分配"永远改不动.
+type CameraPatch struct {
+	Name     *string
+	AreaID   *int64
+	RtspURL  *string
+	Location *string // location 列是 JSON, 指向 JSON 文本; nil 表示不改
+	Status   *int8
+}
+
 // CameraModel 摄像头数据访问层, 接口化以便单测替换.
 type CameraModel interface {
 	// Create 写入摄像头; (tenant_id, device_id) 冲突时返回 ErrCameraDuplicate.
 	Create(ctx context.Context, c *Camera) error
 	// FindByID 按租户+主键查询, 不存在返回 ErrCameraNotFound.
 	FindByID(ctx context.Context, tenantID, id int64) (*Camera, error)
+	// Update 按租户+主键增量更新, 不存在返回 ErrCameraNotFound.
+	Update(ctx context.Context, tenantID, id int64, patch CameraPatch) error
+	// Delete 按租户+主键删除(地址簿下架), 不存在返回 ErrCameraNotFound.
+	Delete(ctx context.Context, tenantID, id int64) error
 	// List 分页查询, 按 id DESC 排序.
 	List(ctx context.Context, f CameraListFilter) ([]*Camera, int64, error)
+	// TouchHeartbeat 按设备ID登记一次心跳: 命中唯一一条摄像头时更新 last_heartbeat_at 并置在线.
+	// 返回按 device_id 匹配到的摄像头条数: 0=未登记, 1=已更新, >1=跨租户重名(不写入, 由调用方告警).
+	TouchHeartbeat(ctx context.Context, deviceID string, at time.Time) (int, error)
+	// MarkOffline 把超过 deadline 仍未心跳的在线摄像头置为离线, 返回受影响行数.
+	MarkOffline(ctx context.Context, deadline time.Time) (int64, error)
 }

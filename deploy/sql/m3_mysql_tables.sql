@@ -17,7 +17,7 @@ CREATE TABLE `alarm` (
   `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
   `tenant_id`   BIGINT       NOT NULL DEFAULT 0  COMMENT '园区ID, RBAC 数据隔离维度',
   `alarm_no`    VARCHAR(32)  NOT NULL             COMMENT '告警编号(业务唯一) AL+yyyymmdd+8位哈希',
-  `rule_id`     BIGINT       NOT NULL DEFAULT 0  COMMENT '命中规则ID, 0表示硬编码规则',
+  `rule_id`     BIGINT       NOT NULL DEFAULT 0  COMMENT '命中规则ID(alarm_rule.id), 0表示硬编码回退规则',
   `device_id`   VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '设备ID(来自 M1, 不维护设备主数据)',
   `area_id`     BIGINT       NOT NULL DEFAULT 0  COMMENT '区域ID',
   `event_type`  VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '事件类型: intrusion/door_forced/temperature',
@@ -46,7 +46,11 @@ CREATE TABLE `alarm` (
 --       同一 request_id 重复上报只会写入一条告警。
 
 -- ############################################################
--- 2. alarm_rule 告警规则表 (P2 动态规则引擎使用, 当前消费走硬编码规则)
+-- 2. alarm_rule 告警规则表
+-- 2026-09-17 同步: 动态规则引擎已上线, 消费链路从本表读取启用规则
+--   (model/alarm_rule_model.go#ListEnabled -> internal/rule/engine.go),
+--   硬编码门禁闯入规则降级为可选回退, 由配置 Rule.DisableLegacyFallback 控制(默认保留).
+--   本表是规则的唯一事实来源: 表内无启用规则且关闭回退时, 事件将被丢弃并打 WARN.
 -- ############################################################
 DROP TABLE IF EXISTS `alarm_rule`;
 CREATE TABLE `alarm_rule` (
@@ -111,3 +115,37 @@ CREATE TABLE `alarm_operate_log` (
   PRIMARY KEY (`id`),
   KEY `idx_alarm` (`alarm_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='告警处理流水(审计)';
+
+-- ############################################################
+-- 5. alarm_rule 初始化种子规则(周一 P2「初始化数据SQL」)
+--
+-- 为什么必须有: alarm_rule 是规则的唯一事实来源. 表空 + Rule.DisableLegacyFallback=true 时,
+--   消费链路会把事件直接丢弃(只打 WARN) —— 部署后若没人手工建规则, 安防主链路等于静默停摆.
+--
+-- 口径说明:
+--   * tenant_id=0 表示平台级默认规则, 引擎加载时不过滤租户, 对所有园区生效;
+--     后台规则列表按租户查询, 各园区看不到也改不到这三条, 需要差异化时应另建本园区规则.
+--   * 固定主键 + INSERT IGNORE: 重复执行不会产生重复规则(补数据时只跑本段也保持幂等).
+--   * 规则①与规则③都匹配 intrusion, 一次闯入可能命中两条(③需窗口内累计到阈值才触发);
+--     若不希望默认双报, 把规则③的 status 置 0 即可, 保留它作为时间窗口规则的可用样例.
+--   * JSON 写法与 internal/rule/rule.go#ParseSpec 的两种兼容格式对齐:
+--     ① 用文档 04 的扁平单条件写法, ②③ 用文档 07 的 conditions/match 嵌套写法.
+-- ############################################################
+INSERT IGNORE INTO `alarm_rule`
+  (`id`, `tenant_id`, `name`, `device_id`, `area_id`, `event_type`,
+   `rule_type`, `conditions`, `window_seconds`, `level`, `status`)
+VALUES
+  -- ① 门禁非法闯入(周一 P0 主链路; 规则表内的显式版本, 与硬编码回退规则语义等价)
+  (1, 0, '门禁非法闯入告警', '', 0, 'intrusion', 'threshold',
+   '{"type":"threshold","field":"event_type","op":"eq","value":"intrusion"}',
+   0, 2, 1),
+
+  -- ② 温度超限(周二 P2 的「温度超过80℃触发告警」示例)
+  (2, 0, '温度超过80℃告警', '', 0, 'temperature', 'threshold',
+   '{"type":"threshold","conditions":[{"field":"payload.temperature","op":"gt","value":80}]}',
+   0, 3, 1),
+
+  -- ③ 短时反复闯入(周四 P3 / 周六的时间窗口规则: 5 分钟内 ≥3 次)
+  (3, 0, '短时反复闯入告警(5分钟≥3次)', '', 0, 'intrusion', 'time_window',
+   '{"type":"time_window","window_sec":300,"threshold":3,"match":{"field":"event_type","op":"eq","value":"intrusion"}}',
+   300, 3, 1);

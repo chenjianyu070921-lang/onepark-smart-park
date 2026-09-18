@@ -154,6 +154,7 @@ func (l *OverviewLogic) computeOverview(req *types.OverviewReq) (*types.Overview
 			Total:   stat.Total,
 			Online:  stat.Online,
 			Offline: stat.Offline,
+			Fault:   stat.Fault,
 		}
 		return nil
 	})

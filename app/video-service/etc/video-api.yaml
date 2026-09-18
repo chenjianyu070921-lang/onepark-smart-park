@@ -8,11 +8,26 @@ MySQL:
 
 # 视频流下发配置 (#51): M3 只下发地址, 不转码/推流
 # FlvBaseURL 未配置时只返回 RTSP 地址(不编造不可用的 FLV 地址)
+# SignSecret 为流地址时效签名密钥(docs/m3/01 P1-6): 注入后 FLV 地址带 expires/sign 参数,
+#   响应同时返回 sign 字段供 RTSP 侧鉴权; 未注入(留空)则整条签名链路关闭, 行为与上线前一致.
 Stream:
   FlvBaseURL: ${VIDEO_FLV_BASE_URL}
   ExpiresSeconds: 3600
+  SignSecret: ${VIDEO_STREAM_SIGN_SECRET}
 
-# Redis 连接配置 (Day2 预留占位, 摄像头状态缓存业务尚未接入)
+# Kafka 连接配置 (消费 M1 设备遥测, 驱动摄像头在线状态)
+Kafka:
+  Brokers: ${KAFKA_BROKERS}
+
+# 摄像头心跳在线状态判定(地址簿 status / last_heartbeat_at 由心跳驱动, 非人工维护)
+Heartbeat:
+  DeviceTypes:
+    - camera
+  OfflineAfterSeconds: 180
+  ScanIntervalSeconds: 60
+
+# Redis 连接配置: 承载摄像头在线状态缓存(#50, key=video:camera:heartbeat:{deviceID}).
+# TTL 取上面的 Heartbeat.OfflineAfterSeconds, 与离线判定阈值保持一致.
 Redis:
   Host: ${REDIS_ADDR}
   Type: node

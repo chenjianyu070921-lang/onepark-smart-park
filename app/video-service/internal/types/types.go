@@ -55,10 +55,48 @@ type IdReq struct {
 	Id int64 `path:"id"`
 }
 
+// UpdateCameraReq 修改摄像头请求(#49 地址簿维护)
+type UpdateCameraReq struct {
+	Id       int64     `path:"id"`
+	Name     string    `json:"name,optional"`
+	AreaId   *int64    `json:"area_id,optional"`
+	RtspUrl  string    `json:"rtsp_url,optional"`
+	Location *Location `json:"location,optional"`
+	Status   *int8     `json:"status,optional"`
+}
+
+// UpdateCameraResp 修改摄像头响应
+type UpdateCameraResp struct {
+	Id int64 `json:"id"`
+}
+
+// DeleteCameraResp 删除摄像头响应
+type DeleteCameraResp struct {
+	Id int64 `json:"id"`
+}
+
+// CameraDetailResp 摄像头详情(#49 地址簿详情)
+type CameraDetailResp struct {
+	Id              int64  `json:"id"`
+	Name            string `json:"name"`
+	DeviceId        string `json:"device_id"`
+	AreaId          int64  `json:"area_id"`
+	RtspUrl         string `json:"rtsp_url"`
+	Status          int8   `json:"status"`
+	LastHeartbeatAt int64  `json:"last_heartbeat_at"`
+	CreatedAt       int64  `json:"created_at"`
+	UpdatedAt       int64  `json:"updated_at"`
+}
+
 // StreamResp 视频流地址响应(#51)
 type StreamResp struct {
 	CameraId  int64  `json:"camera_id"`
 	RtspUrl   string `json:"rtsp_url"`
 	FlvUrl    string `json:"flv_url"`
 	ExpiresAt int64  `json:"expires_at"`
+	// Sign 流地址时效签名(docs/m3/01 P1-6), 绑定 camera_id + expires_at.
+	// 未配置 Stream.SignSecret 时为空串, 表示本部署未启用签名.
+	Sign string `json:"sign"`
+	// SignAlg 签名算法标识; Sign 为空时同样为空串.
+	SignAlg string `json:"sign_alg"`
 }
