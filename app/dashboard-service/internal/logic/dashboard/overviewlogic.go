@@ -130,6 +130,7 @@ func (l *OverviewLogic) Overview(req *types.OverviewReq) (*types.OverviewResp, e
 			Total:   stat.Total,
 			Online:  stat.Online,
 			Offline: stat.Offline,
+			Fault:   stat.Fault,
 		}
 		return nil
 	})

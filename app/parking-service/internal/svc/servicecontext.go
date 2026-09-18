@@ -65,17 +65,32 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 // StartConsumers 启动后台 Kafka 消费者(地磁遥测 -> 停车记录), 独立 goroutine 运行.
 // 仅在配置了 Kafka 时启动; 消费失败不影响主服务.
+// 带断线重连: broker 瞬时故障/重启导致 Consume 返回错误时, 间隔 3 秒自动重建消费者继续消费,
+// 避免一次网络抖动造成消费永久停止(共享 broker 不稳定场景下的必要兜底); 服务主动退出(ctx 取消)则不再重试.
 func (s *ServiceContext) StartConsumers(ctx context.Context) {
 	if s.Config.Kafka.Brokers == "" {
 		log.Printf("[warn] parking-service kafka brokers empty, skip consumers")
 		return
 	}
 	go func() {
-		consumer := kafka.NewConsumer(s.Config.Kafka.Brokers, kafka.TopicDeviceTelemetry, kafka.GroupParking)
-		defer consumer.Close()
-		log.Printf("[info] parking-service start consume topic=%s", kafka.TopicDeviceTelemetry)
-		if err := consumer.Consume(ctx, s.handleTelemetry); err != nil && ctx.Err() == nil {
-			log.Printf("[error] parking telemetry consumer exited: %v", err)
+		for {
+			consumer := kafka.NewConsumer(s.Config.Kafka.Brokers, kafka.TopicDeviceTelemetry, kafka.GroupParking)
+			log.Printf("[info] parking-service start consume topic=%s", kafka.TopicDeviceTelemetry)
+			err := consumer.Consume(ctx, s.handleTelemetry)
+			consumer.Close() // 每轮重建前释放旧 reader, 防止连接泄漏
+			// 服务退出(ctx 取消)或 handler 返回的错误, 均不再重试.
+			if ctx.Err() != nil {
+				if err != nil {
+					log.Printf("[error] parking telemetry consumer exited: %v", err)
+				}
+				return
+			}
+			log.Printf("[warn] parking telemetry consumer exited: %v, reconnecting in 3s", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(3 * time.Second):
+			}
 		}
 	}()
 }

@@ -23,14 +23,63 @@ import (
 const keyDedup = "parking:dedup:"
 
 // deviceTelemetry M1 设备遥测消息(地磁/门禁上报), 由 parking-service 消费驱动停车记录.
+// 信封字段与三个生产者(event-dispatcher MQTT / device-service http-fallback /
+// gateway-service tcp-gateway)的 Message 结构保持一致 —— P0-2 兼容性验证结论(2026-09-17):
+// 旧扁平格式(event/plate_no/timestamp 在顶层)对真实链路完全不兼容, 已按标准信封适配.
 type deviceTelemetry struct {
 	RequestID   string `json:"request_id"`   // 幂等键(M1 侧生成); 缺失时按指纹降级
 	TenantID    int64  `json:"tenant_id"`    // 园区ID(RBAC 隔离)
-	DeviceID    string `json:"device_id"`    // 地磁/门禁设备ID
-	Event       string `json:"event"`        // entry 入场 / exit 离场
 	PlateNo     string `json:"plate_no"`     // 车牌号
 	VehicleType int8   `json:"vehicle_type"` // 1月卡 2临时 3VIP 4异常
-	Timestamp   int64  `json:"timestamp"`    // 事件时间(秒级时间戳)
+	Event       string `json:"event"`        // 旧字段名, 兜底回退
+	Timestamp   int64  `json:"timestamp"`    // 旧时间字段, 兜底回退
+}
+
+// telemetryPayload 标准信封 payload 内的停车业务字段约定(设备侧/联调直投需按此上报).
+type telemetryPayload struct {
+	TenantID    int64  `json:"tenant_id"`
+	PlateNo     string `json:"plate_no"`
+	VehicleType int8   `json:"vehicle_type"`
+}
+
+// normalizeTelemetry 将原始报文归一化为停车业务可用的遥测事件:
+// 兼容标准信封(event_type + payload 业务字段)与旧扁平格式(event/plate_no/timestamp 顶层);
+// 事件时间缺省回落到当前时间, 保证 EntryTime 恒有值.
+func normalizeTelemetry(raw *deviceTelemetry) *deviceTelemetry {
+	t := &deviceTelemetry{
+		TenantID:    raw.TenantID,
+		DeviceID:    raw.DeviceID,
+		Event:       raw.EventType,
+		PlateNo:     raw.PlateNo,
+		VehicleType: raw.VehicleType,
+		Timestamp:   raw.OccurredAt,
+	}
+	// 旧扁平格式字段兜底.
+	if t.Event == "" {
+		t.Event = raw.Event
+	}
+	if t.Timestamp <= 0 {
+		t.Timestamp = raw.Timestamp
+	}
+	// 标准链路的停车业务字段在 payload 内.
+	if len(raw.Payload) > 0 {
+		var p telemetryPayload
+		if e := json.Unmarshal(raw.Payload, &p); e == nil {
+			if t.TenantID == 0 {
+				t.TenantID = p.TenantID
+			}
+			if t.PlateNo == "" {
+				t.PlateNo = p.PlateNo
+			}
+			if t.VehicleType == 0 {
+				t.VehicleType = p.VehicleType
+			}
+		}
+	}
+	if t.Timestamp <= 0 {
+		t.Timestamp = time.Now().Unix()
+	}
+	return t
 }
 
 // IdempotentID 返回写入 parking_record.request_id 的幂等键.
@@ -57,12 +106,17 @@ func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Messag
 		fmt.Printf("[error] parking malformed telemetry offset=%d err=%v payload=%s\n", msg.Offset, err, msg.Value)
 		return nil
 	}
+	t := normalizeTelemetry(&raw)
+
+	if t.TenantID == 0 {
+		fmt.Printf("[warn] parking telemetry missing tenant_id: device=%s event=%s\n", t.DeviceID, t.Event)
+	}
 
 	switch t.Event {
 	case "entry":
-		return s.onTelemetryEntry(ctx, &t)
+		return s.onTelemetryEntry(ctx, t)
 	case "exit":
-		return s.onTelemetryExit(ctx, &t)
+		return s.onTelemetryExit(ctx, t)
 	default:
 		fmt.Printf("[warn] parking unknown telemetry event=%s\n", t.Event)
 		return nil
@@ -102,7 +156,7 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 		PlateNo:     t.PlateNo,
 		VehicleType: t.VehicleType,
 		DeviceIDIn:  t.DeviceID,
-		EntryTime:   &now,
+		EntryTime:   &eventTime,
 		Status:      model.ParkingStatusParking,
 		RequestID:   &id,
 	}
@@ -149,12 +203,13 @@ func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry
 		return err
 	}
 
+	exitTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 时长/计费均按事件口径
 	now := time.Now()
 	dur := 0
 	if rec.EntryTime != nil {
-		dur = int(now.Sub(*rec.EntryTime).Minutes())
+		dur = int(exitTime.Sub(*rec.EntryTime).Minutes())
 	}
-	fee := CalcFee(rec.EntryTime, &now, rec.VehicleType)
+	fee := CalcFee(rec.EntryTime, &exitTime, rec.VehicleType)
 
 	// CAS: 更新条件必须带上 status=停车中. 只按 id 更新时, 两条并发的离场消息
 	// 会各自算一次费用并各广播一次离场事件 —— 重复计费比"少算一次"难查得多.

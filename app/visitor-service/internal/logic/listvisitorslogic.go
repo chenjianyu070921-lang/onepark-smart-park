@@ -9,6 +9,7 @@ import (
 	"onepark/app/visitor-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/rbac"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -38,6 +39,18 @@ func (l *ListVisitorsLogic) ListVisitors(req *types.ListVisitorReq) (resp *types
 	}
 
 	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).Where("tenant_id=?", tenantID)
+
+	// RBAC 行级隔离: 业主仅能查看自己发起的邀请(inviter_id), 其余受限角色拒绝查看.
+	uid := ctxdata.GetUserId(l.ctx)
+	roles := rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))
+	if !rbac.IsFullScope(roles) {
+		if rbac.HasRole(roles, rbac.RoleOwner) {
+			q = q.Where("inviter_id=?", uid)
+		} else {
+			q = q.Where("1=0")
+		}
+	}
+
 	if req.Status != 0 {
 		q = q.Where("status=?", req.Status)
 	}

@@ -27,11 +27,14 @@ type (
 		Minor    int64 `json:"minor"` // level=2 一般: 需关注
 		Info     int64 `json:"info"` // level=1 提示: 一般提示性事件
 	}
-	// DeviceCard 设备卡片, 数据源: M1 device-service
+	// DeviceCard 设备卡片, 数据源: M1 device-service GetDeviceStat
+	// device.status 有三个取值(0离线/1在线/2故障), 故必须有三项分项,
+	// 保证 total = online + offline + fault —— 否则只算两项时总数会对不上
 	DeviceCard {
 		Total   int64 `json:"total"`
 		Online  int64 `json:"online"`
 		Offline int64 `json:"offline"`
+		Fault   int64 `json:"fault"` // status=2 故障
 	}
 	// EnergyCard 能耗卡片, 数据源: M4 energy-data-service GetDailyReport
 	EnergyCard {
