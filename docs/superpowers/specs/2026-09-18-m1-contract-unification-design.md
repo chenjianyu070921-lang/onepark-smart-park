@@ -29,44 +29,49 @@
 
 ### 3.1 统一契约包：common/kafka/contract.go
 
+统一消息结构（`device-telemetry` 与 `alarm-event` 两个 topic 共用同一结构，与现有线上格式逐字段兼容——`alarm-event` 的实际载荷就是 Message 的再发布，workorder/dispatch 两个消费方均按此解析）：
+
 ```go
 package kafka
 
-// 设备遥测/事件统一契约（topic: device-telemetry）
+// 设备遥测/事件统一契约
+// topic: device-telemetry（全量）；alarm-event（仅 IsAlarmEvent 命中的告警类）
 type DeviceTelemetry struct {
     RequestID  string          `json:"request_id"`
-    TenantID   int64           `json:"tenant_id"`   // 新增：生产时充入
+    TenantID   int64           `json:"tenant_id"`   // 新增：生产时充入（历史消息缺省为零值，向后兼容）
     DeviceID   string          `json:"device_id"`
-    ProductKey string          `json:"product_key"`
     DeviceType string          `json:"device_type"`
     EventType  string          `json:"event_type"`
     ZoneID     string          `json:"zone_id"`     // 新增：生产时充入（能耗区域，未登记为空串）
-    OccurredAt time.Time       `json:"occurred_at"`
+    OccurredAt int64           `json:"occurred_at"` // Unix 秒（保持现有线上类型，不得改为 time.Time）
     Payload    json.RawMessage `json:"payload"`     // 业务负载，能耗类为 {"metrics":{"energy_total":..,"power":..}}
+    Source     string          `json:"source"`      // tcp-gateway / mqtt / http
 }
 
-// 告警类事件统一契约（topic: alarm-event）
-type AlarmEvent struct { /* 字段以现有 gateway-service/event-dispatcher 定义为准合并 */ }
-
-// event_type 枚举
+// event_type 枚举（现 device-service mq/telemetry.go 与 dispatch.go 各自维护的 online/offline/fault/status 等合一）
 const (
+    EventOnline   = "online"
+    EventOffline  = "offline"
+    EventFault    = "fault"
+    EventStatus   = "status"
     EventTelemetry = "telemetry"
-    EventStatus    = "status"
-    EventGeneric   = "event"
+    EventGeneric  = "event"
 )
 
-// 告警类型枚举（原三处硬编码合一）
+// 告警类型枚举（原三处硬编码合一：dispatch.go / deviceeventlogic.go / gateway protocol.go）
 const (
-    AlarmIntrusion  = "intrusion"
-    AlarmFire       = "fire"
-    AlarmSmoke      = "smoke"
-    AlarmFault      = "fault"
-    AlarmDoorForce  = "door_force"
-    AlarmOffline    = "offline_alert"
+    AlarmIntrusion = "intrusion"
+    AlarmFire      = "fire"
+    AlarmSmoke     = "smoke"
+    AlarmFault     = "fault"
+    AlarmDoorForce = "door_force"
+    AlarmOffline   = "offline_alert"
 )
 
 func IsAlarmEvent(eventType string) bool
 ```
+
+注意：不引入 `ProductKey` 字段（event-dispatcher 虽从 MQTT topic 解析 productKey，但现行 Message 不携带，保持不变）。
 
 改造点：
 - event-dispatcher `internal/dispatch/dispatch.go`（Message 结构体 + 告警枚举）→ 引用契约；
