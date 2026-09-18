@@ -37,10 +37,11 @@ func main() {
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
 
-	// 合同到期定时任务: 启动补偿一次 + 每日 00:05 执行(Redis 分布式锁防多实例重复)
+	// 定时任务: 启动补偿 + 每日 00:05(合同续约/到期) + 每月 1 号 00:10(上月经租账单出账)。
+	// 两者都用 Redis 分布式锁防多实例重复。
 	cronCtx, cancelCron := context.WithCancel(context.Background())
 	defer cancelCron()
-	stopCron := cron.Start(cronCtx, ctx.DB, ctx.Redis)
+	stopCron := cron.Start(cronCtx, ctx)
 	defer stopCron()
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)

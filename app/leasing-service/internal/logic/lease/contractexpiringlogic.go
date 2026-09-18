@@ -102,7 +102,7 @@ func toExpiringDTO(c *model.LeaseContract) types.ExpiringContract {
 		TenantId:    c.TenantId,
 		TenantName:  c.TenantName,
 		ZoneCode:    c.ZoneCode,
-		MonthlyRent: c.MonthlyRent.String(),
+		MonthlyRent: moneyString(c.MonthlyRent),
 		EndDate:     c.EndDate.Format(dateLayout),
 		DaysLeft:    daysLeft,
 		Status:      int32(c.Status),

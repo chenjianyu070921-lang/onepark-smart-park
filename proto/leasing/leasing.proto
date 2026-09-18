@@ -7,6 +7,57 @@ option go_package = "onepark/proto/leasing;leasingpb";
 import "common/common.proto";
 
 service LeasingService {
-  // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
   rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
+
+  // GetContract 按合同ID查询合同主信息
+  // (组长一周开发任务计划 周六「leasing-service gRPC 业务接口补充」)。
+  // 返回字段与 HTTP GET /api/lease/contract/:id 完全一致(同一 logic 实现)。
+  rpc GetContract(GetContractReq) returns (GetContractResp);
+
+  // GetOccupancy 查询园区入驻率 = 已租面积 / 可租总面积
+  // (组长一周开发任务计划 周六)。与 HTTP GET /api/lease/occupancy 同一实现。
+  rpc GetOccupancy(GetOccupancyReq) returns (GetOccupancyResp);
+}
+
+// GetContractReq 合同查询请求
+message GetContractReq {
+  int64 id = 1;        // 合同ID
+  int64 tenant_id = 2; // 园区ID(RBAC 数据隔离); 0 表示不校验
+}
+
+message GetContractResp {
+  Contract contract = 1;
+}
+
+// Contract 合同主信息。
+// 字段口径与 lease_contract 表及 HTTP 接口保持一致:
+//   - 金额(monthly_rent/deposit)用 string 承载 decimal ——
+//     protobuf 没有 decimal 类型, 用 double 会重现"金额精度丢失"这个已在项目内被禁止的问题;
+//   - 面积(area_sqm)沿用 HTTP 契约的 double(它本就不是金额字段);
+//   - 日期用 yyyy-MM-dd 字符串, 避免各语言时区解释不一致。
+message Contract {
+  int64  id                = 1;
+  string contract_no       = 2;
+  int64  tenant_id         = 3;
+  string tenant_name       = 4;
+  string zone_code         = 5;
+  double area_sqm          = 6;
+  string monthly_rent      = 7;  // decimal 字符串
+  string deposit           = 8;  // decimal 字符串
+  string start_date        = 9;  // yyyy-MM-dd
+  string end_date          = 10; // yyyy-MM-dd
+  int32  status            = 11; // 1待生效 2生效中 3已到期 4已终止
+  bool   auto_renew        = 12; // 是否约定自动续约
+  int64  renew_notice_days = 13; // 到期前多少天进入续签提醒窗口
+}
+
+// GetOccupancyReq 入驻率查询请求
+message GetOccupancyReq {
+  int64 tenant_id = 1; // 园区ID; 0 表示不过滤
+}
+
+message GetOccupancyResp {
+  double total_area_sqm  = 1; // 可租总面积(平方米)
+  double leased_area_sqm = 2; // 已租面积(仅统计「生效中」合同)
+  double occupancy_rate  = 3; // 入驻率, 取值 0~1; 可租总面积为 0 时为 0(不返回 NaN)
 }

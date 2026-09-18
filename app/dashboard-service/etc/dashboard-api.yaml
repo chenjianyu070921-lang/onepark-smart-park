@@ -50,6 +50,27 @@ Energy:
   NonBlock: true
   Timeout: 600
 
+# ===== Kafka 大屏事件增量推送(组长计划书 周四 P0) =====
+# 消费告警/工单事件 -> WebSocket 广播增量 + 失效聚合缓存(使下一次 5s 快照读到最新值)。
+#
+# ⚠️ 默认关闭(Enabled: false)。开启前必须确认四件事:
+#   0) **先经组长授权** —— 若 broker 开启 auto.create.topics.enable, 消费一个不存在的 topic
+#      会**隐式创建 topic**, 这属于向共享基础设施写入, 需先获得同意
+#   1) 目标 topic 存在且属于 onepark 体系 —— 共享 broker 上还有其它项目的 topic, 禁止跨项目读写
+#   2) 消费组必须与生产方(M2 workorder-service / M3 alarm-service)不同名:
+#      Kafka 位移按 (group, topic) 提交, 重名会把它们该消费的消息吃掉。本服务是"旁听者",
+#      用自己独立的 group(下面 Group + topic 名拼接)。
+#   3) 注意 common/kafka 的 NewConsumer 固定 StartOffset=FirstOffset —— 新消费组会
+#      **从最早位移开始消费**, broker 上有积压时会一次性全部推给大屏(仅推送与失效缓存,
+#      不会写库, 影响面小于 dispatch 的自动建单, 但仍应知悉)。
+Kafka:
+  Brokers: ""                       # 本地开发时填真实地址; 不入库共享 broker 公网 IP
+  Topics:                          # 必须显式列出, 代码不猜默认值(共享 broker 上猜错就读别人的消息)
+    - alarm-event                  # M3 生产的告警事件(供大屏告警卡片实时刷新)
+    - workorder-event              # M2 生产的工单事件(common/kafka 注释标明 M5 消费)
+  Group: m5-dashboard-dev
+  Enabled: false
+
 # ===== JWT 鉴权 =====
 # 为空 = 放行(开发联调期; 中间件会打告警日志)。
 # 填上后 /ws/dashboard 的 ?token= 会被真正校验(浏览器无法给 WS 握手设 Authorization 头,
