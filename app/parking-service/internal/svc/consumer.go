@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"onepark/app/parking-service/internal/model"
+	"onepark/common/gormx"
 	"onepark/common/kafka"
 
 	kafkago "github.com/segmentio/kafka-go"
@@ -27,12 +28,17 @@ const keyDedup = "parking:dedup:"
 // gateway-service tcp-gateway)的 Message 结构保持一致 —— P0-2 兼容性验证结论(2026-09-17):
 // 旧扁平格式(event/plate_no/timestamp 在顶层)对真实链路完全不兼容, 已按标准信封适配.
 type deviceTelemetry struct {
-	RequestID   string `json:"request_id"`   // 幂等键(M1 侧生成); 缺失时按指纹降级
-	TenantID    int64  `json:"tenant_id"`    // 园区ID(RBAC 隔离)
-	PlateNo     string `json:"plate_no"`     // 车牌号
-	VehicleType int8   `json:"vehicle_type"` // 1月卡 2临时 3VIP 4异常
-	Event       string `json:"event"`        // 旧字段名, 兜底回退
-	Timestamp   int64  `json:"timestamp"`    // 旧时间字段, 兜底回退
+	RequestID   string          `json:"request_id"`   // 幂等键(M1 侧生成); 缺失时按指纹降级
+	EventType   string          `json:"event_type"`   // 标准信封事件类型(entry/exit)
+	OccurredAt  int64           `json:"occurred_at"`  // 标准信封事件时间(Unix 秒)
+	DeviceID    string          `json:"device_id"`    // 上报设备ID(地磁/门禁)
+	Source      string          `json:"source"`       // 消息来源通道: mqtt / http-fallback / tcp-gateway
+	Payload     json.RawMessage `json:"payload"`      // 标准信封业务载荷(telemetryPayload)
+	TenantID    int64           `json:"tenant_id"`    // 园区ID(RBAC 隔离)
+	PlateNo     string          `json:"plate_no"`     // 车牌号
+	VehicleType int8            `json:"vehicle_type"` // 1月卡 2临时 3VIP 4异常
+	Event       string          `json:"event"`        // 旧字段名, 兜底回退
+	Timestamp   int64           `json:"timestamp"`    // 旧时间字段, 兜底回退
 }
 
 // telemetryPayload 标准信封 payload 内的停车业务字段约定(设备侧/联调直投需按此上报).
@@ -47,6 +53,7 @@ type telemetryPayload struct {
 // 事件时间缺省回落到当前时间, 保证 EntryTime 恒有值.
 func normalizeTelemetry(raw *deviceTelemetry) *deviceTelemetry {
 	t := &deviceTelemetry{
+		RequestID:   raw.RequestID,
 		TenantID:    raw.TenantID,
 		DeviceID:    raw.DeviceID,
 		Event:       raw.EventType,
@@ -99,8 +106,8 @@ func (t *deviceTelemetry) IdempotentID() string {
 // 幂等(L1 + L3): Kafka 是 at-least-once, 重平衡/重投会让同一条消息被处理多次。
 // 没有幂等时入场会建出多条"停车中"记录, 离场会重复计费并重复广播事件。
 func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Message) error {
-	var t deviceTelemetry
-	if err := json.Unmarshal(msg.Value, &t); err != nil {
+	var raw deviceTelemetry
+	if err := json.Unmarshal(msg.Value, &raw); err != nil {
 		// 坏消息: 重试多少次结果都一样, 只能记日志跳过(返回 nil 提交位移),
 		// 否则单条坏消息会卡死整个分区(毒丸). parking 没有死信台账, 坏消息不可重放.
 		fmt.Printf("[error] parking malformed telemetry offset=%d err=%v payload=%s\n", msg.Offset, err, msg.Value)
@@ -140,6 +147,8 @@ func (s *ServiceContext) seen(ctx context.Context, t *deviceTelemetry) (bool, er
 }
 
 // onTelemetryEntry 入场: 新建停车记录(停车中).
+// 月卡车辆识别(P2): 事件未携带车型(vehicle_type=0)时按月卡表自动判定,
+// 命中生效月卡按月卡计费(fee=0), 否则按临时车计费; 判定结果随入场定格, 离场按此计费.
 func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetry) error {
 	id := t.IdempotentID()
 	seen, err := s.seen(ctx, t)
@@ -152,9 +161,16 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 	}
 
 	now := time.Now()
+	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
+
+	vehicleType := t.VehicleType
+	if vehicleType == 0 {
+		vehicleType = ResolveVehicleType(s.DB, t.TenantID, t.PlateNo, eventTime)
+	}
+
 	rec := &model.ParkingRecord{
 		PlateNo:     t.PlateNo,
-		VehicleType: t.VehicleType,
+		VehicleType: vehicleType,
 		DeviceIDIn:  t.DeviceID,
 		EntryTime:   &eventTime,
 		Status:      model.ParkingStatusParking,
@@ -253,6 +269,16 @@ func (s *ServiceContext) publish(ctx context.Context, topic, key string, value [
 	if err := s.Producer.Publish(ctx, topic, []byte(key), value); err != nil {
 		fmt.Printf("[error] parking publish topic=%s failed: %v\n", topic, err)
 	}
+}
+
+// ResolveVehicleType 月卡车辆识别(P2): 入场时事件未携带车型时调用.
+// 命中生效月卡(时间窗覆盖入场时刻)按月卡计费, 否则按临时车计费;
+// DB 未初始化时降级为临时车, 不阻断入场.
+func ResolveVehicleType(db *gormx.DB, tenantID int64, plateNo string, at time.Time) int8 {
+	if model.HasActiveMonthlyCard(db, tenantID, plateNo, at) {
+		return model.VehicleTypeMonthly
+	}
+	return model.VehicleTypeTemp
 }
 
 // CalcFee 简化计费: 月卡/VIP 免费, 临时车首 15 分钟免费, 之后 5 元/小时向上取整.

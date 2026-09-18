@@ -41,6 +41,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/visitors",
 				Handler: ListVisitorsHandler(serverCtx),
 			},
+			{
+				// 访客详情+门禁进出轨迹(P2: 签入产生的门禁动作留痕与访客记录关联)
+				Method:  http.MethodGet,
+				Path:    "/api/visitor/:id",
+				Handler: GetVisitorDetailHandler(serverCtx),
+			},
 		},
 	)
 }

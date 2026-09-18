@@ -17,6 +17,7 @@ const (
 	ActionStart   = "start"  // 开始处理: 已指派 -> 处理中
 	ActionFinish  = "finish" // 完成: 处理中 -> 已完成
 	ActionClose   = "close"  // 关闭: 任意非终态 -> 已关闭
+	ActionExpire  = "expire" // 超时退回: 已指派 -> 待指派(assign_expire_at 超时自动重派)
 )
 
 // transitions 合法状态转移表: from -> action -> to.

@@ -31,12 +31,20 @@ func NewParkingEntryLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Park
 }
 
 // ParkingEntry 创建停车中记录, 并发布车辆入场事件.
+// 月卡车辆识别(P2): 事件未携带车型(vehicle_type=0)时, 按月卡表自动判定 ——
+// 命中生效月卡按月卡计费(fee=0), 否则按临时车计费.
 func (l *ParkingEntryLogic) ParkingEntry(req *types.ParkingEntryReq) (resp *types.ParkingRecordResp, err error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 	now := time.Now()
+
+	vehicleType := req.VehicleType
+	if vehicleType == 0 {
+		vehicleType = svc.ResolveVehicleType(l.svcCtx.DB, tenantID, req.PlateNo, now)
+	}
+
 	rec := &model.ParkingRecord{
 		PlateNo:     req.PlateNo,
-		VehicleType: req.VehicleType,
+		VehicleType: vehicleType,
 		DeviceIDIn:  req.DeviceIDIn,
 		EntryTime:   &now,
 		Status:      model.ParkingStatusParking,

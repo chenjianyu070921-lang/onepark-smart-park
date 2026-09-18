@@ -17,6 +17,15 @@
 --   * work_order.alarm_id / notice.source 为可空唯一键, 用于消息幂等:
 --     MySQL 唯一索引允许多个 NULL, 人工数据(为 NULL)互不冲突.
 --   * 全部 CREATE TABLE IF NOT EXISTS: 幂等可重复执行, 已有同名表不会被改动.
+--
+-- 统一执行顺序说明(部署/评审对齐口径, 2026-09-18):
+--   1. init.sql            (预创建库与账号)
+--   2. m1_mysql_tables.sql / m1_tdengine_tables.sql
+--   3. m2_mysql_tables.sql (本文件)
+--   4. m3_mysql_tables.sql / m3_access_mysql_tables.sql / m3_video_mysql_tables.sql
+--   5. m5_mysql_tables.sql
+--   说明: 当前共享部署为单一库 onepark-smart-park, 各脚本头部的 `USE xxx_db` 切库语句
+--         在单库部署下应跳过(或按目标 DSN 落库); 脚本均幂等, 顺序执行互不依赖.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -184,10 +193,14 @@ CREATE TABLE IF NOT EXISTS `notice_read` (
 -- ---------------------------------------------------------------------
 
 -- 停车记录: 一条 = 某车牌某次停车(入场建记录停车中, 离场计费置已完成).
+-- 统一口径(2026-09-18 评审 P0): 以带 request_id 幂等键版本为准(设计文档 §parking "按 requestId 幂等"),
+--   Kafka 至少一次投递下重复入场消息靠 uk_request 唯一键去重;
+--   request_id 可空: MySQL 唯一索引允许多个 NULL, 旧扁平格式/HTTP 联调直投(无 request_id)互不冲突.
 CREATE TABLE IF NOT EXISTS `parking_record` (
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   tenant_id     BIGINT       NOT NULL COMMENT '园区ID, RBAC 数据隔离维度',
   plate_no      VARCHAR(32)  NOT NULL COMMENT '车牌号',
+  request_id    CHAR(36)              DEFAULT NULL COMMENT '幂等键: M1 遥测信封 request_id, 重复投递去重',
   entry_time    DATETIME              DEFAULT NULL COMMENT '入场时间',
   exit_time     DATETIME              DEFAULT NULL COMMENT '离场时间',
   duration_min  INT                   DEFAULT NULL COMMENT '停车时长(分钟)',
@@ -199,6 +212,7 @@ CREATE TABLE IF NOT EXISTS `parking_record` (
   created_at    DATETIME    NOT NULL COMMENT '创建时间',
   updated_at    DATETIME    NOT NULL COMMENT '更新时间',
   PRIMARY KEY (id),
+  UNIQUE KEY `uk_request` (request_id),
   KEY `idx_tenant` (tenant_id),
   KEY `idx_plate_entry` (plate_no, entry_time),
   KEY `idx_status` (status)
@@ -216,6 +230,25 @@ CREATE TABLE IF NOT EXISTS `parking_fee_rule` (
   PRIMARY KEY (id),
   KEY `idx_tenant` (tenant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='停车计费规则';
+
+-- 停车月卡: 一条 = 某车牌一段有效期的月卡(P2 月卡管理).
+-- 入场时按 (tenant_id, plate_no, 生效状态, 时间窗) 识别月卡车, 月卡车计费 fee=0;
+-- 不建 (tenant_id, plate_no) 唯一键: 停用/过期后允许同车牌再次办卡, 识别只看 status+时间窗.
+CREATE TABLE IF NOT EXISTS `monthly_card` (
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id     BIGINT       NOT NULL COMMENT '园区ID, RBAC 数据隔离维度',
+  plate_no      VARCHAR(32)  NOT NULL COMMENT '车牌号',
+  owner_name    VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '车主姓名',
+  phone         VARCHAR(20)  NOT NULL DEFAULT '' COMMENT '联系电话',
+  start_time    DATETIME     NOT NULL COMMENT '生效起',
+  end_time      DATETIME     NOT NULL COMMENT '生效止(到期时间)',
+  status        TINYINT      NOT NULL DEFAULT 1 COMMENT '1生效 2停用',
+  created_at    DATETIME     NOT NULL COMMENT '创建时间',
+  updated_at    DATETIME     NOT NULL COMMENT '更新时间',
+  PRIMARY KEY (id),
+  KEY `idx_tenant_plate` (tenant_id, plate_no),
+  KEY `idx_tenant_end` (tenant_id, status, end_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='停车月卡';
 
 -- ---------------------------------------------------------------------
 -- 5. 访客域 (对齐 app/visitor-service/internal/model)
