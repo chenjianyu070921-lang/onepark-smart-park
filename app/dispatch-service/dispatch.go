@@ -7,6 +7,7 @@ import (
 
 	"onepark/app/dispatch-service/internal/config"
 	"onepark/app/dispatch-service/internal/consumer"
+	"onepark/app/dispatch-service/internal/cron"
 	"onepark/app/dispatch-service/internal/handler"
 	"onepark/app/dispatch-service/internal/svc"
 	"onepark/common/middleware"
@@ -31,8 +32,8 @@ func main() {
 	// Cors 对 OPTIONS 直接返回 204 并中断, 不会走到 JWT。
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
-	// JWT 鉴权: 填了密钥后, 审计流水的 operator_id 才会从 token 的 userId claim 取值
-	server.Use(middleware.JWT(c.JwtSecret))
+	// 下游只透传: JWT 校验/租户注入已收口到网关, 本服务仅提升网关注入的身份 Header.
+	server.Use(middleware.IdentityFromHeader)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
@@ -44,6 +45,13 @@ func main() {
 		defer func() { _ = runner.Close() }()
 		go runner.Start(consumerCtx)
 	}
+
+	// 指派超时重派: 启动补偿一次 + 每 IntervalSec 扫一次(Redis 分布式锁防多实例重复改派)。
+	// 该任务只读写本服务自己的库, 不碰共享设施, 因此没有开关(见 config.ReassignConf 注释)。
+	cronCtx, cancelCron := context.WithCancel(context.Background())
+	defer cancelCron()
+	stopCron := cron.Start(cronCtx, ctx.DB, ctx.Redis, c.Reassign.IntervalSec, c.Reassign.MaxReassign)
+	defer stopCron()
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()

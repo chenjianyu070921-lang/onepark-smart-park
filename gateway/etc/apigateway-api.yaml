@@ -6,36 +6,79 @@ Port: 8080
 DefaultTenantId: 1
 DefaultUserId: 0
 
-# 路由前缀 -> 上游服务(最长前缀优先匹配)
-# 说明: /api/workorder 前缀同时覆盖 /api/workorders 与 /api/workorder/:id
+# 网关统一鉴权密钥: 必须与 auth-service 的 JWT_SECRET 一致(由 compose 注入 AUTH_SECRET).
+# dev/test 默认不启用(见 apigateway.go 中 isLocalMode 判定); prod/pre 强制启用(失败即拒绝启动).
+Auth:
+  Secret: ${AUTH_SECRET}
+
+# 限流依赖的 Redis(令牌桶计数). 未配置或 Redis 不可用时, 限流优雅降级为放行.
+Redis:
+  Addr: redis:6379
+  Pass: ${REDIS_PASS}
+  DB: 0
+  PoolSize: 50
+  MinIdleConns: 10
+
+# 网关全局令牌桶限流(单 IP 维度). Capacity<=0 关闭.
+RateLimit:
+  Capacity: 200
+  RatePerSec: 50
+
+# 路由前缀 -> 上游服务(最长前缀优先匹配, 见 internal/proxy/proxy.go).
+# 端口与各服务实际监听端口一致(来源 deploy/docker-compose.yml 的 PORT 与 app/*/etc/*-api.yaml):
+#   device 8001 / user-manage 8086 / auth 8088 / workorder 8082 / alarm 8009 /
+#   dispatch 8053 / leasing 8051 / dashboard 8052 / billing 8063.
+# 本地联调用 127.0.0.1; 容器编排下网关改用 Nacos 动态上游(deploy/nacos/gateway-upstreams.json,
+# 使用 compose 服务 DNS 名), 二者仅 host 不同, 前缀/端口保持一致.
 Upstreams:
-  # 前缀 /api/alarm 同时覆盖 /api/alarm/:id 与 /api/alarms(最长前缀匹配)
+  - Prefix: /api/workorder
+    Target: http://127.0.0.1:8082
+  - Prefix: /api/visitor
+    Target: http://127.0.0.1:8083
+  - Prefix: /api/parking
+    Target: http://127.0.0.1:8084
+  - Prefix: /api/notice
+    Target: http://127.0.0.1:8085
+  - Prefix: /api/lease
+    Target: http://127.0.0.1:8051
+  - Prefix: /api/dashboard
+    Target: http://127.0.0.1:8052
+  - Prefix: /api/dispatch
+    Target: http://127.0.0.1:8053
+  - Prefix: /api/auth
+    Target: http://127.0.0.1:8088
+  - Prefix: /api/users
+    Target: http://127.0.0.1:8086
+  - Prefix: /api/roles
+    Target: http://127.0.0.1:8086
+  - Prefix: /api/menus
+    Target: http://127.0.0.1:8086
+  - Prefix: /api/permissions
+    Target: http://127.0.0.1:8086
+  - Prefix: /api/devices
+    Target: http://127.0.0.1:8001
+  - Prefix: /api/device
+    Target: http://127.0.0.1:8001
+  - Prefix: /api/product
+    Target: http://127.0.0.1:8001
   - Prefix: /api/alarm
     Target: http://127.0.0.1:8009
   - Prefix: /api/access
     Target: http://127.0.0.1:8010
   - Prefix: /api/video
     Target: http://127.0.0.1:8011
-  - Prefix: /api/workorder
-    Target: http://127.0.0.1:8091
-  - Prefix: /api/visitor
-    Target: http://127.0.0.1:8092
-  - Prefix: /api/parking
-    Target: http://127.0.0.1:8093
-  - Prefix: /api/notice
-    Target: http://127.0.0.1:8094
-  # M5 三服务端口以 app/*/etc/*-api.yaml 与实际监听为准 = 8051/8052/8053
-  # (M5 已废弃 README 的 8015/8016/8017 口径, 见 docs/plans/2026-09-15-M5-环境与方案确认书 §4.5.1).
-  - Prefix: /api/leasing
-    Target: http://127.0.0.1:8051
-  - Prefix: /api/dashboard
-    Target: http://127.0.0.1:8052
-  - Prefix: /api/dispatch
-    Target: http://127.0.0.1:8053
-
-  # WebSocket 实时推送(docs/m3/09 §3 / R1): httputil.ReverseProxy 自 Go 1.12 起
-  # 原生支持 Connection: Upgrade 协议切换(劫持连接), 网关无需额外代码.
-  # WS 路径不在 /api/* 下必须单列; 两条前缀等长(均为 /ws/xxx), 不会互相抢占.
+  - Prefix: /api/energy/daily
+    Target: http://127.0.0.1:8062
+  - Prefix: /api/energy/monthly
+    Target: http://127.0.0.1:8062
+  - Prefix: /api/energy/zone
+    Target: http://127.0.0.1:8062
+  - Prefix: /api/energy
+    Target: http://127.0.0.1:8061
+  - Prefix: /api/billing
+    Target: http://127.0.0.1:8063
+  # WebSocket 实时推送: httputil.ReverseProxy 原生支持 Connection: Upgrade(劫持连接), 网关无需额外代码.
+  # WS 路径不在 /api/* 下必须单列.
   - Prefix: /ws/alarm
     Target: http://127.0.0.1:8009
   - Prefix: /ws/dashboard

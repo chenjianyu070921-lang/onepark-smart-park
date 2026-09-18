@@ -73,6 +73,8 @@ func (l *DeviceRegisterLogic) DeviceRegister(req *types.DeviceRegisterReq) (resp
 		DeviceName:   deviceName,
 		DeviceSecret: string(hashedSecret),
 		ProductKey:   product.ProductKey,
+		TenantID:     req.TenantId,
+		ZoneID:       req.ZoneId,
 		ParkID:       req.ParkID,
 		BuildingID:   req.BuildingID,
 		Floor:        req.Floor,

@@ -29,7 +29,7 @@ func DeviceRegisterHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				response.FailWith(w, errorx.ErrInternal, err.Error())
 			}
 		} else {
-			response.Ok(w, resp)
+			httpx.OkJsonCtx(r.Context(), w, resp)
 		}
 	}
 }

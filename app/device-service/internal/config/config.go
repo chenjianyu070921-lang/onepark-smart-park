@@ -37,4 +37,8 @@ type Config struct {
 	CommandTimeoutSec int `json:",default=30"`
 	// TimeoutScanIntervalSec 超时扫描周期(秒)
 	TimeoutScanIntervalSec int `json:",default=15"`
+	// TimeoutScanBatchLimit 单次扫描的批量上限, 避免一轮处理过多指令
+	TimeoutScanBatchLimit int `json:",default=200"`
+	// CommandMaxResend 超时指令的最大重发次数(不含首发); 0 表示不重发, 超时直接置失败
+	CommandMaxResend int `json:",default=2"`
 }

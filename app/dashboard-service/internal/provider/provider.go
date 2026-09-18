@@ -33,11 +33,13 @@ type AlarmStat struct {
 	Info     int64 // level=1 提示
 }
 
-// DeviceStat 设备统计, 数据源: M1 device-service(清单 #69 / #72).
+// DeviceStat 设备统计, 数据源: M1 device-service GetDeviceStat(清单 #69 / #72).
+// 三项分项之和恒等于 Total —— device.status 有三个取值, 只算 online/offline 会让总数对不上。
 type DeviceStat struct {
 	Total   int64
 	Online  int64
 	Offline int64
+	Fault   int64 // status=2 故障
 }
 
 // EnergyStat 今日能耗, 数据源: M4 energy-data-service GetDailyReport(清单 #54).

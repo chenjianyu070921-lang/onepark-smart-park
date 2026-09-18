@@ -12,6 +12,7 @@ import (
 
 	"onepark/app/leasing-service/internal/model"
 	"onepark/app/leasing-service/internal/svc"
+	"onepark/app/leasing-service/internal/ecode"
 	"onepark/app/leasing-service/internal/types"
 	"onepark/common/errorx"
 )
@@ -59,7 +60,7 @@ func (l *BillAutoLogic) BillAuto(req *types.BillAutoReq) (*types.BillAutoResp, e
 		period = time.Now().AddDate(0, -1, 0).Format("2006-01")
 	}
 	if _, err := time.Parse("2006-01", period); err != nil {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "账期格式应为 yyyy-MM")
+		return nil, errorx.NewError(ecode.ErrLeaseParamInvalid, "账期格式应为 yyyy-MM")
 	}
 
 	lockKey := fmt.Sprintf("m5:lease:bill:lock:%s", period)
@@ -69,10 +70,10 @@ func (l *BillAutoLogic) BillAuto(req *types.BillAutoReq) (*types.BillAutoResp, e
 		ok, err := l.svcCtx.Redis.SetNX(l.ctx, lockKey, token, billLockTTL).Result()
 		if err != nil {
 			l.Errorf("[lease] acquire bill lock failed: %v", err)
-			return nil, errorx.NewError(errorx.ErrInternal, "获取账单生成锁失败")
+			return nil, errorx.NewError(ecode.ErrBillGenerateFailed, "获取账单生成锁失败")
 		}
 		if !ok {
-			return nil, errorx.NewError(errorx.ErrBadRequest, "该账期账单正在生成中, 请稍后重试")
+			return nil, errorx.NewError(ecode.ErrLeaseParamInvalid, "该账期账单正在生成中, 请稍后重试")
 		}
 		// 释放锁用独立 context: 请求 context 可能已取消, 但锁必须释放
 		defer l.releaseLock(lockKey, token)
@@ -83,7 +84,7 @@ func (l *BillAutoLogic) BillAuto(req *types.BillAutoReq) (*types.BillAutoResp, e
 		Where("status = ?", model.StatusActive).
 		Find(&contracts).Error; err != nil {
 		l.Errorf("[lease] load active contracts failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "加载生效合同失败")
+		return nil, errorx.NewError(ecode.ErrBillGenerateFailed, "加载生效合同失败")
 	}
 
 	resp := &types.BillAutoResp{Period: period}
@@ -104,15 +105,21 @@ func (l *BillAutoLogic) BillAuto(req *types.BillAutoReq) (*types.BillAutoResp, e
 				resp.Skipped++
 				continue
 			}
-			// 单条失败不中断整批, 记录后继续
+			// 真实失败(连接断开/字段超长等): 单条失败不中断整批, 但必须计数并在末尾上报,
+			// 禁止混入 Skipped 静默吞掉 —— 否则出账部分丢失无感知.
 			l.Errorf("[lease] create bill failed: contractId=%d, err=%v", c.Id, err)
-			resp.Skipped++
+			resp.Failed++
 			continue
 		}
 		resp.Created++
 	}
 
-	l.Infof("[lease] bill auto done: period=%s, created=%d, skipped=%d", period, resp.Created, resp.Skipped)
+	l.Infof("[lease] bill auto done: period=%s, created=%d, skipped=%d, failed=%d",
+		resp.Period, resp.Created, resp.Skipped, resp.Failed)
+	if resp.Failed > 0 {
+		return resp, errorx.NewError(ecode.ErrBillGenerateFailed,
+			fmt.Sprintf("出账完成但 %d 条失败, 请结合日志人工复核", resp.Failed))
+	}
 	return resp, nil
 }
 

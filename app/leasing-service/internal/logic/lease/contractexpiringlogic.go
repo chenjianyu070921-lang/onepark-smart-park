@@ -12,7 +12,9 @@ import (
 
 	"onepark/app/leasing-service/internal/model"
 	"onepark/app/leasing-service/internal/svc"
+	"onepark/app/leasing-service/internal/ecode"
 	"onepark/app/leasing-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -51,7 +53,7 @@ func (l *ContractExpiringLogic) ContractExpiring(req *types.ContractExpiringReq)
 		days = 30
 	}
 	if days > expiringMaxDays {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "days 不能超过 365")
+		return nil, errorx.NewError(ecode.ErrLeaseParamInvalid, "days 不能超过 365")
 	}
 	page, pageSize := clampPage(req.Page, req.PageSize)
 
@@ -59,16 +61,16 @@ func (l *ContractExpiringLogic) ContractExpiring(req *types.ContractExpiringReq)
 	limit := time.Now().AddDate(0, 0, int(days))
 	limitEnd := time.Date(limit.Year(), limit.Month(), limit.Day(), 23, 59, 59, 0, time.Local)
 
-	// 用同一组条件做 Count 与 Find, 避免两处条件不一致
+	// 用同一组条件做 Count 与 Find, 避免两处条件不一致; 强制租户隔离.
 	where := func(q *gorm.DB) *gorm.DB {
-		return q.Where("status = ?", model.StatusActive).
+		return q.Where("status = ? AND tenant_id = ?", model.StatusActive, ctxdata.GetTenantId(l.ctx)).
 			Where("end_date <= ?", limitEnd)
 	}
 
 	var total int64
 	if err := where(l.svcCtx.DB.WithContext(l.ctx).Model(&model.LeaseContract{})).Count(&total).Error; err != nil {
 		l.Errorf("[lease] count expiring contracts failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "查询到期合同失败")
+		return nil, errorx.NewError(ecode.ErrExpiringQueryFailed, "查询到期合同失败")
 	}
 
 	var contracts []model.LeaseContract
@@ -77,7 +79,7 @@ func (l *ContractExpiringLogic) ContractExpiring(req *types.ContractExpiringReq)
 		Limit(int(pageSize)).Offset(int((page - 1) * pageSize)).
 		Find(&contracts).Error; err != nil {
 		l.Errorf("[lease] list expiring contracts failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "查询到期合同失败")
+		return nil, errorx.NewError(ecode.ErrExpiringQueryFailed, "查询到期合同失败")
 	}
 
 	list := make([]types.ExpiringContract, 0, len(contracts))
@@ -102,7 +104,7 @@ func toExpiringDTO(c *model.LeaseContract) types.ExpiringContract {
 		TenantId:    c.TenantId,
 		TenantName:  c.TenantName,
 		ZoneCode:    c.ZoneCode,
-		MonthlyRent: c.MonthlyRent.String(),
+		MonthlyRent: moneyString(c.MonthlyRent),
 		EndDate:     c.EndDate.Format(dateLayout),
 		DaysLeft:    daysLeft,
 		Status:      int32(c.Status),

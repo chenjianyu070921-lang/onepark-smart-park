@@ -29,11 +29,26 @@ const (
 	PriorityNormal int8 = 3 // 普通
 )
 
+// AssignExpireWindow 指派超时窗口: 超过该时间未接单, 由 cron 重派(internal/cron/reassign.go)。
+//
+// 放在 model 层, 是因为「指派时写入超时点」与「cron 判定超时」两处必须用同一个值 ——
+// 分开定义一旦不一致, 重派时机就会与超时判定错位。
+const AssignExpireWindow = 5 * time.Minute
+
+// MaxReassignDefault 自动重派次数上限的默认值(可由配置覆盖).
+//
+// 为什么必须有上限: 园区可能"全员不在岗"或技能池为空, 没有上限就会每一轮
+// 都重试同几个工单 —— 既刷爆日志, 又掩盖了「真的没人可派」这个事实。
+// 达上限后工单被释放回「待指派」, 交由人工介入。
+const MaxReassignDefault int64 = 3
+
 // DispatchTask 调度工单.
 // AlarmId 用指针: 数据库列可为 NULL, 与唯一索引 uk_alarm_id 配合实现"同一告警只建一张单"——
 // MySQL 唯一索引允许多个 NULL, 因此多张人工单(AlarmId 为 NULL)不会互相冲突.
 type DispatchTask struct {
 	Id             int64      `gorm:"column:id;primaryKey;autoIncrement"`
+	// TenantID 园区ID, RBAC 行级隔离维度(列由 l2_tenant_id_migration.sql 迁移新增).
+	TenantID       int64      `gorm:"column:tenant_id;index:idx_tenant"`
 	TaskNo         string     `gorm:"column:task_no;size:32;uniqueIndex"`
 	Title          string     `gorm:"column:title;size:255"`
 	Source         int8       `gorm:"column:source"`
@@ -46,6 +61,8 @@ type DispatchTask struct {
 	AssigneeName   string     `gorm:"column:assignee_name;size:64"`
 	Description    string     `gorm:"column:description;size:1024"`
 	AssignExpireAt *time.Time `gorm:"column:assign_expire_at"`
+	// ReassignCount 已被 cron 自动重派的次数; 达上限后释放回「待指派」。
+	ReassignCount int64 `gorm:"column:reassign_count"`
 	FinishedAt     *time.Time `gorm:"column:finished_at"`
 	Version        int64      `gorm:"column:version"`
 	CreatedAt      time.Time  `gorm:"column:created_at"`
@@ -58,6 +75,8 @@ func (DispatchTask) TableName() string { return "dispatch_task" }
 // DispatchTaskLog 调度工单状态流转审计.
 type DispatchTaskLog struct {
 	Id         int64     `gorm:"column:id;primaryKey;autoIncrement"`
+	// TenantID 园区ID, 与主表 dispatch_task.tenant_id 保持一致.
+	TenantID   int64     `gorm:"column:tenant_id;index:idx_tenant"`
 	TaskId     int64     `gorm:"column:task_id"`
 	FromStatus int8      `gorm:"column:from_status"`
 	ToStatus   int8      `gorm:"column:to_status"`

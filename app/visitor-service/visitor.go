@@ -27,7 +27,7 @@ func main() {
 	// 中间件: CORS + RequestId 透传 + RBAC 上下文(网关注入 x-tenant-id/x-user-id/x-role-ids).
 	server.Use(cmw.Cors)
 	server.Use(cmw.RequestIdMiddleware)
-	server.Use(cmw.Tenant)
+	server.Use(cmw.IdentityFromHeader)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)

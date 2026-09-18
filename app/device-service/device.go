@@ -42,12 +42,11 @@ func main() {
 	defer ctx.Close()
 
 	restServer := rest.MustNewServer(c.RestConf)
+	restServer.Use(middleware.IdentityFromHeader)
 	defer restServer.Stop()
 
-	// 全局中间件: 请求ID -> 租户上下文 -> JWT 鉴权(未配置密钥时放行)
+	// 全局中间件: 请求ID -> 下游只透传(网关已校验并注入身份/租户 Header)
 	restServer.Use(middleware.RequestIdMiddleware)
-	restServer.Use(middleware.Tenant)
-	restServer.Use(middleware.JWT(c.JwtSecret))
 
 	handler.RegisterHandlers(restServer, ctx)
 
@@ -73,7 +72,7 @@ func main() {
 		}
 	}()
 
-	go cron.NewCommandTimeoutTask(ctx, c.TimeoutScanIntervalSec, 200, 2).Start(taskCtx)
+	go cron.NewCommandTimeoutTask(ctx, c.TimeoutScanIntervalSec, c.TimeoutScanBatchLimit, c.CommandMaxResend).Start(taskCtx)
 
 	fmt.Printf("Starting device-service: HTTP %s:%d, gRPC %s\n", c.Host, c.Port, c.Rpc.ListenOn)
 	group.Start()

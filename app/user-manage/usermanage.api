@@ -1,15 +1,131 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+type UserInfo {
+	Id        uint64 `json:"id"`
+	Username  string `json:"username"`
+	Nickname  string `json:"nickname"`
+	Status    int8   `json:"status"`
+	CreatedAt string `json:"created_at"`
 }
 
-type Response {
-	Message string `json:"message"`
+type UserListResp {
+	List  []UserInfo `json:"list"`
+	Total int64     `json:"total"`
+}
+
+type CreateUserReq {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Nickname string `json:"nickname"`
+	Status   int8   `json:"status,default=1"`
+	RoleId   uint64 `json:"role_id,default=0"`
+}
+
+type CreateUserResp {
+	Id uint64 `json:"id"`
+}
+
+type UpdateUserReq {
+	Id       uint64 `json:"id"`
+	Nickname string `json:"nickname"`
+	Status   int8   `json:"status"`
+}
+
+type RoleInfo {
+	Id       uint64 `json:"id"`
+	RoleKey  string `json:"role_key"`
+	RoleName string `json:"role_name"`
+	Remark   string `json:"remark"`
+}
+
+type CreateRoleReq {
+	RoleKey  string `json:"role_key"`
+	RoleName string `json:"role_name"`
+	Remark   string `json:"remark"`
+}
+
+type CreateRoleResp {
+	Id uint64 `json:"id"`
+}
+
+type RoleListResp {
+	List  []RoleInfo `json:"list"`
+	Total int64      `json:"total"`
+}
+
+type AssignRoleReq {
+	UserId uint64 `json:"user_id"`
+	RoleId uint64 `json:"role_id"`
+}
+
+type MenuInfo {
+	Id         uint64 `json:"id"`
+	ParentId   uint64 `json:"parent_id"`
+	MenuKey    string `json:"menu_key"`
+	MenuName   string `json:"menu_name"`
+	Permission string `json:"permission"`
+	Path       string `json:"path"`
+	Sort       int    `json:"sort"`
+}
+
+type CreateMenuReq {
+	ParentId   uint64 `json:"parent_id,default=0"`
+	MenuKey    string `json:"menu_key"`
+	MenuName   string `json:"menu_name"`
+	Permission string `json:"permission"`
+	Path       string `json:"path"`
+	Sort       int    `json:"sort,default=0"`
+}
+
+type CreateMenuResp {
+	Id uint64 `json:"id"`
+}
+
+type AssignMenuReq {
+	RoleId uint64 `json:"role_id"`
+	MenuId uint64 `json:"menu_id"`
+}
+
+type CheckPermissionReq {
+	UserId     uint64 `json:"user_id"`
+	Permission string `json:"permission"`
+}
+
+type CheckPermissionResp {
+	Allowed bool `json:"allowed"`
 }
 
 service usermanage-api {
-	@handler UsermanageHandler
-	get /from/:name (Request) returns (Response)
-}
+	@handler UserCreate
+	post /api/users (CreateUserReq) returns (CreateUserResp)
 
+	@handler UserUpdate
+	put /api/users (UpdateUserReq)
+
+	@handler UserDelete
+	delete /api/users/:id
+
+	@handler UserDetail
+	get /api/users/:id returns (UserInfo)
+
+	@handler UserList
+	get /api/users returns (UserListResp)
+
+	@handler RoleCreate
+	post /api/roles (CreateRoleReq) returns (CreateRoleResp)
+
+	@handler RoleList
+	get /api/roles returns (RoleListResp)
+
+	@handler RoleAssign
+	post /api/users/roles (AssignRoleReq)
+
+	@handler MenuCreate
+	post /api/menus (CreateMenuReq) returns (CreateMenuResp)
+
+	@handler RoleMenuAssign
+	post /api/roles/menus (AssignMenuReq)
+
+	@handler PermissionCheck
+	post /api/permissions/check (CheckPermissionReq) returns (CheckPermissionResp)
+}

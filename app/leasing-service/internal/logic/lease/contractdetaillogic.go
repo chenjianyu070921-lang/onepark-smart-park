@@ -9,7 +9,9 @@ import (
 
 	"onepark/app/leasing-service/internal/model"
 	"onepark/app/leasing-service/internal/svc"
+	"onepark/app/leasing-service/internal/ecode"
 	"onepark/app/leasing-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -36,13 +38,15 @@ func (l *ContractDetailLogic) ContractDetail(req *types.ContractDetailReq) (*typ
 	}
 
 	var contract model.LeaseContract
-	err := l.svcCtx.DB.WithContext(l.ctx).First(&contract, req.Id).Error
+	err := l.svcCtx.DB.WithContext(l.ctx).
+		Where("id = ? AND tenant_id = ?", req.Id, ctxdata.GetTenantId(l.ctx)).
+		First(&contract).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, errorx.NewError(errorx.ErrNotFound, "合同不存在")
+		return nil, errorx.NewError(ecode.ErrContractNotFound, "合同不存在")
 	}
 	if err != nil {
 		l.Errorf("[lease] query contract failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "查询合同失败")
+		return nil, errorx.NewError(ecode.ErrContractQueryFailed, "查询合同失败")
 	}
 
 	return &types.ContractDetailResp{Contract: toContractDTO(&contract)}, nil

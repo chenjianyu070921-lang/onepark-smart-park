@@ -31,7 +31,9 @@ func NewGetAlarmLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetAlarm
 func (l *GetAlarmLogic) GetAlarm(req *types.IdReq) (*types.AlarmDetailResp, error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 	if tenantID == 0 {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
+		// 参数校验类必须用 M3-W-1001 才会返回 400(KI-2); 原先误用 M6-E-0001 会返回 500,
+		// 把"调用方没传 x-tenant-id"错误地表达成服务端故障, 与本服务其它接口也不一致.
+		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "缺少租户信息(x-tenant-id)")
 	}
 	if l.svcCtx.Alarms == nil {
 		return nil, errorx.NewError(errorx.ErrDepConnect, "告警存储未就绪(MySQL 未配置)")

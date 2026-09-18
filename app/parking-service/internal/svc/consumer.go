@@ -2,8 +2,12 @@ package svc
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,27 +17,28 @@ import (
 
 	kafkago "github.com/segmentio/kafka-go"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+// keyDedup 消费幂等键前缀, 完整键形如 parking:dedup:{幂等ID}.
+const keyDedup = "parking:dedup:"
 
 // deviceTelemetry M1 设备遥测消息(地磁/门禁上报), 由 parking-service 消费驱动停车记录.
 // 信封字段与三个生产者(event-dispatcher MQTT / device-service http-fallback /
 // gateway-service tcp-gateway)的 Message 结构保持一致 —— P0-2 兼容性验证结论(2026-09-17):
 // 旧扁平格式(event/plate_no/timestamp 在顶层)对真实链路完全不兼容, 已按标准信封适配.
 type deviceTelemetry struct {
-	// 标准信封(与 common 事实标准一致)
-	RequestID  string          `json:"request_id"`
-	DeviceID   string          `json:"device_id"`   // 地磁/门禁设备ID
-	EventType  string          `json:"event_type"`  // entry 入场 / exit 离场
-	OccurredAt int64           `json:"occurred_at"` // 事件时间(秒级时间戳)
-	Payload    json.RawMessage `json:"payload"`     // 业务载荷, 停车字段约定在其中
-	Source     string          `json:"source"`      // mqtt / http-fallback / tcp-gateway
-
-	// 停车业务字段: 标准链路放在 payload 内; 旧扁平格式(测试直投)在顶层, 解析时合并回退
-	TenantID    int64  `json:"tenant_id"`    // 园区ID(RBAC 隔离)
-	PlateNo     string `json:"plate_no"`     // 车牌号
-	VehicleType int8   `json:"vehicle_type"` // 1月卡 2临时 3VIP 4异常
-	Event       string `json:"event"`        // 旧字段名, 兜底回退
-	Timestamp   int64  `json:"timestamp"`    // 旧时间字段, 兜底回退
+	RequestID   string          `json:"request_id"`   // 幂等键(M1 侧生成); 缺失时按指纹降级
+	EventType   string          `json:"event_type"`   // 标准信封事件类型(entry/exit)
+	OccurredAt  int64           `json:"occurred_at"`  // 标准信封事件时间(Unix 秒)
+	DeviceID    string          `json:"device_id"`    // 上报设备ID(地磁/门禁)
+	Source      string          `json:"source"`       // 消息来源通道: mqtt / http-fallback / tcp-gateway
+	Payload     json.RawMessage `json:"payload"`      // 标准信封业务载荷(telemetryPayload)
+	TenantID    int64           `json:"tenant_id"`    // 园区ID(RBAC 隔离)
+	PlateNo     string          `json:"plate_no"`     // 车牌号
+	VehicleType int8            `json:"vehicle_type"` // 1月卡 2临时 3VIP 4异常
+	Event       string          `json:"event"`        // 旧字段名, 兜底回退
+	Timestamp   int64           `json:"timestamp"`    // 旧时间字段, 兜底回退
 }
 
 // telemetryPayload 标准信封 payload 内的停车业务字段约定(设备侧/联调直投需按此上报).
@@ -84,12 +89,28 @@ func normalizeTelemetry(raw *deviceTelemetry) *deviceTelemetry {
 	return t
 }
 
+// IdempotentID 返回写入 parking_record.request_id 的幂等键.
+// 优先使用消息自带 request_id; 缺失时按 sha1(device|event|plate|timestamp) 生成指纹降级.
+// 禁止用 partition-offset 作幂等键: 重放时 offset 变化会导致重复处理.
+func (t *deviceTelemetry) IdempotentID() string {
+	if r := strings.TrimSpace(t.RequestID); r != "" {
+		return r
+	}
+	raw := strings.Join([]string{t.DeviceID, t.Event, t.PlateNo, strconv.FormatInt(t.Timestamp, 10)}, "|")
+	sum := sha1.Sum([]byte(raw))
+	return "fp:" + hex.EncodeToString(sum[:])
+}
+
 // handleTelemetry 处理一条地磁遥测消息: 入场建记录, 离场计费并更新, 异常发布告警.
+//
+// 幂等(L1 + L3): Kafka 是 at-least-once, 重平衡/重投会让同一条消息被处理多次。
+// 没有幂等时入场会建出多条"停车中"记录, 离场会重复计费并重复广播事件。
 func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Message) error {
 	var raw deviceTelemetry
 	if err := json.Unmarshal(msg.Value, &raw); err != nil {
-		// 消息格式非法, 记录后跳过(不阻塞后续消费).
-		fmt.Printf("[warn] parking invalid telemetry: %v\n", err)
+		// 坏消息: 重试多少次结果都一样, 只能记日志跳过(返回 nil 提交位移),
+		// 否则单条坏消息会卡死整个分区(毒丸). parking 没有死信台账, 坏消息不可重放.
+		fmt.Printf("[error] parking malformed telemetry offset=%d err=%v payload=%s\n", msg.Offset, err, msg.Value)
 		return nil
 	}
 	t := normalizeTelemetry(&raw)
@@ -109,12 +130,38 @@ func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Messag
 	}
 }
 
+// seen 判定该消息是否已处理过(L1).
+// 幂等组件不可用(Redis 故障)时返回 error, 由消费端重投 —— 放行一条重复消息会导致重复计费,
+// 代价远大于短暂积压, 与 alarm-service 的策略保持一致.
+func (s *ServiceContext) seen(ctx context.Context, t *deviceTelemetry) (bool, error) {
+	if s.Dedup == nil {
+		// 未配置 Redis 时无法去重: 交给 L3 唯一索引兜底, 不阻断消费.
+		return false, nil
+	}
+	id := t.IdempotentID()
+	seen, err := s.Dedup.Seen(ctx, keyDedup+id)
+	if err != nil {
+		return false, fmt.Errorf("parking dedup unavailable request_id=%s: %w", id, err)
+	}
+	return seen, nil
+}
+
 // onTelemetryEntry 入场: 新建停车记录(停车中).
 // 月卡车辆识别(P2): 事件未携带车型(vehicle_type=0)时按月卡表自动判定,
 // 命中生效月卡按月卡计费(fee=0), 否则按临时车计费; 判定结果随入场定格, 离场按此计费.
 func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetry) error {
-	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
+	id := t.IdempotentID()
+	seen, err := s.seen(ctx, t)
+	if err != nil {
+		return err
+	}
+	if seen {
+		fmt.Printf("[info] parking skip duplicated entry request_id=%s plate=%s\n", id, t.PlateNo)
+		return nil
+	}
+
 	now := time.Now()
+	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
 
 	vehicleType := t.VehicleType
 	if vehicleType == 0 {
@@ -127,23 +174,22 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 		DeviceIDIn:  t.DeviceID,
 		EntryTime:   &eventTime,
 		Status:      model.ParkingStatusParking,
+		RequestID:   &id,
 	}
 	rec.TenantID = t.TenantID
 	rec.CreatedAt = now
 	rec.UpdatedAt = now
-	// 入场幂等(设计文档"按 requestId 幂等"): 标准信封携带 request_id 时落库,
-	// Kafka 至少一次投递的重复入场消息由 uk_request 唯一键兜底去重.
-	if t.RequestID != "" {
-		rid := t.RequestID
-		rec.RequestID = &rid
+
+	// L3 兜底: Redis 键过期但库里已有(或 L1 不可用)时, 唯一索引是最后一道防线.
+	// 用 OnConflict{DoNothing} 而不是"捕获 1062 再转译": 前者靠 RowsAffected 判定,
+	// 无需解析 MySQL 错误码, 也不必为此引入 go-sql-driver 依赖.
+	res := s.DB.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(rec)
+	if res.Error != nil {
+		return res.Error
 	}
-	if err := s.DB.WithContext(ctx).Create(rec).Error; err != nil {
-		if isDuplicateEntry(err) {
-			// 重复投递的同一入场事件: 已建过记录, 跳过且不再发布 parking-entry.
-			fmt.Printf("[warn] parking duplicate entry skipped request_id=%s plate=%s\n", t.RequestID, t.PlateNo)
-			return nil
-		}
-		return err
+	if res.RowsAffected == 0 {
+		fmt.Printf("[info] parking skip duplicated insert request_id=%s plate=%s\n", id, t.PlateNo)
+		return nil
 	}
 	// 发布车辆入场事件, 供大屏/告警订阅.
 	s.publish(ctx, kafka.TopicParkingEntry, t.PlateNo, msgOf(rec))
@@ -152,11 +198,21 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 
 // onTelemetryExit 离场: 更新最近一条停车中记录, 计算时长与费用并置已完成.
 func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry) error {
+	id := t.IdempotentID()
+	seen, err := s.seen(ctx, t)
+	if err != nil {
+		return err
+	}
+	if seen {
+		fmt.Printf("[info] parking skip duplicated exit request_id=%s plate=%s\n", id, t.PlateNo)
+		return nil
+	}
+
 	var rec model.ParkingRecord
 	if err := s.DB.WithContext(ctx).
 		Where("plate_no=? AND tenant_id=? AND status=?", t.PlateNo, t.TenantID, model.ParkingStatusParking).
 		Order("id DESC").First(&rec).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			fmt.Printf("[warn] parking exit but no active record plate=%s\n", t.PlateNo)
 			return nil
 		}
@@ -171,17 +227,30 @@ func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry
 	}
 	fee := CalcFee(rec.EntryTime, &exitTime, rec.VehicleType)
 
-	updates := map[string]interface{}{
-		"status":        model.ParkingStatusDone,
-		"exit_time":     exitTime,
-		"duration_min":  dur,
-		"fee":           fee,
-		"device_id_out": t.DeviceID,
-		"updated_at":    now,
+	// CAS: 更新条件必须带上 status=停车中. 只按 id 更新时, 两条并发的离场消息
+	// 会各自算一次费用并各广播一次离场事件 —— 重复计费比"少算一次"难查得多.
+	res := s.DB.WithContext(ctx).Model(&model.ParkingRecord{}).
+		Where("id=? AND tenant_id=? AND status=?", rec.ID, t.TenantID, model.ParkingStatusParking).
+		Updates(map[string]interface{}{
+			"status":        model.ParkingStatusDone,
+			"exit_time":     now,
+			"duration_min":  dur,
+			"fee":           fee,
+			"device_id_out": t.DeviceID,
+			"updated_at":    now,
+		})
+	if res.Error != nil {
+		return res.Error
 	}
-	if err := s.DB.WithContext(ctx).Model(&rec).Updates(updates).Error; err != nil {
-		return err
+	if res.RowsAffected == 0 {
+		// 已被另一条离场消息结算(或人工结单): 本次不再重复计费与广播.
+		fmt.Printf("[info] parking exit already settled, skip request_id=%s plate=%s\n", id, t.PlateNo)
+		return nil
 	}
+	rec.Status = model.ParkingStatusDone
+	rec.ExitTime = &now
+	rec.DurationMin = &dur
+	rec.Fee = fee
 
 	// 发布车辆离场事件; 异常车辆额外发布告警事件(供 M3 安防联动).
 	s.publish(ctx, kafka.TopicParkingExit, t.PlateNo, msgOf(&rec))
@@ -227,15 +296,6 @@ func CalcFee(entry, exit *time.Time, vehicleType int8) float64 {
 	}
 	hours := (mins + 59) / 60 // 向上取整到小时
 	return float64(hours) * 5.0
-}
-
-// isDuplicateEntry 判断写库错误是否为唯一键冲突(MySQL 1062 Duplicate entry).
-// 入场幂等去重依赖该判定: uk_request 冲突即视为重复投递, 静默跳过不报错.
-func isDuplicateEntry(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "duplicate entry")
 }
 
 // msgOf 将停车记录序列化为事件消息体.

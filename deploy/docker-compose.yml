@@ -1,8 +1,7 @@
-# OnePark 智慧园区 - 中间件环境
-# 一键启动: docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
-# 一键停止: docker compose -f deploy/docker-compose.yml down
-name: onepark
-
+# OnePark 智慧园区 - 一键开发环境(中间件 + 业务服务 device-service)
+# 启动: docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example up -d
+# 查看健康: docker compose -f deploy/docker-compose.yml ps
+# 停止: docker compose -f deploy/docker-compose.yml down
 networks:
   onepark:
     driver: bridge
@@ -31,6 +30,7 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
       - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./sql/sys.sql:/docker-entrypoint-initdb.d/sys.sql:ro
     networks: [onepark]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
@@ -99,6 +99,22 @@ services:
       timeout: 10s
       retries: 10
 
+  # 一次性任务: 等 kafka 健康后创建业务 topic(幂等, 重复运行安全). 各业务服务可直接向这些 topic 生产/消费.
+  kafka-init:
+    image: bitnami/kafka:${KAFKA_VERSION}
+    container_name: onepark-kafka-init
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      KAFKA_REPLICATION_FACTOR: "1"
+    command: ["/scripts/init-topics.sh"]
+    volumes:
+      - ./kafka/init-topics.sh:/scripts/init-topics.sh:ro
+    networks: [onepark]
+
   emqx:
     image: emqx/emqx:${EMQX_VERSION}
     container_name: onepark-emqx
@@ -160,7 +176,7 @@ services:
       - minio-data:/data
     networks: [onepark]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/minio/health/live || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -180,7 +196,377 @@ services:
       - es-data:/usr/share/elasticsearch/data
     networks: [onepark]
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9200/_cluster/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
+
+  # ---- 业务服务: device-service (M1 设备管理, 依赖 MySQL + Redis) ----
+  device-service:
+    build:
+      context: ..                 # 仓库根, 保证 go.work 全模块可见
+      dockerfile: Dockerfile       # 仓库根统一参数化模板
+      args:
+        SVC_DIR: app/device-service
+        MAIN: device.go
+        PORT: 8001
+        CFG: device-api.yaml
+    image: onepark/device-service:latest
+    container_name: onepark-device-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # 容器内中间件主机名固定为服务名; 敏感值来自 .env.example
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-device_db}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "${DEVICE_SERVICE_PORT:-8001}:8001"
+    networks: [onepark]
+    healthcheck:
+      # go-zero rest 无内置 /ping, 探测根路径(服务监听即返回 HTTP 响应)作为存活探针.
+      # 连接级探活: go-zero rest 未注册 "/" 路由(返回 404), 用 TCP 连通性判存活, 避免 wget 因 404 误判不健康.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8001 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: user-manage (M2 用户管理 RBAC, 依赖 MySQL) ----
+  user-manage:
+    build:
+      context: ..
+      dockerfile: Dockerfile       # 仓库根统一参数化模板
+      args:
+        SVC_DIR: app/user-manage
+        MAIN: usermanage.go
+        PORT: 8086
+        CFG: usermanage-api.yaml
+    image: onepark/user-manage:latest
+    container_name: onepark-user-manage
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-sys_db}
+    ports:
+      - "${USER_MANAGE_PORT:-8086}:8086"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8086 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 对外统一入口: gateway (apigateway, 端口 8080) ----
+  # 上游地址通过 Nacos 配置中心动态拉取(见 deploy/nacos/gateway-upstreams.json);
+  # 未配置 NACOS_ADDRESS 时回退到静态 apigateway-api.yaml(本地联调行为不变).
+  gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: gateway
+        MAIN: apigateway.go
+        PORT: 8080
+        CFG: apigateway-api.yaml
+    image: onepark/gateway:latest
+    container_name: onepark-gateway
+    restart: unless-stopped
+    depends_on:
+      nacos:
+        condition: service_healthy
+      nacos-init:
+        condition: service_completed_successfully
+      auth-service:
+        condition: service_healthy
+      workorder-service:
+        condition: service_healthy
+      alarm-service:
+        condition: service_healthy
+      dispatch-service:
+        condition: service_healthy
+      leasing-service:
+        condition: service_healthy
+      dashboard-service:
+        condition: service_healthy
+      billing-service:
+        condition: service_healthy
+      device-service:
+        condition: service_healthy
+      user-manage:
+        condition: service_healthy
+    environment:
+      # 启用 Nacos 动态上游: 网关从 Nacos 拉取 gateway-upstreams 并支持热更新.
+      NACOS_ADDRESS: ${NACOS_ADDRESS:-nacos:8848}
+      NACOS_NS: ${NACOS_NS:-onepark}
+      NACOS_GROUP: ${NACOS_GROUP:-DEFAULT_GROUP}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      # 网关鉴权密钥必须与 auth-service 的 JWT_SECRET 一致, 否则无法校验 Token.
+      AUTH_SECRET: ${JWT_SECRET}
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 鉴权服务: auth-service (M6, 端口 8088, 依赖 MySQL sys_db) ----
+  auth-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/auth-service
+        MAIN: auth.go
+        PORT: 8088
+        CFG: auth-api.yaml
+    image: onepark/auth-service:latest
+    container_name: onepark-auth-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      AUTH_MYSQL_DSN: ${AUTH_MYSQL_DSN}
+    ports:
+      - "${AUTH_SERVICE_PORT:-8088}:8088"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8088 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: workorder-service (M6 工单, 端口 8082, 依赖 MySQL+Redis+Kafka) ----
+  workorder-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/workorder-service
+        MAIN: workorder.go
+        PORT: 8082
+        CFG: workorder-api.yaml
+    image: onepark/workorder-service:latest
+    container_name: onepark-workorder-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      WORKORDER_MYSQL_DSN: ${WORKORDER_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+    ports:
+      - "${WORKORDER_SERVICE_PORT:-8082}:8082"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8082 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: alarm-service (M6 安防告警, 端口 8009, 依赖 MySQL+Redis+Kafka) ----
+  alarm-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/alarm-service
+        MAIN: alarm.go
+        PORT: 8009
+        CFG: alarm-api.yaml
+    image: onepark/alarm-service:latest
+    container_name: onepark-alarm-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      ALARM_MYSQL_DSN: ${ALARM_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      ALARM_KAFKA_GROUP: ${ALARM_KAFKA_GROUP}
+    ports:
+      - "${ALARM_SERVICE_PORT:-8009}:8009"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8009 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: dispatch-service (M5/M6 指挥调度, 端口 8053, 依赖 MySQL+Redis) ----
+  dispatch-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/dispatch-service
+        MAIN: dispatch.go
+        PORT: 8053
+        CFG: dispatch-api.yaml
+    image: onepark/dispatch-service:latest
+    container_name: onepark-dispatch-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DISPATCH_MYSQL_DSN: ${DISPATCH_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+    ports:
+      - "${DISPATCH_SERVICE_PORT:-8053}:8053"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8053 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: leasing-service (M5/M6 运营招商, 端口 8051, 依赖 MySQL+Redis) ----
+  leasing-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/leasing-service
+        MAIN: leasing.go
+        PORT: 8051
+        CFG: leasing-api.yaml
+    image: onepark/leasing-service:latest
+    container_name: onepark-leasing-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      LEASING_MYSQL_DSN: ${LEASING_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+    ports:
+      - "${LEASING_SERVICE_PORT:-8051}:8051"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8051 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: dashboard-service (M5/M6 运营大屏, 端口 8052, 依赖 MySQL+Redis) ----
+  dashboard-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/dashboard-service
+        MAIN: dashboard.go
+        PORT: 8052
+        CFG: dashboard-api.yaml
+    image: onepark/dashboard-service:latest
+    container_name: onepark-dashboard-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DASHBOARD_MYSQL_DSN: ${DASHBOARD_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+    ports:
+      - "${DASHBOARD_SERVICE_PORT:-8052}:8052"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8052 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: billing-service (M2/M6 计费, 端口 8063, 依赖 Redis) ----
+  billing-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/billing-service
+        MAIN: billing.go
+        PORT: 8063
+        CFG: billing-api.yaml
+    image: onepark/billing-service:latest
+    container_name: onepark-billing-service
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+    ports:
+      - "${BILLING_SERVICE_PORT:-8063}:8063"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8063 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 初始化: 将网关上游表发布到 Nacos 配置中心(幂等, 失败不阻断) ----
+  nacos-init:
+    image: curlimages/curl:latest
+    container_name: onepark-nacos-init
+    restart: "no"
+    depends_on:
+      nacos:
+        condition: service_healthy
+    volumes:
+      - ./nacos:/data:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for i in $$(seq 1 30); do
+          code=$$(curl -s -o /dev/null -w "%{http_code}" -u "$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}" "http://nacos:8848/nacos/v1/cs/configs?dataId=gateway-upstreams&group=$${NACOS_GROUP:-DEFAULT_GROUP}")
+          if [ "$$code" = "200" ]; then echo "gateway-upstreams already exists"; exit 0; fi
+          if curl -s -u "$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}" -X POST "http://nacos:8848/nacos/v1/cs/configs" \
+               --data-urlencode "dataId=gateway-upstreams" \
+               --data-urlencode "group=$${NACOS_GROUP:-DEFAULT_GROUP}" \
+               --data-urlencode "content@/data/gateway-upstreams.json"; then
+            echo "published gateway-upstreams to nacos"; exit 0
+          fi
+          echo "retry $$i publish gateway-upstreams..."; sleep 3
+        done
+        echo "WARN: failed to publish gateway-upstreams (gateway falls back to static yaml)"; exit 0

@@ -10,8 +10,9 @@ type TimeWindow struct {
 
 // RemoteOpenReq 远程开门请求(docs/m3/04 #47)
 type RemoteOpenReq struct {
-	DeviceId string `json:"device_id"`
-	Reason   string `json:"reason,optional"`
+	DeviceId  string `json:"device_id"`
+	Reason    string `json:"reason,optional"`
+	RequestId string `json:"request_id,optional"`
 }
 
 // RemoteOpenResp 远程开门响应

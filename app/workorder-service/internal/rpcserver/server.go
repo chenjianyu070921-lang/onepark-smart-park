@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"onepark/app/workorder-service/internal/model"
+	"onepark/app/workorder-service/internal/state"
 	"onepark/common/errorx"
 	"onepark/common/gormx"
 	commonpb "onepark/proto/common"
@@ -73,18 +74,23 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	now := time.Now()
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	// 聚合统计: COUNT/SUM/AVG 单次扫描完成; SUM/AVG 空表返回 NULL, 用 COALESCE 归零避免扫描报错.
+	// 聚合统计: COUNT/SUM/AVG 单次扫描完成, 替代原先 5 次 COUNT + 1 次 AVG 的串行扫描;
+	// 状态值用 state 常量参数化, 不在 SQL 中硬编码; SUM/AVG 空表返回 NULL, 用 COALESCE 归零避免扫描报错.
+	// 统计查询统一检查错误: 失败返回错误, 让上游(dashboard)走降级而非拿到静默的 0.
 	var stats WorkOrderStats
-	s.scoped(ctx, tenant).Select(
+	if err := s.scoped(ctx, tenant).Select(
 		"COUNT(*) AS total, "+
-			"COALESCE(SUM(status IN (0,1)), 0) AS pending, "+
+			"COALESCE(SUM(status IN (?,?)), 0) AS pending, "+
 			"COALESCE(SUM(created_at >= ?), 0) AS today_new, "+
-			"COALESCE(SUM(status = 3 AND finished_at >= ?), 0) AS completed_today, "+
-			"COALESCE(SUM(status = 3), 0) AS done, "+
-			"COALESCE(AVG(CASE WHEN status = 3 AND finished_at IS NOT NULL THEN "+
+			"COALESCE(SUM(status = ? AND finished_at >= ?), 0) AS completed_today, "+
+			"COALESCE(SUM(status = ?), 0) AS done, "+
+			"COALESCE(AVG(CASE WHEN status = ? AND finished_at IS NOT NULL THEN "+
 			"TIMESTAMPDIFF(MINUTE, created_at, finished_at) END), 0) AS avg_process_min",
-		startOfDay, startOfDay,
-	).Scan(&stats)
+		state.StatusPendingDispatch, state.StatusProcessing,
+		startOfDay, state.StatusCompleted, startOfDay, state.StatusCompleted, state.StatusCompleted,
+	).Scan(&stats).Error; err != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "工单聚合统计查询失败")
+	}
 
 	resp.Total = stats.Total
 	resp.PendingCount = stats.Pending
@@ -105,9 +111,15 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	if size < 1 {
 		size = 10
 	}
+	listQ := s.scoped(ctx, tenant)
+	if req.Status != 0 {
+		listQ = listQ.Where("status = ?", int8(req.Status))
+	}
 	var list []model.WorkOrder
-	s.scoped(ctx, tenant).Where(statusFilter(req.Status)).
-		Order("id DESC").Offset(int((page - 1) * size)).Limit(int(size)).Find(&list)
+	if err := listQ.Order("id DESC").
+		Offset(int((page - 1) * size)).Limit(int(size)).Find(&list).Error; err != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "查询工单列表失败")
+	}
 
 	summaries := make([]*workorderpb.WorkOrderSummary, 0, len(list))
 	for _, wo := range list {
@@ -124,35 +136,4 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	resp.List = summaries
 
 	return resp, nil
-}
-
-// statusFilter 生成状态过滤条件; status=0 表示不限.
-func statusFilter(status int32) string {
-	if status == 0 {
-		return "1=1"
-	}
-	return "status = " + itoa(int(status))
-}
-
-// itoa 轻量整型转字符串, 避免引入 strconv 仅用于此场景.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [12]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
 }
