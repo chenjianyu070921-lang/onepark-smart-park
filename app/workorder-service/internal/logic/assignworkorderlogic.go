@@ -11,6 +11,7 @@ import (
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 	"onepark/common/gormx"
+	"onepark/common/rbac"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -38,6 +39,11 @@ func NewAssignWorkOrderLogic(ctx context.Context, svcCtx *svc.ServiceContext) *A
 func (l *AssignWorkOrderLogic) AssignWorkOrder(req *types.AssignWorkOrderReq) (resp *types.WorkOrderResp, err error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 	operatorID := ctxdata.GetUserId(l.ctx)
+
+	// RBAC 写权限: 仅系统管理员/园区管理员/物业客服可派单, 受限角色(维修/业主)无权派单.
+	if !rbac.CanManageWorkOrder(rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))) {
+		return nil, errorx.NewError(errorx.ErrForbidden, "无派单权限")
+	}
 
 	// 先按租户+主键加载, 校验存在性与当前状态.
 	var wo model.WorkOrder

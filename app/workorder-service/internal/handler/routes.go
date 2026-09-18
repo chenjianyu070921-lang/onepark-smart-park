@@ -47,6 +47,18 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/workorders",
 				Handler: ListWorkOrdersHandler(serverCtx),
 			},
+			{
+				// 工单附件上传(multipart/form-data, 表单字段 file)
+				Method:  http.MethodPost,
+				Path:    "/api/workorder/:id/attachment",
+				Handler: UploadWorkOrderAttachmentHandler(serverCtx),
+			},
+			{
+				// 工单附件列表
+				Method:  http.MethodGet,
+				Path:    "/api/workorder/:id/attachments",
+				Handler: ListWorkOrderAttachmentsHandler(serverCtx),
+			},
 		},
 	)
 }

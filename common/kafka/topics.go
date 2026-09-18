@@ -20,9 +20,10 @@ const (
 
 // 消费者组常量(同一服务多实例共享消费位移).
 const (
-	GroupParking   = "parking-service"
+	GroupParking   = "parking-service-v2" // P0-2 临时: 绕过协调故障损坏的原 group, 验证后回退
 	GroupAlarm     = "alarm-service"
 	GroupNotice    = "notice-service"
 	GroupWorkorder = "workorder-service"
 	GroupDevice    = "device-service" // M1 遥测回写(设备状态/影子/时序库)
+	GroupVideo     = "video-service"  // M3 摄像头心跳(更新 camera.last_heartbeat_at / status)
 )

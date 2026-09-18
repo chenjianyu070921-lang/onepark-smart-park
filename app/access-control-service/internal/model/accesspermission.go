@@ -34,4 +34,7 @@ type PermissionModel interface {
 	Grant(ctx context.Context, permissions []*AccessPermission) (int64, error)
 	// Revoke 按人员+设备删除权限, 返回实际删除行数(0 表示无匹配记录).
 	Revoke(ctx context.Context, tenantID int64, personIDs []int64, deviceIDs []string) (int64, error)
+	// FindEffective 查询人员在设备上的有效授权(status=1); 不存在返回 (nil, nil).
+	// 只按 status 过滤: 过期时间与时间段需要在给定时刻判定, 交给 logic 层以便注入时间做单测.
+	FindEffective(ctx context.Context, tenantID, personID int64, deviceID string) (*AccessPermission, error)
 }

@@ -1,0 +1,12 @@
+# leasing-service gRPC 服务配置
+# 端口 9051, 供服务间调用(组长一周开发任务计划 周六「leasing-service gRPC 业务接口补充」)。
+# 与 HTTP(8051) 是两个独立进程: HTTP 面向前端/网关, gRPC 面向服务间聚合。
+# Name 必填 —— go-zero 不填会直接报 field "Name" is not set(M1/M2 都踩过这个坑)。
+Name: leasing.rpc
+ListenOn: 0.0.0.0:9051
+
+# MySQL 连接(leasing_db)。
+# 本地开发默认值; 部署环境请改回 ${LEASING_MYSQL_DSN} 由环境变量注入
+# (grpcserver/main.go 已启用 conf.UseEnv(), 否则占位符不会被展开)。
+MySQL:
+  DataSource: "root:onepark123@tcp(127.0.0.1:3306)/leasing_db?charset=utf8mb4&parseTime=True&loc=Local"

@@ -49,10 +49,20 @@ func main() {
 		Handler: wsserver.Handler(hub),
 	})
 
-	// 周期快照广播; 随进程退出
 	wsCtx, cancelWs := context.WithCancel(context.Background())
 	defer cancelWs()
-	go wsserver.StartSnapshotPush(wsCtx, ctx, hub)
+
+	// 事件增量推送(组长计划书 周四 P0): 消费 Kafka 告警/工单事件, 到达即广播增量,
+	// 并由快照循环失效聚合缓存后重新聚合。默认关闭 —— 见 config.KafkaConf 注释。
+	dirty := wsserver.NewDirty()
+	for _, runner := range wsserver.StartEventConsumers(wsCtx, c, hub, dirty) {
+		runner := runner
+		defer func() { _ = runner.Close() }()
+		go runner.Start(wsCtx)
+	}
+
+	// 周期快照广播(同时消费 dirty 标记做缓存失效); 随进程退出
+	go wsserver.StartSnapshotPush(wsCtx, ctx, hub, dirty)
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()

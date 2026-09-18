@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -49,6 +50,25 @@ func (m *permissionModel) Revoke(ctx context.Context, tenantID int64, personIDs 
 		Delete(&AccessPermission{})
 	// Delete 为物理删除: 契约(§2.2)要求撤销即移除记录, 保留历史由访问日志/回收专人负责.
 	return res.RowsAffected, res.Error
+}
+
+// FindEffective 查询人员×设备的有效授权, 不存在时返回 (nil, nil) 而非错误.
+//
+// 为什么单独提供: 授权此前只写不读 —— access_permission 有数据但没有任何判定逻辑引用它,
+// 授权因此不产生任何约束力。远程开门需要"操作人是否被授权开这扇门"作为放行依据之一.
+func (m *permissionModel) FindEffective(ctx context.Context, tenantID, personID int64, deviceID string) (*AccessPermission, error) {
+	var p AccessPermission
+	err := m.db.WithContext(ctx).
+		Where("tenant_id = ? AND person_id = ? AND device_id = ? AND status = ?",
+			tenantID, personID, deviceID, PermissionStatusValid).
+		First(&p).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &p, nil
 }
 
 // AccessRecord 通行记录表(access_db.access_record).
@@ -100,6 +120,8 @@ type AccessRecordFilter struct {
 type RecordModel interface {
 	// List 分页查询通行记录, 按 created_at DESC 排序.
 	List(ctx context.Context, f AccessRecordFilter) ([]*AccessRecord, int64, error)
+	// Create 写入一条通行记录(远程开门等已发生的通行事实).
+	Create(ctx context.Context, r *AccessRecord) error
 }
 
 type recordModel struct {
@@ -109,6 +131,10 @@ type recordModel struct {
 // NewRecordModel 构造基于 GORM 的通行记录数据访问实现.
 func NewRecordModel(db *gorm.DB) RecordModel {
 	return &recordModel{db: db}
+}
+
+func (m *recordModel) Create(ctx context.Context, r *AccessRecord) error {
+	return m.db.WithContext(ctx).Create(r).Error
 }
 
 func (m *recordModel) List(ctx context.Context, f AccessRecordFilter) ([]*AccessRecord, int64, error) {

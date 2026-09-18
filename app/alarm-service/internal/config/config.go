@@ -17,7 +17,21 @@ type Config struct {
 	WS     WSConf           // WebSocket 广播配置
 	ES     ESConf           // Elasticsearch 配置(历史检索 #41 / 双写 #44)
 	Notify NotifyConf       // 告警事件通知 M5(#40 解决告警后生产 Kafka 事件)
+	Rule   RuleConf         // 规则引擎相关开关
 	Nacos  NacosConf        // 注册/配置中心(可选)
+}
+
+// RuleConf 规则引擎开关.
+type RuleConf struct {
+	// DisableLegacyFallback 关闭"无启用规则时回退硬编码门禁闯入规则"的兜底(docs/m3/07 §4).
+	//
+	// 刻意用**负向**开关: Go 零值为 false, 即"不关闭回退"。这样直接构造 ServiceContext
+	// (单测、以及任何不走 yaml 的入口)时默认仍是回退行为, 不会因为漏配一项配置就静默漏报.
+	//
+	// 置 true 后"规则没配/没生效"会以漏报的形式直接暴露(消费链路打 WARN),
+	// 用于规则体系上线后确认配置真正生效 —— 隐式回退会让"规则不生效"
+	// 长期伪装成"没有匹配事件", 排查成本极高.
+	DisableLegacyFallback bool `json:",default=false"`
 }
 
 // NotifyConf 告警事件通知配置.

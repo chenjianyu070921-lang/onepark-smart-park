@@ -32,3 +32,13 @@ EscalationCron:
   Enabled: true
   Spec: "*/30 * * * *"
   PendingTimeoutHours: 24
+
+# MinIO 对象存储(工单附件上传)
+# Endpoint 为空时附件上传接口返回"对象存储未配置"; 部署时通过环境变量注入远端 MinIO 凭据.
+MinIO:
+  Endpoint: ${WORKORDER_MINIO_ENDPOINT}
+  AccessKey: ${WORKORDER_MINIO_ACCESS_KEY}
+  SecretKey: ${WORKORDER_MINIO_SECRET_KEY}
+  Bucket: workorder
+  UseSSL: false
+  PublicBaseURL: ${WORKORDER_MINIO_PUBLIC_URL}

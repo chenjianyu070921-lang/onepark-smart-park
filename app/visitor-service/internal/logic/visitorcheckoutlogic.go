@@ -55,13 +55,23 @@ func (l *VisitorCheckoutLogic) VisitorCheckout(req *types.VisitorCheckoutReq) (r
 	}
 
 	now := time.Now()
-	if e := l.svcCtx.DB.WithContext(l.ctx).Model(&rec).Updates(map[string]interface{}{
-		"status":      model.VisitorStatusCheckout,
-		"checkout_at": now,
-		"updated_at":  now,
-	}).Error; e != nil {
+	// CAS: 只允许从"待使用/已签入"流转到已签出, 已签出的记录重复签出时 RowsAffected=0.
+	// 不加状态条件时, 重复签出会把 checkout_at 反复覆盖, 通行时长统计随之失真.
+	res := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).
+		Where("id=? AND tenant_id=? AND status IN ?", rec.ID, tenantID,
+			[]int8{model.VisitorStatusPending, model.VisitorStatusCheckin}).
+		Updates(map[string]interface{}{
+			"status":      model.VisitorStatusCheckout,
+			"checkout_at": now,
+			"updated_at":  now,
+		})
+	if e := res.Error; e != nil {
 		l.Errorf("visitor checkout failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "签出失败")
+	}
+	if res.RowsAffected == 0 {
+		l.Infof("visitor checkout skipped, already checked out rec_id=%d", rec.ID)
+		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "访客已签出, 无需重复签出")
 	}
 
 	return &types.VisitorCheckoutResp{Id: rec.ID, Status: model.VisitorStatusCheckout, CheckoutAt: now.Unix()}, nil

@@ -1,14 +1,9 @@
 package dispatch
 
 import (
-	"time"
-
 	"onepark/app/dispatch-service/internal/model"
 	"onepark/app/dispatch-service/internal/types"
 )
-
-// assignExpireWindow 指派超时窗口: 超过该时间未接单, 由定时任务重派(P2).
-const assignExpireWindow = 5 * time.Minute
 
 // maxPageSize 单页上限.
 const maxPageSize = 200
@@ -19,21 +14,32 @@ func toTaskDTO(m *model.DispatchTask) types.DispatchTask {
 	if m.AlarmId != nil {
 		alarmId = *m.AlarmId
 	}
+
+	// AssignExpireAt 用指针: nil 表示"当前没有待接单的指派窗口",
+	// 若退化成 0 会被前端读成 1970 年, 语义就错了。
+	var expireAt *int64
+	if m.AssignExpireAt != nil {
+		ts := m.AssignExpireAt.Unix()
+		expireAt = &ts
+	}
+
 	return types.DispatchTask{
-		Id:            m.Id,
-		TaskNo:        m.TaskNo,
-		Title:         m.Title,
-		Source:        int32(m.Source),
-		AlarmId:       alarmId,
-		ZoneCode:      m.ZoneCode,
-		RequiredSkill: m.RequiredSkill,
-		Priority:      int32(m.Priority),
-		Status:        int32(m.Status),
-		AssigneeId:    m.AssigneeId,
-		AssigneeName:  m.AssigneeName,
-		Description:   m.Description,
-		CreatedAt:     m.CreatedAt.Unix(),
-		UpdatedAt:     m.UpdatedAt.Unix(),
+		Id:             m.Id,
+		TaskNo:         m.TaskNo,
+		Title:          m.Title,
+		Source:         int32(m.Source),
+		AlarmId:        alarmId,
+		ZoneCode:       m.ZoneCode,
+		RequiredSkill:  m.RequiredSkill,
+		Priority:       int32(m.Priority),
+		Status:         int32(m.Status),
+		AssigneeId:     m.AssigneeId,
+		AssigneeName:   m.AssigneeName,
+		Description:    m.Description,
+		AssignExpireAt: expireAt,
+		ReassignCount:  m.ReassignCount,
+		CreatedAt:      m.CreatedAt.Unix(),
+		UpdatedAt:      m.UpdatedAt.Unix(),
 	}
 }
 

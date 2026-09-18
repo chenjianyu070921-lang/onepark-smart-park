@@ -15,6 +15,7 @@ type DeviceCard struct {
 	Total   int64 `json:"total"`
 	Online  int64 `json:"online"`
 	Offline int64 `json:"offline"`
+	Fault   int64 `json:"fault"` // status=2 故障
 }
 
 type EnergyCard struct {

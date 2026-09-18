@@ -12,6 +12,7 @@ import (
 	"onepark/common/gormx"
 	"onepark/common/redisx"
 	alarmpb "onepark/proto/alarm"
+	devicepb "onepark/proto/device"
 	energypb "onepark/proto/energy"
 	workorderpb "onepark/proto/workorder"
 )
@@ -74,21 +75,31 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 // newProviders 装配各数据源端口.
 //
-// 状态(2026-09-16): M2 工单 / M3 告警 / M4 能耗 三个契约均已就绪 -> 真实 gRPC 客户端;
-// M1 仍无设备统计接口 -> 保持显式降级占位。
+// 状态(2026-09-17): M1~M4 四个契约**均已就绪**, 全部走真实 gRPC 客户端;
+// 某一项未在配置里填地址时才退化为 NotReady 占位(该卡片降级为 null)。
 func newProviders(c config.Config) Providers {
-	providers := Providers{
-		// M1 无设备统计 gRPC(只有 Ping/SendCommand/GetDevice), 且规范禁止服务间走 HTTP
-		Device: provider.Device{},
+	return Providers{
+		Device:    wireDevice(c),
+		WorkOrder: wireWorkOrder(c),
+		Alarm:     wireAlarm(c),
+		Energy:    wireEnergy(c),
 	}
-
-	providers.WorkOrder, providers.Alarm, providers.Energy = wireWorkOrder(c), wireAlarm(c), wireEnergy(c)
-	return providers
 }
 
 // configured 判断某路 gRPC 客户端配置是否可用(Endpoints / Target / Etcd 任一非空即可用).
 func configured(conf zrpc.RpcClientConf) bool {
 	return conf.Target != "" || len(conf.Endpoints) > 0 || len(conf.Etcd.Hosts) > 0
+}
+
+// wireDevice 装配 M1 设备数据源.
+func wireDevice(c config.Config) provider.DeviceProvider {
+	if !configured(c.Device) {
+		log.Printf("[warn] dashboard device grpc config is empty, device card will degrade")
+		return provider.DeviceNotReady{}
+	}
+	conn := zrpc.MustNewClient(c.Device).Conn()
+	log.Printf("[dashboard] device grpc client initialized")
+	return provider.NewDevice(devicepb.NewDeviceServiceClient(conn))
 }
 
 // wireWorkOrder 装配 M2 工单数据源.

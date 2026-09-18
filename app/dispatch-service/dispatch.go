@@ -7,6 +7,7 @@ import (
 
 	"onepark/app/dispatch-service/internal/config"
 	"onepark/app/dispatch-service/internal/consumer"
+	"onepark/app/dispatch-service/internal/cron"
 	"onepark/app/dispatch-service/internal/handler"
 	"onepark/app/dispatch-service/internal/svc"
 	"onepark/common/middleware"
@@ -44,6 +45,13 @@ func main() {
 		defer func() { _ = runner.Close() }()
 		go runner.Start(consumerCtx)
 	}
+
+	// 指派超时重派: 启动补偿一次 + 每 IntervalSec 扫一次(Redis 分布式锁防多实例重复改派)。
+	// 该任务只读写本服务自己的库, 不碰共享设施, 因此没有开关(见 config.ReassignConf 注释)。
+	cronCtx, cancelCron := context.WithCancel(context.Background())
+	defer cancelCron()
+	stopCron := cron.Start(cronCtx, ctx.DB, ctx.Redis, c.Reassign.IntervalSec, c.Reassign.MaxReassign)
+	defer stopCron()
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()
