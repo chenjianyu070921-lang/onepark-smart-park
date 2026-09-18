@@ -7,6 +7,45 @@ option go_package = "onepark/proto/auth;authpb";
 import "common/common.proto";
 
 service AuthService {
-  // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+  // Ping 健康检查
   rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
+
+  // Login 校验用户名/密码, 签发 access + refresh 双令牌(复用 HTTP 登录逻辑).
+  rpc Login(LoginReq) returns (LoginResp);
+
+  // Verify 纯 JWT 校验: 解析 access 令牌并返回身份载荷, 不查库.
+  rpc Verify(VerifyReq) returns (VerifyResp);
+
+  // Refresh 校验 refresh 令牌, 重新签发双令牌(账号状态变更即时生效).
+  rpc Refresh(RefreshReq) returns (LoginResp);
+}
+
+message LoginReq {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResp {
+  string token = 1;
+  string refresh_token = 2;
+  int64  expire = 3;
+  int64  user_id = 4;
+  string role_ids = 5;
+  int64  tenant_id = 6;
+}
+
+message VerifyReq {
+  string token = 1;
+}
+
+message VerifyResp {
+  bool   valid = 1;
+  int64  user_id = 2;
+  string role_ids = 3;
+  int64  tenant_id = 4;
+  int64  expires_at = 5;
+}
+
+message RefreshReq {
+  string refresh_token = 1;
 }

@@ -8,7 +8,9 @@ import (
 
 	"onepark/app/leasing-service/internal/model"
 	"onepark/app/leasing-service/internal/svc"
+	"onepark/app/leasing-service/internal/ecode"
 	"onepark/app/leasing-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -44,13 +46,13 @@ func (l *ContractListLogic) ContractList(req *types.ContractListReq) (*types.Con
 	}
 
 	// 用闭包构造查询条件, 避免 Count 与 Find 共用同一个被 GORM 改写的 Statement.
+	// 租户维度以网关注入的 x-tenant-id 为准(ctxdata), 不信任客户端自报的 req.TenantId.
+	tenantID := ctxdata.GetTenantId(l.ctx)
 	scope := func() *gorm.DB {
-		db := l.svcCtx.DB.WithContext(l.ctx).Model(&model.LeaseContract{})
+		db := l.svcCtx.DB.WithContext(l.ctx).Model(&model.LeaseContract{}).
+			Where("tenant_id = ?", tenantID)
 		if req.Status != 0 {
 			db = db.Where("status = ?", req.Status)
-		}
-		if req.TenantId != 0 {
-			db = db.Where("tenant_id = ?", req.TenantId)
 		}
 		return db
 	}
@@ -58,7 +60,7 @@ func (l *ContractListLogic) ContractList(req *types.ContractListReq) (*types.Con
 	var total int64
 	if err := scope().Count(&total).Error; err != nil {
 		l.Errorf("[lease] count contracts failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "查询合同列表失败")
+		return nil, errorx.NewError(ecode.ErrContractListFailed, "查询合同列表失败")
 	}
 
 	records := make([]model.LeaseContract, 0, req.PageSize)
@@ -68,7 +70,7 @@ func (l *ContractListLogic) ContractList(req *types.ContractListReq) (*types.Con
 		Limit(int(req.PageSize)).
 		Find(&records).Error; err != nil {
 		l.Errorf("[lease] page contracts failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "查询合同列表失败")
+		return nil, errorx.NewError(ecode.ErrContractListFailed, "查询合同列表失败")
 	}
 
 	items := make([]types.Contract, 0, len(records))

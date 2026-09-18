@@ -88,7 +88,7 @@ func (l *UpdateWorkOrderStatusLogic) UpdateWorkOrderStatus(req *types.UpdateWork
 		}
 		if r.RowsAffected == 0 {
 			// 乐观锁冲突: 版本已被其它请求改走, 回滚本次流转.
-			return errorx.NewError(errorx.ErrWorkOrderAssignFailed, "状态流转冲突, 请刷新后重试")
+			return errorx.NewError(errorx.ErrWorkOrderStatusConflict, "状态流转冲突, 请刷新后重试")
 		}
 
 		flow := &model.WorkOrderFlow{WorkOrderID: wo.ID, FromStatus: wo.Status, ToStatus: next, Action: req.Action, OperatorID: operatorID, Remark: req.Remark}

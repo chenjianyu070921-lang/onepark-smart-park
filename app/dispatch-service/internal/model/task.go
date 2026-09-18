@@ -47,6 +47,8 @@ const MaxReassignDefault int64 = 3
 // MySQL 唯一索引允许多个 NULL, 因此多张人工单(AlarmId 为 NULL)不会互相冲突.
 type DispatchTask struct {
 	Id             int64      `gorm:"column:id;primaryKey;autoIncrement"`
+	// TenantID 园区ID, RBAC 行级隔离维度(列由 l2_tenant_id_migration.sql 迁移新增).
+	TenantID       int64      `gorm:"column:tenant_id;index:idx_tenant"`
 	TaskNo         string     `gorm:"column:task_no;size:32;uniqueIndex"`
 	Title          string     `gorm:"column:title;size:255"`
 	Source         int8       `gorm:"column:source"`
@@ -73,6 +75,8 @@ func (DispatchTask) TableName() string { return "dispatch_task" }
 // DispatchTaskLog 调度工单状态流转审计.
 type DispatchTaskLog struct {
 	Id         int64     `gorm:"column:id;primaryKey;autoIncrement"`
+	// TenantID 园区ID, 与主表 dispatch_task.tenant_id 保持一致.
+	TenantID   int64     `gorm:"column:tenant_id;index:idx_tenant"`
 	TaskId     int64     `gorm:"column:task_id"`
 	FromStatus int8      `gorm:"column:from_status"`
 	ToStatus   int8      `gorm:"column:to_status"`

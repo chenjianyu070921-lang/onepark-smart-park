@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: onepark-config
+  namespace: onepark
+data:
+  # ---- 共享基础设施端点(非机密) ----
+  REDIS_ADDR: "redis:6379"
+  KAFKA_BROKERS: "kafka:9092"
+  TDENGINE_REST: "http://tdengine:6041"
+  # ---- 各服务独立 MySQL DSN(按需补充, 命名须与各自 etc/*-api.yaml 中的 ${...} 对齐) ----
+  # 示例(仅 workorder 已确认命名, 其余按各服务 yaml 的实际 ${...} 键名补齐):
+  WORKORDER_MYSQL_DSN: "workorder:CHANGE_ME@tcp(mysql:3306)/workorder_db?charset=utf8mb4&parseTime=true"
+  # USERMANAGE_MYSQL_DSN / AUTH_MYSQL_DSN / DEVICE_MYSQL_DSN / ... 见各服务 etc yaml

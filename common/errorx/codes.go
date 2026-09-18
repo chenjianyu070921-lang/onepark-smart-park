@@ -36,6 +36,18 @@ const (
 	ErrNotFound     = "M6-E-0004" // 资源不存在
 	ErrInternal     = "M6-E-0005" // 服务器内部错误
 	ErrDepConnect   = "M6-E-0006" // 依赖中间件连接失败
+	ErrRateLimited  = "M6-E-0007" // 触发限流(HTTP 429)
+	ErrBadGateway   = "M6-E-0008" // 网关/依赖不可用(HTTP 502)
+)
+
+// M6 RBAC 用户管理错误码(用户-角色-权限三级映射)
+const (
+	ErrUserNotFound  = "M6-E-0101" // 用户不存在
+	ErrUserDuplicate = "M6-E-0102" // 用户名已存在
+	ErrRoleNotFound  = "M6-E-0103" // 角色不存在
+	ErrRoleDuplicate = "M6-E-0104" // 角色标识已存在
+	ErrMenuNotFound  = "M6-E-0105" // 菜单不存在
+	ErrMenuDuplicate = "M6-E-0106" // 菜单标识已存在
 )
 
 // M3 园区安防错误码: 1xxx 告警 / 2xxx 门禁 / 3xxx 视频.
@@ -99,7 +111,9 @@ const (
 	// 工单域 1001~1999
 	ErrWorkOrderNotFound      = "M2-E-1001" // 工单不存在
 	ErrWorkOrderStatusInvalid = "M2-E-1002" // 工单状态非法或流转被禁止
-	ErrWorkOrderAssignFailed  = "M2-E-1003" // 工单派单失败（并发冲突或处理人不合法）
+	// 工单派单/状态流转冲突: 由 ErrWorkOrderAssignFailed(M2-E-1003) 拆分而来, 语义精确化(见 M6 遗留问题决策清单 P2-2)
+	ErrWorkOrderAssignConflict = "M2-E-1003" // 工单派单冲突(乐观锁版本冲突或处理人不合法)
+	ErrWorkOrderStatusConflict = "M2-E-1004" // 工单状态流转冲突(状态非法或流转被禁止)
 
 	// 访客域 2001~2999
 	ErrVisitorQRCodeExpired = "M2-E-2001" // 访客二维码已过期

@@ -27,47 +27,6 @@ CREATE DATABASE IF NOT EXISTS auth_db         DEFAULT CHARSET utf8mb4 COLLATE ut
 CREATE DATABASE IF NOT EXISTS user_db         DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE IF NOT EXISTS gateway_route_db DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- RBAC 公共表 (M6 user_db 内, 五表模型)
-USE user_db;
-CREATE TABLE IF NOT EXISTS `user` (
-  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  username    VARCHAR(64)  NOT NULL DEFAULT '',
-  password    VARCHAR(255) NOT NULL DEFAULT '',
-  nickname    VARCHAR(64)  NOT NULL DEFAULT '',
-  phone       VARCHAR(20)  NOT NULL DEFAULT '',
-  status      TINYINT      NOT NULL DEFAULT 1 COMMENT '1启用 0禁用',
-  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_username (username)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS `role` (
-  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  name        VARCHAR(64)  NOT NULL DEFAULT '',
-  code        VARCHAR(64)  NOT NULL DEFAULT '',
-  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_code (code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS `permission` (
-  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  name        VARCHAR(64)  NOT NULL DEFAULT '',
-  code        VARCHAR(128) NOT NULL DEFAULT '',
-  type        TINYINT      NOT NULL DEFAULT 1 COMMENT '1菜单 2按钮 3接口',
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_code (code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS `user_role` (
-  user_id     BIGINT UNSIGNED NOT NULL,
-  role_id     BIGINT UNSIGNED NOT NULL,
-  PRIMARY KEY (user_id, role_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS `role_permission` (
-  role_id        BIGINT UNSIGNED NOT NULL,
-  permission_id  BIGINT UNSIGNED NOT NULL,
-  PRIMARY KEY (role_id, permission_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- 注意: RBAC 五表已迁移至 deploy/sql/sys.sql 的 sys_db(sys_user/sys_role/sys_menu/
+-- sys_user_role/sys_role_menu), 由 user-manage-service 真实消费. 本文件不再建 user_db
+-- 冗余表, 避免"建表但零 Go 代码消费"的维护陷阱. (user_db 库保留供兼容)

@@ -1,6 +1,6 @@
 Name: visitor-api
 Host: 0.0.0.0
-Port: 8092
+Port: 8083
 
 # MySQL 连接配置 (DSN 由环境变量注入)
 MySQL:

@@ -2,7 +2,13 @@ module onepark/app/leasing-service
 
 go 1.25.2
 
-require github.com/zeromicro/go-zero v1.10.3
+require (
+	github.com/redis/go-redis/v9 v9.21.0
+	github.com/robfig/cron/v3 v3.0.1
+	github.com/shopspring/decimal v1.4.0
+	github.com/zeromicro/go-zero v1.10.3
+	gorm.io/gorm v1.25.12
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -28,9 +34,6 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
-	github.com/redis/go-redis/v9 v9.21.0 // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
-	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/titanous/json5 v1.0.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -55,5 +58,4 @@ require (
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gorm.io/gorm v1.25.12 // indirect
 )

@@ -1,0 +1,3 @@
+# 统一 Go 源码换行符为 LF（跨平台一致，避免 gofmt/vet 在 Unix CI 上误报）
+# 说明：仓库内 337 个 .go 文件此前均为 CRLF；本规则使 Git 以 LF 存储、检出时也为 LF。
+*.go text eol=lf

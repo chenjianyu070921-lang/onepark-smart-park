@@ -1,15 +1,43 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+// 登录/刷新/校验: 统一入口为 auth-service 的 /api/auth/* 路由.
+// 校验接口(validate)需携带有效 Bearer Token, 由网关或业务服务调用做鉴权.
+// 注意: 本文件为接口契约, 实际 handler/logic 由本模块手动实现(未使用 goctl 生成).
+
+type LoginReq {
+    Username string `json:"username"`
+    Password string `json:"password"`
 }
 
-type Response {
-	Message string `json:"message"`
+type LoginResp {
+    Token        string `json:"token"`
+    RefreshToken string `json:"refreshToken"`
+    Expire       int64  `json:"expire"`
+    UserId       int64  `json:"userId"`
+    RoleIds      string `json:"roleIds"`
+    TenantId     int64  `json:"tenantId"`
+}
+
+type RefreshReq {
+    RefreshToken string `json:"refreshToken"`
+}
+
+type ValidateReq {
+}
+
+type ValidateResp {
+    UserId   int64  `json:"userId"`
+    RoleIds  string `json:"roleIds"`
+    TenantId int64  `json:"tenantId"`
 }
 
 service auth-api {
-	@handler AuthHandler
-	get /from/:name (Request) returns (Response)
-}
+    @handler LoginHandler
+    post /api/auth/login (LoginReq) returns (LoginResp)
 
+    @handler RefreshHandler
+    post /api/auth/refresh (RefreshReq) returns (LoginResp)
+
+    @handler ValidateHandler
+    post /api/auth/validate (ValidateReq) returns (ValidateResp)
+}

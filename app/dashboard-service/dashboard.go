@@ -33,8 +33,9 @@ func main() {
 	// Cors 对 OPTIONS 直接返回 204 并中断, 不会走到 JWT。
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
-	// JWT 鉴权: 同时覆盖 HTTP 接口与 /ws/dashboard(WS 走 ?token=, extractToken 已支持)
-	server.Use(middleware.JWT(c.JwtSecret))
+	// 下游只透传: JWT 校验/租户注入已收口到网关(含 /ws/dashboard 的 ?token= 由网关校验),
+	// 本服务仅通过 IdentityFromHeader 提升网关注入的身份 Header; WS 直连/本地联调回退见 wsserver.Handler.
+	server.Use(middleware.IdentityFromHeader)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
@@ -46,7 +47,7 @@ func main() {
 	server.AddRoute(rest.Route{
 		Method:  http.MethodGet,
 		Path:    "/ws/dashboard",
-		Handler: wsserver.Handler(hub),
+		Handler: wsserver.Handler(hub, c.JwtSecret),
 	})
 
 	wsCtx, cancelWs := context.WithCancel(context.Background())

@@ -25,12 +25,12 @@ func main() {
 	defer cancel()
 
 	cases := []energypb.GetDailyReportRequest{
-		{},                                        // 全园区 + 今天
-		{ZoneId: "A栋"},                            // 只看 A栋
-		{Date: "2026-09-14"},                      // 昨天没数据
+		{},                   // 全园区 + 今天
+		{ZoneId: "A栋"},       // 只看 A栋
+		{Date: "2026-09-14"}, // 昨天没数据
 	}
-	for i, req := range cases {
-		resp, err := client.GetDailyReport(ctx, &req)
+	for i := range cases {
+		resp, err := client.GetDailyReport(ctx, &cases[i])
 		if err != nil {
 			fmt.Printf("[%d] 失败: %v\n", i, err)
 			continue

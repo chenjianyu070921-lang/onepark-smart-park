@@ -9,10 +9,15 @@ import (
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 
 	"onepark/app/dashboard-service/internal/svc"
 	"onepark/app/dashboard-service/internal/types"
 )
+
+// overviewSF 聚合计算的 singleflight 合并器: 按租户缓存键合并并发未命中,
+// 缓存失效瞬间大量并发请求只触发一次真实聚合, 防缓存击穿.
+var overviewSF singleflight.Group
 
 const (
 	// overviewTimeout 聚合接口整体预算, 保证大屏响应体验.
@@ -60,6 +65,25 @@ func (l *OverviewLogic) Overview(req *types.OverviewReq) (*types.OverviewResp, e
 		cached.ElapsedMs = time.Since(start).Milliseconds()
 		return cached, nil
 	}
+
+	// 缓存未命中时, 并发请求用 singleflight 合并为一次聚合计算, 防止缓存击穿.
+	v, err, _ := overviewSF.Do(cacheKey, func() (interface{}, error) {
+		return l.computeOverview(req)
+	})
+	if err != nil {
+		return nil, err
+	}
+	resp := v.(*types.OverviewResp)
+	resp.Cached = false
+	resp.ElapsedMs = time.Since(start).Milliseconds()
+	return resp, nil
+}
+
+// computeOverview 执行 4 路数据源并行聚合(逐源降级), 结果写入缓存.
+// 与 Overview 分离以便 singleflight 合并并发调用; 单次失败仅标记 degraded, 不返回 error.
+func (l *OverviewLogic) computeOverview(req *types.OverviewReq) (*types.OverviewResp, error) {
+	start := time.Now()
+	cacheKey := overviewCacheKey(req.TenantId)
 
 	resp := &types.OverviewResp{}
 	var (

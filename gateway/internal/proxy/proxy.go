@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"onepark/common/ctxdata"
 	"onepark/gateway/internal/config"
@@ -25,8 +26,9 @@ type route struct {
 }
 
 // Gateway 对外网关(实现 http.Handler).
+// routes 以 atomic 指针持有, 支持 Nacos 配置热更新时原子替换, 无需重启.
 type Gateway struct {
-	routes          []route // 按 prefix 长度降序, 保证最长前缀优先
+	routes          atomic.Pointer[[]route] // 按 prefix 长度降序, 保证最长前缀优先
 	defaultTenantID int64
 	defaultUserId   int64
 }
@@ -37,23 +39,33 @@ func NewGateway(c config.Config) (*Gateway, error) {
 		defaultTenantID: c.DefaultTenantId,
 		defaultUserId:   c.DefaultUserId,
 	}
-	for _, up := range c.Upstreams {
+	if err := g.Reload(c.Upstreams); err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
+// Reload 用新的上游表重建路由(原子替换, 供 Nacos 配置热更新调用).
+func (g *Gateway) Reload(upstreams []config.UpstreamConf) error {
+	routes := make([]route, 0, len(upstreams))
+	for _, up := range upstreams {
 		target, err := url.Parse(up.Target)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		rp := httputil.NewSingleHostReverseProxy(target)
 		prefix := up.Prefix
 		rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, e error) {
 			writeJSONError(w, http.StatusBadGateway, "M6-E-0006", "upstream unavailable ["+prefix+"]: "+e.Error())
 		}
-		g.routes = append(g.routes, route{prefix: prefix, proxy: rp})
+		routes = append(routes, route{prefix: prefix, proxy: rp})
 	}
 	// 最长前缀优先匹配.
-	sort.Slice(g.routes, func(i, j int) bool {
-		return len(g.routes[i].prefix) > len(g.routes[j].prefix)
+	sort.Slice(routes, func(i, j int) bool {
+		return len(routes[i].prefix) > len(routes[j].prefix)
 	})
-	return g, nil
+	g.routes.Store(&routes)
+	return nil
 }
 
 // ServeHTTP 处理全部入站请求: CORS -> 注入上下文头 -> 最长前缀匹配转发.
@@ -82,8 +94,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set(ctxdata.CtxUserId, strconv.FormatInt(g.defaultUserId, 10))
 	}
 
-	// 最长前缀匹配转发.
-	for _, rt := range g.routes {
+	// 最长前缀匹配转发(路由表可能已被 Nacos 热更新原子替换).
+	routes := *g.routes.Load()
+	for _, rt := range routes {
 		if strings.HasPrefix(r.URL.Path, rt.prefix) {
 			rt.proxy.ServeHTTP(w, r)
 			return
