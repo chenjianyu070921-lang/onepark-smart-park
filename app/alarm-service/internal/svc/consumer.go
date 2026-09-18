@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"onepark/app/alarm-service/internal/model"
+	"onepark/app/alarm-service/internal/rule"
+	"onepark/app/alarm-service/internal/search"
+	"onepark/app/alarm-service/internal/ws"
 
 	kafkago "github.com/segmentio/kafka-go"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -25,6 +28,22 @@ const (
 
 // keyDedup L1 幂等键前缀, 完整键形如 alarm:dedup:{幂等ID}, TTL 24h.
 const keyDedup = "alarm:dedup:"
+
+// keyCooldown L2 业务冷却键前缀, 完整键形如
+// alarm:cooldown:{deviceID}:{eventType}:{ruleID}, TTL 见 svc.cooldownTTL(docs/m3/08 §1).
+const keyCooldown = "alarm:cooldown:"
+
+// hardcodedRuleID 硬编码规则的规则ID: 0 表示"未走规则引擎"(与 alarm.rule_id 语义一致).
+// 规则引擎上线后, 若库里存在启用规则则不再走该回退分支.
+const hardcodedRuleID = 0
+
+// ErrMalformedEvent 消息本身有问题(反序列化失败 / 必填字段缺失), 属于**不可重试**错误:
+// 重试多少次结果都一样, 只能入死信等人工处理. 由 HandleWithDeadLetter 识别并直接落台账.
+var ErrMalformedEvent = errors.New("alarm: malformed device event")
+
+// 重试退避策略(docs/m3/06 §5.1): 3 次重试, 累计 2.6s,
+// 远小于 Consumer.Group.Rebalance.Timeout(60s), 不会触发不必要的重平衡.
+var retryBackoff = []time.Duration{100 * time.Millisecond, 500 * time.Millisecond, 2 * time.Second}
 
 // DeviceEvent M1 设备遥测事件, 与 M1 约定的 DeviceEvent v1 结构.
 // 字段缺失时的降级策略见 IdempotentID / MatchIntrusionRule 注释.
@@ -62,6 +81,44 @@ func (e DeviceEvent) MatchIntrusionRule() bool {
 	return e.DeviceType == "" || e.DeviceType == DeviceTypeAccessControl
 }
 
+// RuleFields 将设备事件转为规则引擎可求值的字段视图.
+// Payload 解析失败时返回空映射: 缺字段的条件一律判为未命中, 不影响其它字段的判定.
+func (e DeviceEvent) RuleFields() rule.Fields {
+	var payload map[string]interface{}
+	if len(e.Payload) > 0 {
+		_ = json.Unmarshal(e.Payload, &payload)
+	}
+	return rule.Fields{
+		EventType:  e.EventType,
+		DeviceID:   e.DeviceID,
+		DeviceType: e.DeviceType,
+		AreaID:     e.AreaID,
+		TenantID:   e.TenantID,
+		Payload:    payload,
+	}
+}
+
+// ToAlarmFromDraft 按规则引擎产出的草稿构造待落库告警.
+// request_id 恒为消息幂等键(L3 去重按 request_id + rule_id 复合唯一索引, 见 alarm 表 uk_request_rule),
+// 故同一事件命中多条规则时各生成一条告警且互不被去重; alarm_no 则需带 rule_id 以保证业务编号唯一.
+func (e DeviceEvent) ToAlarmFromDraft(d *rule.Draft, idempotentID string, at time.Time) *model.Alarm {
+	a := &model.Alarm{
+		AlarmNo:   NewAlarmNo(idempotentID+"#"+strconv.FormatInt(d.RuleID, 10), at),
+		RuleID:    d.RuleID,
+		DeviceID:  e.DeviceID,
+		AreaID:    e.AreaID,
+		EventType: e.EventType,
+		Level:     d.Level,
+		Status:    model.AlarmStatusPending,
+		Content:   d.Content,
+		RequestID: idempotentID,
+	}
+	a.TenantID = e.TenantID
+	a.CreatedAt = at
+	a.UpdatedAt = at
+	return a
+}
+
 // ToAlarm 将命中的设备事件转换为待落库的告警记录(等级 P2).
 func (e DeviceEvent) ToAlarm() *model.Alarm {
 	now := time.Now()
@@ -91,26 +148,37 @@ func NewAlarmNo(idempotentID string, at time.Time) string {
 	return "AL" + at.Format("20060102") + hex.EncodeToString(sum[:])[:8]
 }
 
-// HandleDeviceEvent 处理一条设备遥测消息: 解析 -> 规则匹配 -> L1 幂等 -> 落库(L3 唯一索引兜底).
+// HandleDeviceEvent 处理一条设备遥测消息: 解析 -> 规则引擎评估 -> L1 幂等 -> 落库(L3 唯一索引兜底).
 // 返回 nil 才提交 Kafka 位移(at-least-once + 消费端幂等 = 有效 exactly-once).
 func (s *ServiceContext) HandleDeviceEvent(ctx context.Context, msg kafkago.Message) error {
 	log := logx.WithContext(ctx)
 
 	ev, err := parseDeviceEvent(msg.Value)
 	if err != nil {
-		// 解析失败属不可重试坏消息: 记录原始报文后提交位移, 避免毒丸卡死整个分区(docs/m3/06 §3).
-		log.Errorf("alarm drop malformed device event topic=%s partition=%d offset=%d err=%v payload=%s",
+		// 坏消息(格式错误/必填缺失)不可重试: 上抛给死信兜底层落台账, 由人工重放处理,
+		// 不再静默丢弃(docs/m3/06 §5.1: 仅日志 = 不可重放, 不推荐).
+		log.Errorf("alarm malformed device event topic=%s partition=%d offset=%d err=%v payload=%s",
 			msg.Topic, msg.Partition, msg.Offset, err, msg.Value)
-		return nil
+		return fmt.Errorf("%w: %v", ErrMalformedEvent, err)
 	}
-	if !ev.MatchIntrusionRule() {
+	id := ev.IdempotentID()
+
+	drafts, err := s.evaluateRules(ctx, ev, id)
+	if err != nil {
+		// 规则评估失败(规则库/窗口计数不可用)不提交位移, 交由消费端重投.
+		log.Errorf("alarm evaluate rules failed, requeue later request_id=%s err=%v", id, err)
+		return err
+	}
+	if len(drafts) == 0 {
+		// 未命中规则的事件按设计丢弃, 但不能静默: 未命中量突增意味着 M1 事件格式变动或规则缺失,
+		// 是"应该报却不报"的漏报现场, 必须留计数日志(docs/m3/06 §3).
+		log.Infof("alarm rule not matched, skip device_id=%s device_type=%s event_type=%s",
+			ev.DeviceID, ev.DeviceType, ev.EventType)
 		return nil
 	}
 	if s.Alarms == nil || s.Dedup == nil {
 		return errors.New("alarm: storage or dedup component not initialized")
 	}
-
-	id := ev.IdempotentID()
 	if strings.HasPrefix(id, "fp:") {
 		// logx 无 Warn 级别, Slowf 即 WARN.
 		log.Slowf("alarm device event missing request_id, fallback to fingerprint device_id=%s", ev.DeviceID)
@@ -127,20 +195,194 @@ func (s *ServiceContext) HandleDeviceEvent(ctx context.Context, msg kafkago.Mess
 		return nil
 	}
 
-	a := ev.ToAlarm()
-	if err := s.Alarms.Create(ctx, a); err != nil {
-		if errors.Is(err, model.ErrDuplicateRequest) {
-			// L3 唯一索引命中(Redis key 过期但库里已有), 视为已处理.
-			log.Infof("alarm skip duplicated insert request_id=%s", id)
+	// 命中多条规则时逐条落库; L2 冷却按"设备 + 事件 + 规则"维度抑制, 不同规则互不掩盖.
+	now := time.Now()
+	for _, d := range drafts {
+		if s.Cooldown != nil {
+			cooling, err := s.Cooldown.TryAcquire(ctx, cooldownKey(ev, d.RuleID), cooldownTTL)
+			if err != nil {
+				log.Errorf("alarm cooldown unavailable, requeue later device_id=%s err=%v", ev.DeviceID, err)
+				return err
+			}
+			if cooling {
+				log.Infof("alarm suppressed by cooldown device_id=%s event_type=%s rule_id=%d",
+					ev.DeviceID, ev.EventType, d.RuleID)
+				continue
+			}
+		}
+
+		a := ev.ToAlarmFromDraft(d, id, now)
+		if err := s.Alarms.Create(ctx, a); err != nil {
+			if errors.Is(err, model.ErrDuplicateRequest) {
+				// L3 唯一索引命中(Redis key 过期但库里已有), 视为已处理.
+				log.Infof("alarm skip duplicated insert request_id=%s rule_id=%d", id, d.RuleID)
+				continue
+			}
+			log.Errorf("alarm create failed request_id=%s rule_id=%d err=%v", id, d.RuleID, err)
+			return err
+		}
+		log.Infof("alarm created alarm_no=%s device_id=%s event_type=%s level=%d rule_id=%d",
+			a.AlarmNo, a.DeviceID, a.EventType, a.Level, a.RuleID)
+		s.broadcastAlarmCreated(ev, a)
+		s.indexAlarmDoc(ctx, a)
+	}
+	return nil
+}
+
+// indexAlarmDoc 将告警写入 ES 检索副本(#44 双写).
+//
+// 失败只记日志、不影响消费位移: 告警已落 MySQL(唯一事实来源), 因"检索副本写失败"而重投
+// 会引入重复告警风险; 检索侧本身也可降级 MySQL 兜底. 但必须 Errorf 留痕 ——
+// 双写长期失败等于历史检索静默退化, 这类问题只有日志能暴露.
+func (s *ServiceContext) indexAlarmDoc(ctx context.Context, a *model.Alarm) {
+	if s.Search == nil {
+		return
+	}
+	doc := search.Doc{
+		AlarmID:    a.ID,
+		TenantID:   a.TenantID,
+		AlarmNo:    a.AlarmNo,
+		DeviceID:   a.DeviceID,
+		AreaID:     a.AreaID,
+		EventType:  a.EventType,
+		Level:      a.Level,
+		Status:     a.Status,
+		Content:    a.Content,
+		CreateTime: a.CreatedAt,
+	}
+	if err := s.Search.Index(ctx, doc); err != nil {
+		logx.WithContext(ctx).Errorf("alarm index to es failed alarm_no=%s request_id=%s err=%v",
+			a.AlarmNo, a.RequestID, err)
+	}
+}
+
+// broadcastAlarmCreated 告警入库后异步广播(#42): 推送是旁路, 失败不影响落库结果.
+// 租户缺失时跳过 —— 宁可不推, 也不能把告警推给别的园区.
+func (s *ServiceContext) broadcastAlarmCreated(ev *DeviceEvent, a *model.Alarm) {
+	if s.Hub == nil || a.TenantID == 0 {
+		return
+	}
+	s.Hub.Push(a.TenantID, ws.NewEnvelope(ws.TypeAlarmCreated, ws.AlarmEvent{
+		AlarmID:   a.ID,
+		DeviceID:  a.DeviceID,
+		EventType: a.EventType,
+		Level:     a.Level,
+		Content:   a.Content,
+		AreaID:    a.AreaID,
+		Status:    a.Status,
+	}, ev.IdempotentID()))
+}
+
+// HandleWithDeadLetter 是 Kafka 消费入口(docs/m3/06 §5): 在 HandleDeviceEvent 之外包一层
+// "可重试错误本地退避重试 → 仍失败落死信台账"的兜底.
+//
+// 关键约束:
+//  1. 坏消息(反序列化失败/必填缺失)不重试, 直接落台账;
+//  2. 可重试错误(存储/去重/冷却不可用)重试 3 次后仍失败才落台账;
+//  3. 落台账后**必须返回 nil 以提交位移** —— 否则单条坏消息会卡死整个分区(毒丸, §5);
+//  4. 台账本身写失败返回 error: 此时宁可不提交位移(可重投), 也不能静默丢消息.
+func (s *ServiceContext) HandleWithDeadLetter(ctx context.Context, msg kafkago.Message) error {
+	log := logx.WithContext(ctx)
+
+	var lastErr error
+	retryCount := 0
+	for attempt := 0; ; attempt++ {
+		err := s.HandleDeviceEvent(ctx, msg)
+		if err == nil {
 			return nil
 		}
-		log.Errorf("alarm create failed request_id=%s err=%v", id, err)
-		return err
+		lastErr = err
+
+		// 坏消息: 重试无意义, 直接进死信.
+		if errors.Is(err, ErrMalformedEvent) {
+			break
+		}
+		if attempt >= len(retryBackoff) {
+			break
+		}
+		retryCount++
+		log.Errorf("alarm handle device event failed, retry %d/%d after %s err=%v",
+			retryCount, len(retryBackoff), retryBackoff[attempt], err)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(retryBackoff[attempt]):
+		}
 	}
 
-	log.Infof("alarm created alarm_no=%s device_id=%s event_type=%s level=%d",
-		a.AlarmNo, a.DeviceID, a.EventType, a.Level)
+	log.Errorf("alarm send message to dead letter topic=%s partition=%d offset=%d retries=%d err=%v",
+		msg.Topic, msg.Partition, msg.Offset, retryCount, lastErr)
+	return s.recordDeadLetter(ctx, msg, lastErr, retryCount)
+}
+
+// recordDeadLetter 将失败消息写入死信台账.
+// 台账未初始化(MySQL 没配)时只能落日志并返回 error —— 让消息保持未提交状态,
+// 由运维介入, 绝不在"没地方存"的情况下假装处理成功.
+func (s *ServiceContext) recordDeadLetter(ctx context.Context, msg kafkago.Message, cause error, retryCount int) error {
+	if s.DeadLetters == nil {
+		return fmt.Errorf("alarm: dead letter store unavailable, keep message uncommitted: %w", cause)
+	}
+
+	now := time.Now()
+	entry := &model.AlarmDLQ{
+		Topic:       msg.Topic,
+		PartitionNo: msg.Partition,
+		MsgOffset:   msg.Offset,
+		Payload:     string(msg.Value),
+		ErrorMsg:    truncate(cause.Error(), 512),
+		RetryCount:  retryCount,
+		Status:      model.DLQStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	// 尽力补全定位信息: 坏消息可能解析不出, 此时留零值(不因补全失败影响入账).
+	if ev, err := parseDeviceEvent(msg.Value); err == nil {
+		entry.TenantID = ev.TenantID
+		entry.RequestID = ev.IdempotentID()
+		entry.DeviceID = ev.DeviceID
+		entry.EventType = ev.EventType
+	}
+
+	if err := s.DeadLetters.Create(ctx, entry); err != nil {
+		return fmt.Errorf("alarm: write dead letter failed: %w", err)
+	}
+	// 已入台账即认为该消息处理完毕(提交位移), 避免毒丸卡分区.
 	return nil
+}
+
+// truncate 截断超长文本, 避免 error_msg 超过列宽导致整条死信写不进去.
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
+}
+
+// evaluateRules 评估事件命中的告警规则(docs/m3/07 §4).
+// 规则引擎未接入或未配置启用规则时, 回退到 P0 的硬编码门禁闯入规则,
+// 保证"规则中心不可用"时安防主链路不失效(降级但不静默: 回退路径有独立日志).
+func (s *ServiceContext) evaluateRules(ctx context.Context, ev *DeviceEvent, idempotentID string) ([]*rule.Draft, error) {
+	if s.Engine != nil && s.Engine.HasRules(ctx) {
+		return s.Engine.Evaluate(ctx, ev.RuleFields(), idempotentID)
+	}
+	if ev.MatchIntrusionRule() {
+		return []*rule.Draft{{
+			RuleID:    hardcodedRuleID,
+			RuleName:  "硬编码门禁闯入规则",
+			Level:     model.AlarmLevelMinor,
+			EventType: ev.EventType,
+			DeviceID:  ev.DeviceID,
+			AreaID:    ev.AreaID,
+		}}, nil
+	}
+	return nil, nil
+}
+
+// cooldownKey 生成 L2 冷却键: alarm:cooldown:{deviceID}:{eventType}:{ruleID}.
+// 规则维度参与键是为了让不同规则各自冷却, 避免一条规则触发后掩盖其它规则的告警.
+func cooldownKey(ev *DeviceEvent, ruleID int64) string {
+	return keyCooldown + strings.Join([]string{ev.DeviceID, ev.EventType, strconv.FormatInt(ruleID, 10)}, ":")
 }
 
 // parseDeviceEvent 反序列化设备事件并校验必填字段.

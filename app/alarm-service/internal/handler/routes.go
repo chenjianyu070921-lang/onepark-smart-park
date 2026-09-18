@@ -13,6 +13,31 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				Method:  http.MethodPost,
+				Path:    "/api/alarm/rule",
+				Handler: CreateRuleHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/api/alarm/rule/:id",
+				Handler: UpdateRuleHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/alarm/rule/:id",
+				Handler: GetRuleHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/alarm/rules",
+				Handler: ListRulesHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/alarm/active",
+				Handler: ListActiveAlarmsHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodGet,
 				Path:    "/api/alarms",
 				Handler: ListAlarmsHandler(serverCtx),

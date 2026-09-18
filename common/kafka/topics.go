@@ -8,14 +8,19 @@ const (
 	TopicDeviceTelemetry = "device-telemetry" // M1 设备遥测(地磁/门禁上报)
 	TopicParkingEntry    = "parking-entry"    // 车辆入场事件(parking-service 发布)
 	TopicParkingExit     = "parking-exit"     // 车辆离场事件(parking-service 发布)
-	TopicAlarm           = "alarm-event"      // 告警事件(M3 安防消费)
-	TopicNotice          = "notice-event"     // 公告发布事件(通知类消费)
-	TopicWorkorder       = "workorder-event"  // 工单状态事件(workorder-service 发布, M5/通知类消费)
+	TopicAlarm           = "alarm-event"      // 告警事件(M1 event-dispatcher / parking 生产, M5 dispatch 消费)
+	// TopicAlarmEvent M3 alarm-service 生产 → M5 消费 的告警事件(docs/m3/04 §3.2; M5 确认书 §5 提案).
+	// 与 TopicAlarm 分开是刻意的: TopicAlarm 承载 M1 的原始告警(含 request_id/occurred_at, 供自动建单),
+	// 本 topic 承载 M3 的告警生命周期事件(alarm_id/severity/content), 两者结构不同;
+	// 混在同一条 topic 上会让消费方的解码逻辑互相打架(缺字段即丢消息).
+	TopicAlarmEvent = "onepark.alarm.event"
+	TopicNotice     = "notice-event"    // 公告发布事件(通知类消费)
+	TopicWorkorder  = "workorder-event" // 工单状态事件(workorder-service 发布, M5/通知类消费)
 )
 
 // 消费者组常量(同一服务多实例共享消费位移).
 const (
-	GroupParking   = "parking-service"
+	GroupParking   = "parking-service-v2" // P0-2 临时: 绕过协调故障损坏的原 group, 验证后回退
 	GroupAlarm     = "alarm-service"
 	GroupNotice    = "notice-service"
 	GroupWorkorder = "workorder-service"

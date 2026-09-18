@@ -9,6 +9,13 @@ DefaultUserId: 0
 # 路由前缀 -> 上游服务(最长前缀优先匹配)
 # 说明: /api/workorder 前缀同时覆盖 /api/workorders 与 /api/workorder/:id
 Upstreams:
+  # 前缀 /api/alarm 同时覆盖 /api/alarm/:id 与 /api/alarms(最长前缀匹配)
+  - Prefix: /api/alarm
+    Target: http://127.0.0.1:8009
+  - Prefix: /api/access
+    Target: http://127.0.0.1:8010
+  - Prefix: /api/video
+    Target: http://127.0.0.1:8011
   - Prefix: /api/workorder
     Target: http://127.0.0.1:8091
   - Prefix: /api/visitor
@@ -17,11 +24,8 @@ Upstreams:
     Target: http://127.0.0.1:8093
   - Prefix: /api/notice
     Target: http://127.0.0.1:8094
-  # billing(M2 计费): P1 补租户隔离后接入网关, 与其它 M2 服务同链路注入 x-tenant-id
-  - Prefix: /api/billing
-    Target: http://127.0.0.1:8063
-  # ===== M5 运营招商 + 指挥调度 =====
-  # 端口口径: 按《接口与链路技术点清单》(8051/8052/8053), 与 M2 实际使用的 8091(清单口径)一致.
+  # M5 三服务端口以 app/*/etc/*-api.yaml 与实际监听为准 = 8051/8052/8053
+  # (M5 已废弃 README 的 8015/8016/8017 口径, 见 docs/plans/2026-09-15-M5-环境与方案确认书 §4.5.1).
   - Prefix: /api/leasing
     Target: http://127.0.0.1:8051
   - Prefix: /api/dashboard
@@ -29,9 +33,10 @@ Upstreams:
   - Prefix: /api/dispatch
     Target: http://127.0.0.1:8053
 
-  # 大屏 WebSocket 实时推送(清单 #73)。
-  # 路径打全 /ws/dashboard 而不是 /ws —— 网关是最长前缀优先匹配,
-  # 若用 /ws, 将来 M3 的 WebSocket 会被一并转发到 M5, 造成冲突。
-  # 标准库 httputil.ReverseProxy 原生支持 Upgrade 转发, 无需改代理代码。
+  # WebSocket 实时推送(docs/m3/09 §3 / R1): httputil.ReverseProxy 自 Go 1.12 起
+  # 原生支持 Connection: Upgrade 协议切换(劫持连接), 网关无需额外代码.
+  # WS 路径不在 /api/* 下必须单列; 两条前缀等长(均为 /ws/xxx), 不会互相抢占.
+  - Prefix: /ws/alarm
+    Target: http://127.0.0.1:8009
   - Prefix: /ws/dashboard
     Target: http://127.0.0.1:8052

@@ -13,9 +13,24 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				Method:  http.MethodPost,
+				Path:    "/api/access/grant",
+				Handler: GrantAccessHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/api/access/revoke",
+				Handler: RevokeAccessHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/access/remote-open",
+				Handler: RemoteOpenHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: AccesscontrolHandler(serverCtx),
+				Path:    "/api/access/records",
+				Handler: ListAccessRecordsHandler(serverCtx),
 			},
 		},
 	)

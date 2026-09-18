@@ -29,6 +29,22 @@ type LevelCount struct {
 	Total int64
 }
 
+// AlarmHistoryFilter 历史告警检索条件(docs/m3/04 #41).
+// 指针字段为 nil 表示不参与过滤; 该条件用于 ES 不可用时的 MySQL 降级查询,
+// 过滤口径必须与 ES 侧(search.Query)保持一致, 否则降级会返回不同结果.
+type AlarmHistoryFilter struct {
+	TenantID  int64
+	StartTime *time.Time // nil 表示不限起始时间
+	EndTime   *time.Time // nil 表示不限结束时间
+	Level     *int8
+	Status    *int8
+	AreaID    int64
+	DeviceID  string
+	EventType string
+	Page      int // 从 1 开始
+	PageSize  int
+}
+
 // AlarmModel 告警数据访问层, 封装 alarm_db.alarm 的读写.
 // 业务层通过 svc.ServiceContext.Alarms 使用, 便于单测替换为内存实现.
 type AlarmModel interface {
@@ -43,7 +59,11 @@ type AlarmModel interface {
 	// Resolve 解决告警(已确认→已解决)并写审计流水.
 	Resolve(ctx context.Context, tenantID, id, operatorID int64, remark string, at time.Time) error
 	// CountActive 统计活跃告警总数与按等级分布, 供 M5 大屏 GetActiveAlarms 使用.
+	// tenantID/areaID 为 0 表示不参与过滤, levels 为空表示全部等级.
 	CountActive(ctx context.Context, tenantID, areaID int64, levels []int32) (int64, []LevelCount, error)
+	// SearchHistory 历史告警多条件检索(#41) + 等级分布聚合.
+	// 这是 ES 检索不可用时的降级路径: MySQL 缺少全文检索能力, 但条件过滤与聚合口径必须一致.
+	SearchHistory(ctx context.Context, f AlarmHistoryFilter) ([]*Alarm, int64, []LevelCount, error)
 }
 
 type alarmModel struct {
@@ -166,9 +186,14 @@ func (m *alarmModel) transition(ctx context.Context, tenantID, id int64,
 	})
 }
 
+// CountActive 统计活跃告警总数与按等级分布.
+// tenantID 为 0 表示**不过滤租户**(跨园区聚合), 与 proto GetActiveAlarmsReq.tenant_id 契约一致;
+// M5 大屏的 AlarmProvider.Stat(ctx) 无租户入参, 传 0 即依赖此语义, 否则大屏恒显示 0 条.
 func (m *alarmModel) CountActive(ctx context.Context, tenantID, areaID int64, levels []int32) (int64, []LevelCount, error) {
-	tx := m.db.WithContext(ctx).Model(&Alarm{}).
-		Where("tenant_id = ? AND status = ?", tenantID, AlarmStatusPending)
+	tx := m.db.WithContext(ctx).Model(&Alarm{}).Where("status = ?", AlarmStatusPending)
+	if tenantID != 0 {
+		tx = tx.Where("tenant_id = ?", tenantID)
+	}
 	if areaID != 0 {
 		tx = tx.Where("area_id = ?", areaID)
 	}
@@ -190,6 +215,61 @@ func (m *alarmModel) CountActive(ctx context.Context, tenantID, areaID int64, le
 		total += c.Total
 	}
 	return total, counts, nil
+}
+
+// SearchHistory 历史告警检索 + 等级聚合(ES 降级路径).
+// 两次查询(分页列表 / 等级聚合)共用同一份过滤条件构造, 避免两处 where 漂移导致
+// "列表 10 条但聚合 8 条"这类难以排查的对不上的结果.
+func (m *alarmModel) SearchHistory(ctx context.Context, f AlarmHistoryFilter) ([]*Alarm, int64, []LevelCount, error) {
+	var total int64
+	if err := historyScope(m.db.WithContext(ctx).Model(&Alarm{}), f).Count(&total).Error; err != nil {
+		return nil, 0, nil, err
+	}
+
+	page, size := normalizePage(f.Page, f.PageSize)
+	var list []*Alarm
+	if err := historyScope(m.db.WithContext(ctx).Model(&Alarm{}), f).
+		Order("created_at DESC, id DESC").
+		Offset((page - 1) * size).Limit(size).
+		Find(&list).Error; err != nil {
+		return nil, 0, nil, err
+	}
+
+	var counts []LevelCount
+	// 聚合只扫 level 列: 用 Select + Group 让 MySQL 走索引扫描, 不把整行数据取回应用层.
+	if err := historyScope(m.db.WithContext(ctx).Model(&Alarm{}), f).
+		Select("level, count(*) AS total").Group("level").Order("level DESC").
+		Scan(&counts).Error; err != nil {
+		return nil, 0, nil, err
+	}
+	return list, total, counts, nil
+}
+
+// historyScope 构造历史检索的过滤条件(列表与聚合共用).
+func historyScope(tx *gorm.DB, f AlarmHistoryFilter) *gorm.DB {
+	tx = tx.Where("tenant_id = ?", f.TenantID)
+	if f.StartTime != nil {
+		tx = tx.Where("created_at >= ?", *f.StartTime)
+	}
+	if f.EndTime != nil {
+		tx = tx.Where("created_at <= ?", *f.EndTime)
+	}
+	if f.Level != nil {
+		tx = tx.Where("level = ?", *f.Level)
+	}
+	if f.Status != nil {
+		tx = tx.Where("status = ?", *f.Status)
+	}
+	if f.AreaID != 0 {
+		tx = tx.Where("area_id = ?", f.AreaID)
+	}
+	if f.DeviceID != "" {
+		tx = tx.Where("device_id = ?", f.DeviceID)
+	}
+	if f.EventType != "" {
+		tx = tx.Where("event_type = ?", f.EventType)
+	}
+	return tx
 }
 
 // normalizePage 修正非法分页参数: 页码从 1 开始, 页大小默认 10 且上限 100.

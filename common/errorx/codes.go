@@ -49,6 +49,10 @@ const (
 	ErrAlarmResolve       = "M3-E-1005" // 告警解决失败
 	ErrAlarmQuery         = "M3-E-1006" // 告警查询失败
 	ErrAlarmStatusInvalid = "M3-E-1007" // 告警状态不允许该操作
+	// ErrAlarmNotify 告警事件发送 M5 失败(docs/m3/04 #40): 告警状态已落库, 需人工/任务补偿.
+	// 占用 1008 的原因: docs 原把 1007 留给本场景, 但 1007 已在实现中用于"状态不允许";
+	// 而 docs 的 1008(ES 查询失败)已随"ES 故障降级 MySQL"落地——降级不再对调用方报错, 该码位空出.
+	ErrAlarmNotify = "M3-E-1008"
 	// 参数校验类错误必须用 W 级别才能返回 400, 见 KI-2 与 docs/m3/04 §6 注.
 	ErrAlarmParamInvalid = "M3-W-1001" // 告警参数非法(HTTP 400)
 
@@ -57,24 +61,30 @@ const (
 	ErrAccessRevoke     = "M3-E-2002" // 门禁撤销失败
 	ErrAccessRemoteOpen = "M3-E-2003" // 远程开门失败
 	ErrAccessRecord     = "M3-E-2004" // 通行记录查询失败
+	// 参数校验类错误必须用 W 级别才能返回 400, 见 KI-2 与 docs/m3/04 §6 注.
+	ErrAccessParamInvalid = "M3-W-2001" // 门禁参数非法(HTTP 400)
 
 	// 视频 (video-service)
 	ErrVideoCameraCreate   = "M3-E-3001" // 摄像头添加失败
 	ErrVideoCameraNotFound = "M3-E-3002" // 摄像头不存在
 	ErrVideoStream         = "M3-E-3003" // 视频流地址获取失败
+	ErrVideoStreamNotFound = "M3-E-3004" // 取流: 摄像头不存在
+	ErrVideoCameraOffline  = "M3-E-3005" // 取流: 设备离线
+	// 参数校验类错误必须用 W 级别才能返回 400, 见 KI-2 与 docs/m3/04 §6 注.
+	ErrVideoParamInvalid = "M3-W-3001" // 视频参数非法(HTTP 400), 如 RTSP 地址格式错误
 )
 
 // M1 物联接入底座错误码
 const (
-	ErrProductNotFound   = "M1-E-1001" // 产品不存在
-	ErrDeviceDuplicate    = "M1-E-1002" // 设备名重复
-	ErrDeviceCreateFail   = "M1-E-1003" // 设备写入失败
-	ErrShadowCreateFail   = "M1-E-1004" // 影子创建失败
-	ErrDeviceNotFound     = "M1-E-1005" // 设备不存在
-	ErrDeviceOffline      = "M1-E-1006" // 设备离线
-	ErrCommandSendFail    = "M1-E-1007" // 指令下发失败
-	ErrShadowNotFound     = "M1-E-1008" // 设备影子不存在
-	ErrShadowVersionDup   = "M1-E-1009" // 影子版本冲突(乐观锁)
+	ErrProductNotFound  = "M1-E-1001" // 产品不存在
+	ErrDeviceDuplicate  = "M1-E-1002" // 设备名重复
+	ErrDeviceCreateFail = "M1-E-1003" // 设备写入失败
+	ErrShadowCreateFail = "M1-E-1004" // 影子创建失败
+	ErrDeviceNotFound   = "M1-E-1005" // 设备不存在
+	ErrDeviceOffline    = "M1-E-1006" // 设备离线
+	ErrCommandSendFail  = "M1-E-1007" // 指令下发失败
+	ErrShadowNotFound   = "M1-E-1008" // 设备影子不存在
+	ErrShadowVersionDup = "M1-E-1009" // 影子版本冲突(乐观锁)
 
 	// W 级: 参数校验类, HttpStatus 映射为 400
 	ErrDeviceParamInvalid = "M1-W-1001" // 设备请求参数非法
@@ -102,4 +112,7 @@ const (
 
 	// 公共域 5001~5999
 	ErrM2Internal = "M2-E-5001" // M2 服务内部错误兜底
+
+	// 参数校验类(W 级 → HTTP 400), 用于请求体/上传文件等非法校验
+	ErrM2ParamInvalid = "M2-W-1001" // 请求参数非法(HTTP 400)
 )

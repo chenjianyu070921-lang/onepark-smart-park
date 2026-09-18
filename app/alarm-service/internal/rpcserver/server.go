@@ -29,7 +29,8 @@ func (s *AlarmServer) Ping(_ context.Context, _ *commonpb.Empty) (*commonpb.Empt
 }
 
 // GetActiveAlarms 供 M5 大屏聚合查询活跃告警总数与按等级分布.
-// 活跃告警即 status=0(未处理); area_id/levels 为 0/空时不参与过滤.
+// 活跃告警即 status=0(未处理); tenant_id/area_id 为 0、levels 为空时均不参与过滤
+// (M5 的 AlarmProvider.Stat(ctx) 无租户入参, 按契约传 0 走跨园区聚合).
 func (s *AlarmServer) GetActiveAlarms(ctx context.Context, req *alarmpb.GetActiveAlarmsReq) (*alarmpb.GetActiveAlarmsResp, error) {
 	resp := &alarmpb.GetActiveAlarmsResp{LevelCount: map[int32]int64{}}
 
