@@ -53,6 +53,10 @@ const (
 	// 占用 1008 的原因: docs 原把 1007 留给本场景, 但 1007 已在实现中用于"状态不允许";
 	// 而 docs 的 1008(ES 查询失败)已随"ES 故障降级 MySQL"落地——降级不再对调用方报错, 该码位空出.
 	ErrAlarmNotify = "M3-E-1008"
+	// ErrAlarmDLQNotFound 死信记录不存在或不属于当前租户(docs/m3/06 §5.4 重放接口).
+	ErrAlarmDLQNotFound = "M3-E-1009"
+	// ErrAlarmDLQReplay 死信重放失败: 台账状态保持"待处理", 可修复后再次重放.
+	ErrAlarmDLQReplay = "M3-E-1010"
 	// 参数校验类错误必须用 W 级别才能返回 400, 见 KI-2 与 docs/m3/04 §6 注.
 	ErrAlarmParamInvalid = "M3-W-1001" // 告警参数非法(HTTP 400)
 

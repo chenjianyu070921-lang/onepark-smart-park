@@ -3,8 +3,11 @@ package svc
 import (
 	"context"
 	"log"
+	"strings"
+	"time"
 
 	"onepark/app/parking-service/internal/config"
+	"onepark/common/dedup"
 	"onepark/common/gormx"
 	"onepark/common/kafka"
 	"onepark/common/redisx"
@@ -17,7 +20,12 @@ type ServiceContext struct {
 	DB       *gormx.DB       // GORM MySQL 连接
 	Redis    *redisx.Client  // Redis 客户端
 	Producer *kafka.Producer // Kafka 生产者(发布停车/告警事件)
+	// Dedup 消费幂等去重(L1); nil 表示未配置 Redis, 由 L3 唯一索引兜底.
+	Dedup dedup.Deduper
 }
+
+// parkingDedupTTL 消费幂等键有效期(24h), 覆盖 Kafka 重投与人工重放的周期.
+const parkingDedupTTL = 24 * time.Hour
 
 // NewServiceContext 根据配置初始化全局依赖.
 // 若配置了 MySQL DSN 但初始化失败, 直接退出进程, 避免带病启动.
@@ -40,12 +48,19 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		log.Printf("[warn] parking-service kafka brokers empty, producer not initialized")
 	}
 
-	return &ServiceContext{
+	svcCtx := &ServiceContext{
 		Config:   c,
 		DB:       db,
 		Redis:    redisx.NewClient(&c.Redis),
 		Producer: producer,
 	}
+	// 幂等去重: Redis 未配置时留 nil, 消费链路退化为只靠唯一索引兜底(并在启动日志留痕).
+	if strings.TrimSpace(c.Redis.Addr) != "" && !strings.Contains(c.Redis.Addr, "${") {
+		svcCtx.Dedup = dedup.NewRedisDeduper(svcCtx.Redis, parkingDedupTTL)
+	} else {
+		log.Printf("[warn] parking-service redis addr empty, consume dedup falls back to mysql unique key only")
+	}
+	return svcCtx
 }
 
 // StartConsumers 启动后台 Kafka 消费者(地磁遥测 -> 停车记录), 独立 goroutine 运行.

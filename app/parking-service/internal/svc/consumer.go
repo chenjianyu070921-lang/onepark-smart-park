@@ -2,8 +2,13 @@ package svc
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"onepark/app/parking-service/internal/model"
@@ -11,10 +16,15 @@ import (
 
 	kafkago "github.com/segmentio/kafka-go"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+// keyDedup 消费幂等键前缀, 完整键形如 parking:dedup:{幂等ID}.
+const keyDedup = "parking:dedup:"
 
 // deviceTelemetry M1 设备遥测消息(地磁/门禁上报), 由 parking-service 消费驱动停车记录.
 type deviceTelemetry struct {
+	RequestID   string `json:"request_id"`   // 幂等键(M1 侧生成); 缺失时按指纹降级
 	TenantID    int64  `json:"tenant_id"`    // 园区ID(RBAC 隔离)
 	DeviceID    string `json:"device_id"`    // 地磁/门禁设备ID
 	Event       string `json:"event"`        // entry 入场 / exit 离场
@@ -23,12 +33,28 @@ type deviceTelemetry struct {
 	Timestamp   int64  `json:"timestamp"`    // 事件时间(秒级时间戳)
 }
 
+// IdempotentID 返回写入 parking_record.request_id 的幂等键.
+// 优先使用消息自带 request_id; 缺失时按 sha1(device|event|plate|timestamp) 生成指纹降级.
+// 禁止用 partition-offset 作幂等键: 重放时 offset 变化会导致重复处理.
+func (t *deviceTelemetry) IdempotentID() string {
+	if r := strings.TrimSpace(t.RequestID); r != "" {
+		return r
+	}
+	raw := strings.Join([]string{t.DeviceID, t.Event, t.PlateNo, strconv.FormatInt(t.Timestamp, 10)}, "|")
+	sum := sha1.Sum([]byte(raw))
+	return "fp:" + hex.EncodeToString(sum[:])
+}
+
 // handleTelemetry 处理一条地磁遥测消息: 入场建记录, 离场计费并更新, 异常发布告警.
+//
+// 幂等(L1 + L3): Kafka 是 at-least-once, 重平衡/重投会让同一条消息被处理多次。
+// 没有幂等时入场会建出多条"停车中"记录, 离场会重复计费并重复广播事件。
 func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Message) error {
 	var t deviceTelemetry
 	if err := json.Unmarshal(msg.Value, &t); err != nil {
-		// 消息格式非法, 记录后跳过(不阻塞后续消费).
-		fmt.Printf("[warn] parking invalid telemetry: %v\n", err)
+		// 坏消息: 重试多少次结果都一样, 只能记日志跳过(返回 nil 提交位移),
+		// 否则单条坏消息会卡死整个分区(毒丸). parking 没有死信台账, 坏消息不可重放.
+		fmt.Printf("[error] parking malformed telemetry offset=%d err=%v payload=%s\n", msg.Offset, err, msg.Value)
 		return nil
 	}
 
@@ -43,8 +69,34 @@ func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Messag
 	}
 }
 
+// seen 判定该消息是否已处理过(L1).
+// 幂等组件不可用(Redis 故障)时返回 error, 由消费端重投 —— 放行一条重复消息会导致重复计费,
+// 代价远大于短暂积压, 与 alarm-service 的策略保持一致.
+func (s *ServiceContext) seen(ctx context.Context, t *deviceTelemetry) (bool, error) {
+	if s.Dedup == nil {
+		// 未配置 Redis 时无法去重: 交给 L3 唯一索引兜底, 不阻断消费.
+		return false, nil
+	}
+	id := t.IdempotentID()
+	seen, err := s.Dedup.Seen(ctx, keyDedup+id)
+	if err != nil {
+		return false, fmt.Errorf("parking dedup unavailable request_id=%s: %w", id, err)
+	}
+	return seen, nil
+}
+
 // onTelemetryEntry 入场: 新建停车记录(停车中).
 func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetry) error {
+	id := t.IdempotentID()
+	seen, err := s.seen(ctx, t)
+	if err != nil {
+		return err
+	}
+	if seen {
+		fmt.Printf("[info] parking skip duplicated entry request_id=%s plate=%s\n", id, t.PlateNo)
+		return nil
+	}
+
 	now := time.Now()
 	rec := &model.ParkingRecord{
 		PlateNo:     t.PlateNo,
@@ -52,12 +104,22 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 		DeviceIDIn:  t.DeviceID,
 		EntryTime:   &now,
 		Status:      model.ParkingStatusParking,
+		RequestID:   &id,
 	}
 	rec.TenantID = t.TenantID
 	rec.CreatedAt = now
 	rec.UpdatedAt = now
-	if err := s.DB.WithContext(ctx).Create(rec).Error; err != nil {
-		return err
+
+	// L3 兜底: Redis 键过期但库里已有(或 L1 不可用)时, 唯一索引是最后一道防线.
+	// 用 OnConflict{DoNothing} 而不是"捕获 1062 再转译": 前者靠 RowsAffected 判定,
+	// 无需解析 MySQL 错误码, 也不必为此引入 go-sql-driver 依赖.
+	res := s.DB.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(rec)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		fmt.Printf("[info] parking skip duplicated insert request_id=%s plate=%s\n", id, t.PlateNo)
+		return nil
 	}
 	// 发布车辆入场事件, 供大屏/告警订阅.
 	s.publish(ctx, kafka.TopicParkingEntry, t.PlateNo, msgOf(rec))
@@ -66,11 +128,21 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 
 // onTelemetryExit 离场: 更新最近一条停车中记录, 计算时长与费用并置已完成.
 func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry) error {
+	id := t.IdempotentID()
+	seen, err := s.seen(ctx, t)
+	if err != nil {
+		return err
+	}
+	if seen {
+		fmt.Printf("[info] parking skip duplicated exit request_id=%s plate=%s\n", id, t.PlateNo)
+		return nil
+	}
+
 	var rec model.ParkingRecord
 	if err := s.DB.WithContext(ctx).
 		Where("plate_no=? AND tenant_id=? AND status=?", t.PlateNo, t.TenantID, model.ParkingStatusParking).
 		Order("id DESC").First(&rec).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			fmt.Printf("[warn] parking exit but no active record plate=%s\n", t.PlateNo)
 			return nil
 		}
@@ -84,17 +156,30 @@ func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry
 	}
 	fee := CalcFee(rec.EntryTime, &now, rec.VehicleType)
 
-	updates := map[string]interface{}{
-		"status":        model.ParkingStatusDone,
-		"exit_time":     now,
-		"duration_min":  dur,
-		"fee":           fee,
-		"device_id_out": t.DeviceID,
-		"updated_at":    now,
+	// CAS: 更新条件必须带上 status=停车中. 只按 id 更新时, 两条并发的离场消息
+	// 会各自算一次费用并各广播一次离场事件 —— 重复计费比"少算一次"难查得多.
+	res := s.DB.WithContext(ctx).Model(&model.ParkingRecord{}).
+		Where("id=? AND tenant_id=? AND status=?", rec.ID, t.TenantID, model.ParkingStatusParking).
+		Updates(map[string]interface{}{
+			"status":        model.ParkingStatusDone,
+			"exit_time":     now,
+			"duration_min":  dur,
+			"fee":           fee,
+			"device_id_out": t.DeviceID,
+			"updated_at":    now,
+		})
+	if res.Error != nil {
+		return res.Error
 	}
-	if err := s.DB.WithContext(ctx).Model(&rec).Updates(updates).Error; err != nil {
-		return err
+	if res.RowsAffected == 0 {
+		// 已被另一条离场消息结算(或人工结单): 本次不再重复计费与广播.
+		fmt.Printf("[info] parking exit already settled, skip request_id=%s plate=%s\n", id, t.PlateNo)
+		return nil
 	}
+	rec.Status = model.ParkingStatusDone
+	rec.ExitTime = &now
+	rec.DurationMin = &dur
+	rec.Fee = fee
 
 	// 发布车辆离场事件; 异常车辆额外发布告警事件(供 M3 安防联动).
 	s.publish(ctx, kafka.TopicParkingExit, t.PlateNo, msgOf(&rec))

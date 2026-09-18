@@ -156,12 +156,34 @@ func (l *ListCamerasLogic) ListCameras(req *types.ListCamerasReq) (*types.ListCa
 			Name:            c.Name,
 			DeviceId:        c.DeviceID,
 			AreaId:          c.AreaID,
-			Status:          c.Status,
+			Status:          l.effectiveStatus(c),
 			LastHeartbeatAt: timePtrUnix(c.LastHeartbeatAt),
 			CreatedAt:       c.CreatedAt.Unix(),
 		})
 	}
 	return &types.ListCamerasResp{Total: total, Page: page, PageSize: size, List: items}, nil
+}
+
+// effectiveStatus 用 Redis 心跳缓存修正 MySQL 中可能滞后的状态(docs/m3/04 #50 Redis 缓存).
+//
+// 只做"离线/未知 → 在线"的单向修正: 缓存命中说明设备在离线阈值内上报过心跳,
+// 而 MySQL 侧要等离线扫描才会更新, 中间这段窗口里列表会错误地显示离线。
+//
+// 故障态(2)刻意不被覆盖: 它代表人工排障结论, MarkOffline 同样跳过故障行,
+// 让一次心跳把人工结论悄悄洗掉, "故障"这个状态就失去意义了。
+//
+// 已知口径差异: status 筛选条件是在 MySQL 层执行的(分页与 total 都依赖它),
+// 因此"筛选在线"时, 仍处于扫描窗口内、仅缓存显示在线的设备不会出现在结果里。
+// 要做到严格一致需把筛选下推为"按 deviceID 集合二次过滤", 会破坏分页语义, 本期不做。
+func (l *ListCamerasLogic) effectiveStatus(c *model.Camera) int8 {
+	// 故障态与"未配置缓存"都直接返回落库状态, 不查询缓存.
+	if c.Status == model.CameraStatusFault || l.svcCtx.StatusCache == nil {
+		return c.Status
+	}
+	if online, _ := l.svcCtx.StatusCache.Online(l.ctx, c.DeviceID); online {
+		return model.CameraStatusOnline
+	}
+	return c.Status
 }
 
 // timePtrUnix 将 *time.Time 转为秒级时间戳, nil 返回 0.

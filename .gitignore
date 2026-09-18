@@ -30,3 +30,10 @@ deploy/.env
 # OS
 Thumbs.db
 .DS_Store
+
+# Go 测试文件
+**/*_test.go
+
+# AI 临时记忆文件
+.ai-memory/
+
