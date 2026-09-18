@@ -36,6 +36,7 @@ func NewProducer(brokers string) *Producer {
 			Addr:         kafka.TCP(strings.Split(brokers, ",")...),
 			Balancer:     &kafka.LeastBytes{}, // 按分区负载均衡
 			RequiredAcks: kafka.RequireAll,    // 需所有 ISR 确认, 保证不丢
+			WriteTimeout: 10 * time.Second,    // 写超时, 防连接挂死(默认 0 表示无超时)
 		},
 	}
 }
@@ -68,6 +69,10 @@ func NewConsumer(brokers, topic, group string) *Consumer {
 			GroupID:        group,
 			StartOffset:    kafka.FirstOffset, // 首次从最早未消费位移开始
 			CommitInterval: 0,                 // 每消息手动提交(在 handler 成功后)
+			Dialer:         &kafka.Dialer{Timeout: 10 * time.Second}, // 防连接挂死(默认无超时)
+			MinBytes:       1,                 // 无消息时最长轮询等待(0 表示立即返回)
+			MaxBytes:       10 << 20,          // 单批上限 10MB, 防止超大拉取拖垮内存
+			ReadBatchTimeout: time.Second,
 		}),
 	}
 }

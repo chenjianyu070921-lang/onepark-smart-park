@@ -124,12 +124,26 @@ func (c *Client) WritePoint(ctx context.Context, p Point) error {
 		p.Ts = time.Now()
 	}
 
+	return c.Exec(ctx, buildInsertSQL(p))
+}
+
+// buildInsertSQL 组装子表写入语句.
+// 所有外部输入(deviceId/metric)均做转义, 防止 SQL 注入; 表名另做白名单化.
+func buildInsertSQL(p Point) string {
 	table := tablePrefix + sanitize(p.DeviceID)
-	metric := strings.ReplaceAll(p.Metric, "'", "")
-	sql := fmt.Sprintf(
+	tag := escapeTDString(p.DeviceID)
+	metric := escapeTDString(p.Metric)
+	return fmt.Sprintf(
 		"INSERT INTO %s USING %s TAGS('%s') VALUES (%d, '%s', %f, %d)",
-		table, TelemetrySTable, p.DeviceID, p.Ts.UnixMilli(), metric, p.Value, p.Quality)
-	return c.Exec(ctx, sql)
+		table, TelemetrySTable, tag, p.Ts.UnixMilli(), metric, p.Value, p.Quality)
+}
+
+// escapeTDString 转义 TDengine 字符串字面量中的反斜杠与单引号.
+// TDengine 以 \ 为转义符(\' 表示字面单引号); 必须先转义 \ 再转义 ',
+// 否则 "x\' OR 1=1--" 这类输入会闭合字面量越界注入(见 GHSA-h9fj-c2qr-76g2).
+func escapeTDString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	return strings.ReplaceAll(s, `'`, `\'`)
 }
 
 func sanitize(id string) string {

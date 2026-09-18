@@ -99,6 +99,22 @@ services:
       timeout: 10s
       retries: 10
 
+  # 一次性任务: 等 kafka 健康后创建业务 topic(幂等, 重复运行安全). 各业务服务可直接向这些 topic 生产/消费.
+  kafka-init:
+    image: bitnami/kafka:${KAFKA_VERSION}
+    container_name: onepark-kafka-init
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      KAFKA_REPLICATION_FACTOR: "1"
+    command: ["/scripts/init-topics.sh"]
+    volumes:
+      - ./kafka/init-topics.sh:/scripts/init-topics.sh:ro
+    networks: [onepark]
+
   emqx:
     image: emqx/emqx:${EMQX_VERSION}
     container_name: onepark-emqx

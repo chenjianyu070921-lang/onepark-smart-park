@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: onepark-gateway
+  namespace: onepark
+  labels:
+    app: onepark-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: onepark-gateway
+  template:
+    metadata:
+      labels:
+        app: onepark-gateway
+    spec:
+      containers:
+        - name: gateway
+          # 镜像名与 .github/workflows/cd.yml 的推送规则一致.
+          image: ghcr.io/your-org/onepark/gateway:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: onepark-config
+            - secretRef:
+                name: onepark-secrets
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: onepark-gateway
+  namespace: onepark
+spec:
+  type: ClusterIP
+  selector:
+    app: onepark-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080

@@ -11,6 +11,19 @@ DefaultUserId: 0
 Auth:
   Secret: ${AUTH_SECRET}
 
+# 限流依赖的 Redis(令牌桶计数). 未配置或 Redis 不可用时, 限流优雅降级为放行.
+Redis:
+  Addr: redis:6379
+  Pass: ${REDIS_PASS}
+  DB: 0
+  PoolSize: 50
+  MinIdleConns: 10
+
+# 网关全局令牌桶限流(单 IP 维度). Capacity<=0 关闭.
+RateLimit:
+  Capacity: 200
+  RatePerSec: 50
+
 # 路由前缀 -> 上游服务(最长前缀优先匹配, 见 internal/proxy/proxy.go).
 # 端口与各服务实际监听端口一致(来源 deploy/docker-compose.yml 的 PORT 与 app/*/etc/*-api.yaml):
 #   device 8001 / user-manage 8086 / auth 8088 / workorder 8082 / alarm 8009 /

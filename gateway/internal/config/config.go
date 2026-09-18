@@ -1,6 +1,9 @@
 package config
 
-import "github.com/zeromicro/go-zero/rest"
+import (
+	"github.com/zeromicro/go-zero/rest"
+	"onepark/common/redisx"
+)
 
 // Config 定义对外网关(apigateway)运行配置.
 // 网关职责: 路由转发(按前缀到各业务服务) + RequestId 注入 + RBAC 上下文透传.
@@ -16,6 +19,16 @@ type Config struct {
 	Auth AuthConf `json:",optional"`
 	// Nacos 可选: 配置中心动态上游表. Address 为空时忽略, 继续使用上方静态 Upstreams.
 	Nacos NacosConf `json:",optional"`
+	// Redis 限流/缓存依赖(可选); 未配置时网关限流优雅降级为放行.
+	Redis redisx.RedisConf `json:",optional"`
+	// RateLimit 网关全局令牌桶限流(单 IP 维度); Capacity<=0 关闭.
+	RateLimit RateLimitConf `json:",optional"`
+}
+
+// RateLimitConf 网关令牌桶限流配置(单 IP 维度).
+type RateLimitConf struct {
+	Capacity   int64   `json:",default=200"` // 桶容量: 单 IP 最多允许的突发请求数
+	RatePerSec float64 `json:",default=50"`  // 稳定补充速率(令牌/秒)
 }
 
 // NacosConf 网关上游表配置中心(仅替换"上游地址从哪来", 不改转发逻辑).
