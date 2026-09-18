@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -21,24 +22,15 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// Message 与 event-dispatcher 的 dispatch.Message 保持一致.
-// 注意: 该结构体后续应下沉到 common 包共享, 避免两处漂移.
-type Message struct {
-	RequestID  string          `json:"request_id"`
-	DeviceID   string          `json:"device_id"`
-	DeviceType string          `json:"device_type"`
-	EventType  string          `json:"event_type"`
-	OccurredAt int64           `json:"occurred_at"`
-	Payload    json.RawMessage `json:"payload"`
-	Source     string          `json:"source"`
-}
+// Message 统一契约别名: 消费端与三处生产端共用 common/kafka 的权威定义.
+type Message = kafka.DeviceTelemetry
 
-// 事件类型
+// 事件类型别名(沿用本包内既有引用, 权威定义在 common/kafka).
 const (
-	EventOnline  = "online"
-	EventOffline = "offline"
-	EventFault   = "fault"
-	EventStatus  = "status"
+	EventOnline  = kafka.EventOnline
+	EventOffline = kafka.EventOffline
+	EventFault   = kafka.EventFault
+	EventStatus  = kafka.EventStatus
 )
 
 // payload 中的上下线字段约定(二选一): {"online":true} 或 {"status":"online"}
@@ -195,33 +187,48 @@ func (h *Handler) handleTelemetry(ctx context.Context, m *Message) error {
 	return nil
 }
 
-// mergeReported 将遥测指标合并进影子 reported 后覆盖写入.
+// mergeReportedMaxAttempts 影子写入版本冲突的最大重试次数.
+const mergeReportedMaxAttempts = 3
+
+// mergeReported 将遥测指标合并进影子 reported 后写入(乐观锁, 冲突重试).
+// 语义与 shadow-service gRPC UpdateReported 一致: version 条件更新, 0 行即冲突.
 func (h *Handler) mergeReported(ctx context.Context, deviceID string, metrics map[string]any) error {
-	shadow, err := h.svcCtx.ShadowModel.FindByDeviceID(ctx, deviceID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// 影子缺失(如历史设备), 补建后再写, 保证上报不丢
-			shadow = &model.Shadow{DeviceID: deviceID, Desired: []byte(`{}`), Reported: []byte(`{}`)}
-			if err := h.svcCtx.ShadowModel.Insert(ctx, shadow); err != nil {
+	for attempt := 0; attempt < mergeReportedMaxAttempts; attempt++ {
+		s, err := h.svcCtx.ShadowModel.FindByDeviceID(ctx, deviceID)
+		if err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
-		} else {
+			// 影子缺失(如历史设备), 补建后再走正常路径, 保证上报不丢
+			s = &model.Shadow{DeviceID: deviceID, Desired: []byte(`{}`), Reported: []byte(`{}`)}
+			if err := h.svcCtx.ShadowModel.Insert(ctx, s); err != nil {
+				return err
+			}
+		}
+
+		reported := map[string]any{}
+		if len(s.Reported) > 0 {
+			_ = json.Unmarshal(s.Reported, &reported)
+		}
+		for k, v := range metrics {
+			reported[k] = v
+		}
+		b, err := json.Marshal(reported)
+		if err != nil {
 			return err
 		}
-	}
 
-	reported := map[string]any{}
-	if len(shadow.Reported) > 0 {
-		_ = json.Unmarshal(shadow.Reported, &reported)
+		rows, err := h.svcCtx.ShadowModel.UpdateReported(ctx, deviceID, b, s.Version)
+		if err != nil {
+			return err
+		}
+		if rows > 0 {
+			return nil
+		}
+		// 0 行: 并发写入导致版本冲突, 重读快照后重试
+		h.Infof("影子写入版本冲突, 重试: deviceId=%s, attempt=%d", deviceID, attempt+1)
 	}
-	for k, v := range metrics {
-		reported[k] = v
-	}
-	b, err := json.Marshal(reported)
-	if err != nil {
-		return err
-	}
-	return h.svcCtx.ShadowModel.SaveReported(ctx, deviceID, b)
+	return fmt.Errorf("影子 reported 写入重试耗尽: deviceId=%s", deviceID)
 }
 
 func toFloat(v any) (float64, bool) {

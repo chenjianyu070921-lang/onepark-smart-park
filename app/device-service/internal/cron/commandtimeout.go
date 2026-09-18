@@ -16,12 +16,14 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// 默认参数
+// 默认参数: 配置缺省/填了非法值时兜底, 正常取值以 etc/device-api.yaml 为准
+// (TimeoutScanIntervalSec / TimeoutScanBatchLimit / CommandMaxResend / CommandTimeoutSec).
 const (
-	defaultIntervalSec = 15
-	defaultBatchLimit  = 200
-	defaultMaxResend   = 2
-	resendKeyTTL       = 3600 // 重发计数 TTL(秒)
+	defaultIntervalSec    = 15
+	defaultBatchLimit     = 200
+	defaultMaxResend      = 2
+	defaultCommandTimeout = 30   // 指令超时(秒), 对应配置 CommandTimeoutSec
+	resendKeyTTL          = 3600 // 重发计数 TTL(秒)
 )
 
 // CommandTimeoutTask 指令超时扫描任务.
@@ -83,7 +85,7 @@ func (t *CommandTimeoutTask) scanOnce(ctx context.Context) {
 	for _, cmd := range list {
 		timeoutSec := t.svcCtx.Config.CommandTimeoutSec
 		if timeoutSec <= 0 {
-			timeoutSec = 30
+			timeoutSec = defaultCommandTimeout
 		}
 
 		// 下行通道可用且未达重发上限 -> 重发并重新计时

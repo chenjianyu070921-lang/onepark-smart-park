@@ -24,6 +24,8 @@ type Handler struct {
 	logx.Logger
 	svcCtx   *svc.ServiceContext
 	deviceID string
+	tenantID int64  // 认证时从设备档案捕获, 供消息充入
+	zoneID   string // 同上
 	authed   bool
 }
 
@@ -183,6 +185,8 @@ func (h *Handler) auth(ctx context.Context, f *Frame, remote string) (Response, 
 
 	h.authed = true
 	h.deviceID = device.DeviceID
+	h.tenantID = device.TenantID
+	h.zoneID = device.ZoneID
 
 	if err := h.svcCtx.DeviceModel.UpdateOnline(ctx, device.DeviceID, model.DeviceStatusOnline, time.Now()); err != nil {
 		h.Errorf("设备上线状态回写失败: deviceId=%s, err=%v", device.DeviceID, err)
@@ -213,9 +217,11 @@ func (h *Handler) publish(ctx context.Context, f *Frame, eventType string, paylo
 
 	msg := Message{
 		RequestID:  requestID,
+		TenantID:   h.tenantID,
 		DeviceID:   h.deviceID,
 		DeviceType: f.DeviceType,
 		EventType:  eventType,
+		ZoneID:     h.zoneID,
 		OccurredAt: occurredAt,
 		Payload:    raw,
 		Source:     "tcp-gateway",
@@ -228,7 +234,7 @@ func (h *Handler) publish(ctx context.Context, f *Frame, eventType string, paylo
 	if err := h.svcCtx.Producer.Publish(ctx, kafka.TopicDeviceTelemetry, []byte(h.deviceID), value); err != nil {
 		return err
 	}
-	if _, ok := alarmEventTypes[eventType]; ok {
+	if kafka.IsAlarmEvent(eventType) {
 		if err := h.svcCtx.Producer.Publish(ctx, kafka.TopicAlarm, []byte(h.deviceID), value); err != nil {
 			h.Errorf("告警事件投递失败: deviceId=%s, requestId=%s, err=%v", h.deviceID, requestID, err)
 		}

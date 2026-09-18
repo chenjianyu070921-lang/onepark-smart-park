@@ -33,7 +33,7 @@ func main() {
 	// 使用已展开环境变量的 config
 	c = ctx.Config
 
-	handler := dispatch.NewHandler(ctx.Producer)
+	handler := dispatch.NewHandler(ctx.Producer, ctx.Resolver)
 
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(c.EMQXBroker)

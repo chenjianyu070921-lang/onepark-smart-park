@@ -29,6 +29,8 @@ type Device struct {
 	DeviceName   string         `gorm:"column:device_name"`
 	DeviceSecret string         `gorm:"column:device_secret"`
 	ProductKey   string         `gorm:"column:product_key"`
+	TenantID     int64          `gorm:"column:tenant_id"` // 消息充入用, 见 frame.Handler
+	ZoneID       string         `gorm:"column:zone_id"`
 	Status       int8           `gorm:"column:status"`
 	LastOnlineAt *time.Time     `gorm:"column:last_online_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"column:deleted_at"`
