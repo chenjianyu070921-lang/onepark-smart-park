@@ -173,7 +173,7 @@ func openTestDB(t *testing.T) *gormx.DB {
 // 幂等靠的是 uk_alarm_id 唯一索引, 而不是应用层的"先查后插"(那有并发竞态)。
 func TestHandle_Idempotent(t *testing.T) {
 	db := openTestDB(t)
-	h := NewAlarmHandler(db, 1)
+	h := NewAlarmHandler(db)
 	ctx := context.Background()
 
 	alarmID := fmt.Sprintf("req-test-%d", time.Now().UnixNano())
@@ -229,7 +229,7 @@ func TestHandle_Idempotent(t *testing.T) {
 // 若返回 error, 位移不提交, 整条分区会被这一条毒消息卡死。
 func TestHandle_BadMessageNotBlocking(t *testing.T) {
 	db := openTestDB(t)
-	h := NewAlarmHandler(db, 1)
+	h := NewAlarmHandler(db)
 
 	for _, bad := range []string{`{`, `{"device_id":"d1"}`, ``} {
 		if err := h.Handle(context.Background(), []byte(bad)); err != nil {

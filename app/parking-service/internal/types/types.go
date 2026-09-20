@@ -56,3 +56,61 @@ type ParkingRecordResp struct {
 	Fee         string `json:"fee,optional"`          // 停车费(decimal 字符串, 避免浮点误差)
 	Status      int8   `json:"status"`                // 1停车中 2已完成
 }
+
+// CreateMonthlyCardReq 创建月卡请求(P2 月卡管理).
+type CreateMonthlyCardReq struct {
+	PlateNo   string `json:"plate_no"`            // 车牌号
+	OwnerName string `json:"owner_name,optional"` // 车主姓名
+	Phone     string `json:"phone,optional"`      // 联系电话
+	StartTime int64  `json:"start_time"`          // 生效起(秒级时间戳)
+	EndTime   int64  `json:"end_time"`            // 生效止(秒级时间戳, 须晚于生效起)
+}
+
+// MonthlyCardResp 月卡响应.
+type MonthlyCardResp struct {
+	Id        int64  `json:"id"`                  // 月卡ID
+	PlateNo   string `json:"plate_no"`            // 车牌号
+	OwnerName string `json:"owner_name,optional"` // 车主姓名
+	Phone     string `json:"phone,optional"`      // 联系电话
+	StartTime int64  `json:"start_time"`          // 生效起(秒级时间戳)
+	EndTime   int64  `json:"end_time"`            // 生效止(秒级时间戳, 到期时间)
+	Status    int8   `json:"status"`              // 1生效 2停用
+}
+
+// MonthlyCardIdReq 月卡ID请求(停用).
+type MonthlyCardIdReq struct {
+	Id int64 `json:"id"` // 月卡ID
+}
+
+// RenewMonthlyCardReq 月卡续费请求(P2: 延长有效期).
+type RenewMonthlyCardReq struct {
+	Id      int64 `json:"id"`       // 月卡ID
+	EndTime int64 `json:"end_time"` // 新到期时间(秒级, 须晚于当前到期时间)
+}
+
+// ListMonthlyCardsReq 月卡分页请求(P2: 到期提醒经 expiring_days 筛选).
+type ListMonthlyCardsReq struct {
+	Status       int8   `form:"status,optional"`        // 1生效 2停用, 0不限
+	PlateNo      string `form:"plate_no,optional"`      // 车牌模糊查询
+	ExpiringDays int64  `form:"expiring_days,optional"` // 到期提醒: 仅返回 N 天内到期的生效月卡
+	Page         int64  `form:"page"`                   // 页码(从1开始)
+	PageSize     int64  `form:"page_size"`              // 每页大小
+}
+
+// MonthlyCardItem 月卡列表项.
+type MonthlyCardItem struct {
+	Id        int64  `json:"id"`                  // 月卡ID
+	PlateNo   string `json:"plate_no"`            // 车牌号
+	OwnerName string `json:"owner_name,optional"` // 车主姓名
+	Phone     string `json:"phone,optional"`      // 联系电话
+	StartTime int64  `json:"start_time"`          // 生效起(秒级时间戳)
+	EndTime   int64  `json:"end_time"`            // 生效止(秒级时间戳)
+	Status    int8   `json:"status"`              // 1生效 2停用
+	DaysLeft  int64  `json:"days_left,optional"`  // 剩余有效天数(到期提醒展示用)
+}
+
+// MonthlyCardListResp 月卡分页响应.
+type MonthlyCardListResp struct {
+	Total int64             `json:"total"` // 总数
+	List  []MonthlyCardItem `json:"list"`  // 当前页数据
+}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"onepark/app/parking-service/internal/model"
+	"onepark/common/gormx"
 	"onepark/common/kafka"
 
 	kafkago "github.com/segmentio/kafka-go"
@@ -22,17 +23,22 @@ import (
 // keyDedup 消费幂等键前缀, 完整键形如 parking:dedup:{幂等ID}.
 const keyDedup = "parking:dedup:"
 
-// parkingTelemetry 从标准设备遥测信封归一化出的停车业务事件.
-// 信封本体复用 common/kafka.DeviceTelemetry(全仓唯一权威定义, 契约见 common/kafka/contract.go),
-// 此处仅承载停车业务取值, 不再本地重复定义 DeviceTelemetry(违反契约"各服务不得再本地定义同名结构").
-type parkingTelemetry struct {
-	RequestID   string // 幂等键(M1 侧生成); 缺失时按指纹降级
-	TenantID    int64  // 园区ID(RBAC 隔离)
-	DeviceID    string // 上报设备ID
-	Event       string // entry(入场)/exit(离场), 来自信封 EventType
-	Timestamp   int64  // 事件时间(秒), 来自信封 OccurredAt
-	PlateNo     string // 车牌号(从信封 Payload 提取)
-	VehicleType int8   // 1月卡 2临时 3VIP 4异常(从信封 Payload 提取)
+// deviceTelemetry M1 设备遥测消息(地磁/门禁上报), 由 parking-service 消费驱动停车记录.
+// 信封字段与三个生产者(event-dispatcher MQTT / device-service http-fallback /
+// gateway-service tcp-gateway)的 Message 结构保持一致 —— P0-2 兼容性验证结论(2026-09-17):
+// 旧扁平格式(event/plate_no/timestamp 在顶层)对真实链路完全不兼容, 已按标准信封适配.
+type deviceTelemetry struct {
+	RequestID   string          `json:"request_id"`   // 幂等键(M1 侧生成); 缺失时按指纹降级
+	EventType   string          `json:"event_type"`   // 标准信封事件类型(entry/exit)
+	OccurredAt  int64           `json:"occurred_at"`  // 标准信封事件时间(Unix 秒)
+	DeviceID    string          `json:"device_id"`    // 上报设备ID(地磁/门禁)
+	Source      string          `json:"source"`       // 消息来源通道: mqtt / http-fallback / tcp-gateway
+	Payload     json.RawMessage `json:"payload"`      // 标准信封业务载荷(telemetryPayload)
+	TenantID    int64           `json:"tenant_id"`    // 园区ID(RBAC 隔离)
+	PlateNo     string          `json:"plate_no"`     // 车牌号
+	VehicleType int8            `json:"vehicle_type"` // 1月卡 2临时 3VIP 4异常
+	Event       string          `json:"event"`        // 旧字段名, 兜底回退
+	Timestamp   int64           `json:"timestamp"`    // 旧时间字段, 兜底回退
 }
 
 // telemetryPayload 标准信封 payload 内的停车业务字段约定(设备侧/联调直投需按此上报).
@@ -42,18 +48,27 @@ type telemetryPayload struct {
 	VehicleType int8   `json:"vehicle_type"`
 }
 
-// normalizeTelemetry 将标准设备遥测信封(kafka.DeviceTelemetry)归一化为停车业务事件:
-// 停车业务字段(tenant_id/plate_no/vehicle_type)位于信封 Payload 内;
+// normalizeTelemetry 将原始报文归一化为停车业务可用的遥测事件:
+// 兼容标准信封(event_type + payload 业务字段)与旧扁平格式(event/plate_no/timestamp 顶层);
 // 事件时间缺省回落到当前时间, 保证 EntryTime 恒有值.
-func normalizeTelemetry(raw *kafka.DeviceTelemetry) *parkingTelemetry {
-	t := &parkingTelemetry{
-		RequestID: raw.RequestID,
-		TenantID:  raw.TenantID,
-		DeviceID:  raw.DeviceID,
-		Event:     raw.EventType,
-		Timestamp: raw.OccurredAt,
+func normalizeTelemetry(raw *deviceTelemetry) *deviceTelemetry {
+	t := &deviceTelemetry{
+		RequestID:   raw.RequestID,
+		TenantID:    raw.TenantID,
+		DeviceID:    raw.DeviceID,
+		Event:       raw.EventType,
+		PlateNo:     raw.PlateNo,
+		VehicleType: raw.VehicleType,
+		Timestamp:   raw.OccurredAt,
 	}
-	// 停车业务字段在信封 Payload 内(见 telemetryPayload).
+	// 旧扁平格式字段兜底.
+	if t.Event == "" {
+		t.Event = raw.Event
+	}
+	if t.Timestamp <= 0 {
+		t.Timestamp = raw.Timestamp
+	}
+	// 标准链路的停车业务字段在 payload 内.
 	if len(raw.Payload) > 0 {
 		var p telemetryPayload
 		if e := json.Unmarshal(raw.Payload, &p); e == nil {
@@ -77,7 +92,7 @@ func normalizeTelemetry(raw *kafka.DeviceTelemetry) *parkingTelemetry {
 // IdempotentID 返回写入 parking_record.request_id 的幂等键.
 // 优先使用消息自带 request_id; 缺失时按 sha1(device|event|plate|timestamp) 生成指纹降级.
 // 禁止用 partition-offset 作幂等键: 重放时 offset 变化会导致重复处理.
-func (t *parkingTelemetry) IdempotentID() string {
+func (t *deviceTelemetry) IdempotentID() string {
 	if r := strings.TrimSpace(t.RequestID); r != "" {
 		return r
 	}
@@ -91,7 +106,7 @@ func (t *parkingTelemetry) IdempotentID() string {
 // 幂等(L1 + L3): Kafka 是 at-least-once, 重平衡/重投会让同一条消息被处理多次。
 // 没有幂等时入场会建出多条"停车中"记录, 离场会重复计费并重复广播事件。
 func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Message) error {
-	var raw kafka.DeviceTelemetry
+	var raw deviceTelemetry
 	if err := json.Unmarshal(msg.Value, &raw); err != nil {
 		// 坏消息: 重试多少次结果都一样, 只能记日志跳过(返回 nil 提交位移),
 		// 否则单条坏消息会卡死整个分区(毒丸). parking 没有死信台账, 坏消息不可重放.
@@ -118,7 +133,7 @@ func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Messag
 // seen 判定该消息是否已处理过(L1).
 // 幂等组件不可用(Redis 故障)时返回 error, 由消费端重投 —— 放行一条重复消息会导致重复计费,
 // 代价远大于短暂积压, 与 alarm-service 的策略保持一致.
-func (s *ServiceContext) seen(ctx context.Context, t *parkingTelemetry) (bool, error) {
+func (s *ServiceContext) seen(ctx context.Context, t *deviceTelemetry) (bool, error) {
 	if s.Dedup == nil {
 		// 未配置 Redis 时无法去重: 交给 L3 唯一索引兜底, 不阻断消费.
 		return false, nil
@@ -132,7 +147,9 @@ func (s *ServiceContext) seen(ctx context.Context, t *parkingTelemetry) (bool, e
 }
 
 // onTelemetryEntry 入场: 新建停车记录(停车中).
-func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *parkingTelemetry) error {
+// 月卡车辆识别(P2): 事件未携带车型(vehicle_type=0)时按月卡表自动判定,
+// 命中生效月卡按月卡计费(fee=0), 否则按临时车计费; 判定结果随入场定格, 离场按此计费.
+func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetry) error {
 	id := t.IdempotentID()
 	seen, err := s.seen(ctx, t)
 	if err != nil {
@@ -144,12 +161,18 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *parkingTelemet
 	}
 
 	now := time.Now()
-	entryTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 与离场计费口径一致
+	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
+
+	vehicleType := t.VehicleType
+	if vehicleType == 0 {
+		vehicleType = ResolveVehicleType(s.DB, t.TenantID, t.PlateNo, eventTime)
+	}
+
 	rec := &model.ParkingRecord{
 		PlateNo:     t.PlateNo,
-		VehicleType: t.VehicleType,
+		VehicleType: vehicleType,
 		DeviceIDIn:  t.DeviceID,
-		EntryTime:   &entryTime,
+		EntryTime:   &eventTime,
 		Status:      model.ParkingStatusParking,
 		RequestID:   &id,
 	}
@@ -174,7 +197,7 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *parkingTelemet
 }
 
 // onTelemetryExit 离场: 更新最近一条停车中记录, 计算时长与费用并置已完成.
-func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *parkingTelemetry) error {
+func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry) error {
 	id := t.IdempotentID()
 	seen, err := s.seen(ctx, t)
 	if err != nil {
@@ -248,6 +271,16 @@ func (s *ServiceContext) publish(ctx context.Context, topic, key string, value [
 	}
 }
 
+// ResolveVehicleType 月卡车辆识别(P2): 入场时事件未携带车型时调用.
+// 命中生效月卡(时间窗覆盖入场时刻)按月卡计费, 否则按临时车计费;
+// DB 未初始化时降级为临时车, 不阻断入场.
+func ResolveVehicleType(db *gormx.DB, tenantID int64, plateNo string, at time.Time) int8 {
+	if model.HasActiveMonthlyCard(db, tenantID, plateNo, at) {
+		return model.VehicleTypeMonthly
+	}
+	return model.VehicleTypeTemp
+}
+
 // CalcFee 简化计费: 月卡/VIP 免费, 临时车首 15 分钟免费, 之后 5 元/小时向上取整.
 func CalcFee(entry, exit *time.Time, vehicleType int8) float64 {
 	switch vehicleType {
@@ -272,7 +305,7 @@ func msgOf(rec *model.ParkingRecord) []byte {
 }
 
 // alarmMsg 生成异常车辆告警事件消息体(对齐 common.AlarmEvent 关键字段).
-func alarmMsg(t *parkingTelemetry) []byte {
+func alarmMsg(t *deviceTelemetry) []byte {
 	b, _ := json.Marshal(map[string]interface{}{
 		"device_id": t.DeviceID,
 		"severity":  2,

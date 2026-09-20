@@ -17,9 +17,7 @@ const (
 	ActionStart   = "start"  // 开始处理: 已指派 -> 处理中
 	ActionFinish  = "finish" // 完成: 处理中 -> 已完成
 	ActionClose   = "close"  // 关闭: 任意非终态 -> 已关闭
-	// ActionExpire 指派超时未接单, 自动退回「待指派」(internal/cron/expire.go 审计留痕用).
-	// 与 ActionRelease 同为 已指派 -> 待指派, 但触发源不同(超时 vs 主动释放), 审计需区分.
-	ActionExpire = "expire"
+	ActionExpire  = "expire" // 超时退回: 已指派 -> 待指派(assign_expire_at 超时自动重派)
 )
 
 // transitions 合法状态转移表: from -> action -> to.
@@ -31,7 +29,6 @@ var transitions = map[int8]map[string]int8{
 	model.StatusAssigned: {
 		ActionAssign:  model.StatusAssigned,      // 改派(含超时自动重派)
 		ActionRelease: model.StatusPendingAssign, // 释放回待指派池(见 ActionRelease 注释)
-		ActionExpire:  model.StatusPendingAssign, // 指派超时退回待指派(见 ActionExpire 注释)
 		ActionStart:   model.StatusProcessing,
 		ActionClose:   model.StatusClosed,
 	},

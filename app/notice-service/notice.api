@@ -48,11 +48,38 @@ type NoticeListResp {
 	List  []NoticeItem `json:"list"`
 }
 
+// NoticeUnreadCountResp 未读计数响应(站内信送达未读数, 来源于 notice_read)
+type NoticeUnreadCountResp {
+	UnreadCount int64 `json:"unread_count"`
+}
+
+// MarkNoticeReadReq 公告已读回填请求(当前登录用户对指定公告回填已读时间)
+type MarkNoticeReadReq {
+	NoticeId int64 `json:"notice_id"`
+}
+
+// MarkNoticeReadResp 公告已读回填响应
+type MarkNoticeReadResp {
+	Updated int64 `json:"updated"` // 实际回填条数(0=无未读记录或已读)
+}
+
 service notice-api {
 	@handler CreateNotice
 	post /api/notice (CreateNoticeReq) returns (NoticeResp)
 
 	@handler ListNotices
 	get /api/notices (ListNoticeReq) returns (NoticeListResp)
+
+	// 站内信未读计数(P2: notice_read 中当前用户 read_at IS NULL 条数)
+	@handler NoticeUnreadCount
+	get /api/notices/unread-count returns (NoticeUnreadCountResp)
+
+	// 公告已读回填(P2: 与未读计数配套, 当前用户对指定公告回填 read_at)
+	@handler MarkNoticeRead
+	post /api/notices/read (MarkNoticeReadReq) returns (MarkNoticeReadResp)
+
+	// 公告已读回填(路径参数版别名, 与上面 body 版同语义同逻辑, 评审 P1 要求的 RESTful 风格)
+	@handler MarkNoticeReadById
+	post /api/notice/:id/read returns (MarkNoticeReadResp)
 }
 
