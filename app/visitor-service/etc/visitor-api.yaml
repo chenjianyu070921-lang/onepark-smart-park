@@ -19,7 +19,7 @@ Kafka:
 # M1 device-service gRPC(访客签入开门联动); NonBlock 允许 M1 未就绪时启动, 调用失败降级
 DeviceRPC:
   Endpoints:
-    - 127.0.0.1:9001
+    - ${DEVICE_RPC_ENDPOINTS:-127.0.0.1:9001}
   NonBlock: true
 
 # 门岗开门设备(M1 设备中心注册的 device_id 与开门指令名)

@@ -60,7 +60,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/workorder/:id/attachments",
 				Handler: ListWorkOrderAttachmentsHandler(serverCtx),
 			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/health",
+				Handler: health.Handler(serverCtx.DB, serverCtx.Redis),
+			},
 		},
-		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
 	)
 }
