@@ -45,7 +45,9 @@ var ErrMalformedEvent = errors.New("alarm: malformed device event")
 // 远小于 Consumer.Group.Rebalance.Timeout(60s), 不会触发不必要的重平衡.
 var retryBackoff = []time.Duration{100 * time.Millisecond, 500 * time.Millisecond, 2 * time.Second}
 
-// DeviceEvent M1 设备遥测事件, 与 M1 约定的 DeviceEvent v1 结构.
+// DeviceEvent M1 设备遥测事件, 按 common/kafka.DeviceTelemetry 统一契约(2026-09-18 定稿)解析:
+// 事件时间取 occurred_at(Unix 秒), 区域取 zone_id(能源区域编码).
+// AreaID/Timestamp 为契约定稿前的旧字段, 仅用于兼容历史消息, 新生产端不会发送.
 // 字段缺失时的降级策略见 IdempotentID / MatchIntrusionRule 注释.
 type DeviceEvent struct {
 	RequestID  string          `json:"request_id"`
@@ -53,20 +55,34 @@ type DeviceEvent struct {
 	DeviceID   string          `json:"device_id"`
 	DeviceType string          `json:"device_type"`
 	EventType  string          `json:"event_type"`
-	AreaID     int64           `json:"area_id"`
+	ZoneID     string          `json:"zone_id"`     // 能源区域编码, 空表示未分区
+	OccurredAt int64           `json:"occurred_at"` // 事件时间(Unix 秒)
 	Payload    json.RawMessage `json:"payload"`
-	Timestamp  int64           `json:"timestamp"` // 事件时间(毫秒)
+	AreaID   int64 `json:"area_id"`   // 旧契约字段(历史消息兼容)
+	Timestamp int64 `json:"timestamp"` // 旧契约字段, 毫秒(历史消息兼容)
+}
+
+// EventTime 返回事件时间的 Unix 秒.
+// 优先统一契约的 occurred_at; 历史消息仅有 timestamp(毫秒) 时换算; 均缺失返回 0.
+func (e DeviceEvent) EventTime() int64 {
+	if e.OccurredAt > 0 {
+		return e.OccurredAt
+	}
+	if e.Timestamp > 0 {
+		return e.Timestamp / 1000
+	}
+	return 0
 }
 
 // IdempotentID 返回写入 alarm.request_id 的幂等键.
-// 优先使用消息自带 request_id; 缺失时按 sha1(deviceId|eventType|timestamp) 生成指纹降级,
+// 优先使用消息自带 request_id; 缺失时按 sha1(deviceId|eventType|EventTime) 生成指纹降级,
 // 并打 WARN 计数, 以推动 M1 补齐 request_id (P0-2).
 // 禁止用 partition-offset 作幂等键: 重放时 offset 变化会导致重复处理.
 func (e DeviceEvent) IdempotentID() string {
 	if r := strings.TrimSpace(e.RequestID); r != "" {
 		return r
 	}
-	raw := strings.Join([]string{e.DeviceID, e.EventType, strconv.FormatInt(e.Timestamp, 10)}, "|")
+	raw := strings.Join([]string{e.DeviceID, e.EventType, strconv.FormatInt(e.EventTime(), 10)}, "|")
 	sum := sha1.Sum([]byte(raw))
 	return "fp:" + hex.EncodeToString(sum[:])
 }
@@ -93,6 +109,7 @@ func (e DeviceEvent) RuleFields() rule.Fields {
 		DeviceID:   e.DeviceID,
 		DeviceType: e.DeviceType,
 		AreaID:     e.AreaID,
+		ZoneID:     e.ZoneID,
 		TenantID:   e.TenantID,
 		Payload:    payload,
 	}

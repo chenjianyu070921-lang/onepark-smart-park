@@ -17,6 +17,8 @@ TOPICS=(
   "onepark.alarm.event:3"  # M3 告警生命周期事件
   "notice-event:3"         # 公告发布事件
   "workorder-event:3"      # 工单状态事件
+  "visitor-event:3"        # M2 访客事件
+  "event-dispatcher-dlq:3" # M1 event-dispatcher 死信(broker 关闭 auto-create 时必须预建)
 )
 
 echo "[init-topics] bootstrap=${BOOTSTRAP} replication=${REPLICATION}"

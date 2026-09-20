@@ -190,11 +190,12 @@ type Fields struct {
 	DeviceID   string
 	DeviceType string
 	AreaID     int64
+	ZoneID     string // M1 统一契约的能源区域编码, 旧消息/未分区设备为空
 	TenantID   int64
 	Payload    map[string]interface{}
 }
 
-// ResolveField 按路径取值: 支持 payload.xxx(可多级)、event_type、device_id、device_type、area_id、tenant_id.
+// ResolveField 按路径取值: 支持 payload.xxx(可多级)、event_type、device_id、device_type、area_id、zone_id、tenant_id.
 func (f Fields) ResolveField(path string) (interface{}, bool) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -209,6 +210,8 @@ func (f Fields) ResolveField(path string) (interface{}, bool) {
 		return f.DeviceType, true
 	case "area_id":
 		return f.AreaID, true
+	case "zone_id":
+		return f.ZoneID, true
 	case "tenant_id":
 		return f.TenantID, true
 	}
