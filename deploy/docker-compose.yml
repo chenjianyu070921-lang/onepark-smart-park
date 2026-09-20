@@ -60,6 +60,7 @@ services:
     restart: unless-stopped
     environment:
       TAOS_FQDN: tdengine
+      TAOS_PASSWORD: ${TDENGINE_PASSWORD}
       TZ: Asia/Shanghai
     ports:
       - "${TDENGINE_PORT}:6030"

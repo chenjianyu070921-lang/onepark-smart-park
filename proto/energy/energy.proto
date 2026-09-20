@@ -9,4 +9,23 @@ import "common/common.proto";
 service EnergyDataService {
   // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
   rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
+
+  // 54: 供 M5 dashboard-service 大屏查询当日总能耗
+  rpc GetDailyReport(GetDailyReportRequest) returns (GetDailyReportResponse);
+}
+
+// GetDailyReportRequest 当日能耗查询条件
+message GetDailyReportRequest {
+  // date 统计哪一天, 格式 2026-09-15; 空表示今天
+  string date = 1;
+  // zone_id 只看某个区域, 如 A栋; 空表示全园区
+  string zone_id = 2;
+}
+
+// GetDailyReportResponse 当日能耗汇总
+message GetDailyReportResponse {
+  string date = 1;           // 统计日期, 如 2026-09-15
+  string zone_id = 2;        // 区域, 空表示全园区
+  double total_usage_kwh = 3; // 当日总用量(度) = 各设备(期末读数-期初读数)求和
+  string updated_at = 4;      // 最新一条数据的采集时间
 }

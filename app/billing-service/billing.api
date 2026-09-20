@@ -1,15 +1,139 @@
 syntax = "v1"
 
-type Request {
-	Name string `path:"name,options=you|me"`
+// ============ 接口 59: 创建计费规则 ============
+// POST /api/billing/rule
+// 三种规则类型(ruleType): 1单一 2阶梯 3峰谷
+// config 的三种写法:
+//
+// ruleType=1: {"price": 0.65}
+// ruleType=2: {"tiers": [{"upTo":100,"price":0.60},{"upTo":300,"price":0.80},{"upTo":null,"price":1.00}]}
+// ruleType=3: {"base":0.60, "periods":[{"name":"峰","from":"08:00","to":"11:00","price":1.05}]}
+// TierItem 阶梯的一档: upTo 是本档的上限(度), 为 null 表示不封顶
+// 注意: upTo 必须标 optional, 否则框架会把最后一档的 null 当成"参数缺失"直接拒绝
+type TierItem {
+	UpTo  *float64 `json:"upTo,optional"`
+	Price float64  `json:"price"`
 }
 
-type Response {
-	Message string `json:"message"`
+// PeriodItem 峰谷的一个时段: from/to 是 "HH:MM", 跨零点也支持(如 23:00 → 07:00)
+type PeriodItem {
+	Name  string  `json:"name"`
+	From  string  `json:"from"`
+	To    string  `json:"to"`
+	Price float64 `json:"price"`
+}
+
+// RuleConfig 规则明细, 按 ruleType 只用其中一部分字段
+type RuleConfig {
+	Price   float64      `json:"price,optional"` // ruleType=1 的电价(元/度)
+	Base    float64      `json:"base,optional"` // ruleType=3 的平段电价(没被 periods 覆盖的小时按它算)
+	Tiers   []TierItem   `json:"tiers,optional"` // ruleType=2 的阶梯档位
+	Periods []PeriodItem `json:"periods,optional"` // ruleType=3 的峰谷时段
+}
+
+type RuleCreateRequest {
+	Name     string     `json:"name"`
+	ZoneId   string     `json:"zoneId,optional"` // 不传表示全园区默认规则
+	RuleType int64      `json:"ruleType"` // 1单一 2阶梯 3峰谷
+	Config   RuleConfig `json:"config"`
+}
+
+type RuleCreateResponse {
+	Id int64 `json:"id"`
+}
+
+// ============ 接口 60: 计费规则列表 ============
+// GET /api/billing/rules?zoneId=A栋&status=1
+type RuleListRequest {
+	ZoneId string `form:"zoneId,optional"`
+	Status string `form:"status,optional"` // 1启用 0停用, 不传查全部
+}
+
+// RuleItem 一条规则
+type RuleItem {
+	Id        int64      `json:"id"`
+	Name      string     `json:"name"`
+	ZoneId    string     `json:"zoneId"`
+	RuleType  int64      `json:"ruleType"`
+	Config    RuleConfig `json:"config"`
+	Status    int64      `json:"status"`
+	CreatedAt string     `json:"createdAt"`
+}
+
+type RuleListResponse {
+	Total int64      `json:"total"`
+	List  []RuleItem `json:"list"`
+}
+
+// ============ 接口 61: 生成账单 ============
+// POST /api/billing/generate
+// 按区域 + 账期(月份)算用量, 匹配规则算出金额, 落一条账单
+type BillGenerateRequest {
+	ZoneId string `json:"zoneId"`
+	Period string `json:"period"` // 账期, 如 2026-09; 不传默认本月
+	RuleId int64  `json:"ruleId,optional"` // 指定规则; 不传就自动找该区域(或全园区)启用的规则
+}
+
+// BillDetailItem 账单明细的一行: 阶梯的每一档, 或峰谷的每一个时段
+type BillDetailItem {
+	Name   string  `json:"name"`
+	Usage  float64 `json:"usage"` // 这一档/这个时段用了多少度
+	Price  float64 `json:"price"` // 单价
+	Amount float64 `json:"amount"` // 这一档/这个时段多少钱
+}
+
+type BillGenerateResponse {
+	BillNo      string           `json:"billNo"`
+	ZoneId      string           `json:"zoneId"`
+	PeriodStart string           `json:"periodStart"`
+	PeriodEnd   string           `json:"periodEnd"`
+	RuleId      int64            `json:"ruleId"`
+	RuleName    string           `json:"ruleName"`
+	UsageKwh    float64          `json:"usageKwh"`
+	Amount      float64          `json:"amount"`
+	Detail      []BillDetailItem `json:"detail"`
+}
+
+// ============ 接口 62: 账单列表 ============
+// GET /api/billing/bills?zoneId=A栋&status=1&page=1&pageSize=10
+type BillListRequest {
+	ZoneId   string `form:"zoneId,optional"`
+	Status   string `form:"status,optional"` // 1待缴 2已缴 3作废
+	Page     int64  `form:"page,optional"` // 从 1 开始, 默认 1
+	PageSize int64  `form:"pageSize,optional"` // 默认 10
+}
+
+// BillItem 一条账单
+type BillItem {
+	BillNo      string  `json:"billNo"`
+	ZoneId      string  `json:"zoneId"`
+	RuleId      int64   `json:"ruleId"`
+	PeriodStart string  `json:"periodStart"`
+	PeriodEnd   string  `json:"periodEnd"`
+	UsageKwh    float64 `json:"usageKwh"`
+	Amount      float64 `json:"amount"`
+	Status      int64   `json:"status"`
+	CreatedAt   string  `json:"createdAt"`
+}
+
+type BillListResponse {
+	Total    int64      `json:"total"`
+	Page     int64      `json:"page"`
+	PageSize int64      `json:"pageSize"`
+	List     []BillItem `json:"list"`
 }
 
 service billing-api {
-	@handler BillingHandler
-	get /from/:name (Request) returns (Response)
+	@handler RuleCreateHandler
+	post /api/billing/rule (RuleCreateRequest) returns (RuleCreateResponse)
+
+	@handler RuleListHandler
+	get /api/billing/rules (RuleListRequest) returns (RuleListResponse)
+
+	@handler BillGenerateHandler
+	post /api/billing/generate (BillGenerateRequest) returns (BillGenerateResponse)
+
+	@handler BillListHandler
+	get /api/billing/bills (BillListRequest) returns (BillListResponse)
 }
 
