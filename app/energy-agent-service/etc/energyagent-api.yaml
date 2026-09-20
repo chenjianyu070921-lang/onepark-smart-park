@@ -1,0 +1,41 @@
+Name: energyagent-api
+Host: 0.0.0.0
+Port: 8064
+
+# 接口超时(毫秒)。默认是 3000, 但巡检要逐个区域查历史+分时+设备, 3 秒不够用
+Timeout: 30000
+
+# MySQL: 组内公用库 onepark-smart-park
+# 读 energy_reading(用量) 与 device(设备台账), 写 agent_run / agent_tool_call / agent_suggestion
+MySQL:
+  DataSource: root:4ay1nkal3u8ed77y@tcp(115.191.16.159:3306)/onepark-smart-park?charset=utf8mb4&parseTime=true&loc=Local
+
+# 大模型(层2, 只负责把规则算出的结论翻译成人话, 不参与异常判定)
+# 用 OpenAI 兼容格式, 换厂商只改这三行, 代码不用动:
+#   DeepSeek: BaseURL https://api.deepseek.com/v1        Model deepseek-chat
+#   通义千问: BaseURL https://dashscope.aliyuncs.com/compatible-mode/v1  Model qwen-plus
+#   智谱:     BaseURL https://open.bigmodel.cn/api/paas/v4  Model glm-4-flash
+#   Kimi:     BaseURL https://api.moonshot.cn/v1         Model moonshot-v1-8k
+# Enable 设为 false、或填了 key 但调用失败时, 自动降级成规则原文, 报告照常出
+LLM:
+  Enable: false
+  BaseURL: https://api.deepseek.com/v1
+  APIKey: "" # 建议启动时用环境变量覆盖, 别把 key 提交到 git
+  Model: deepseek-chat
+  Timeout: 20
+
+# 定时巡检: 每天固定时间自动扫一次昨天的数据
+# 服务启动时会先跑一次(补上可能漏掉的天), 之后每小时检查一次是否到点
+InspectJob:
+  Enable: true
+  Hour: 7 # 早上 7 点扫昨天
+
+# 判定阈值。不写就用代码默认值, 想调灵敏度改这里
+# 调大 = 更保守(少报), 调小 = 更敏感(多报但可能误报)
+Threshold:
+  BaselineDays: 7      # 基线取最近几天的均值
+  SpikeRatio: 1.5      # 单设备超过自身基线 1.5 倍算突增
+  ZoneRatio: 1.3       # 区域超过基线 1.3 倍算普涨
+  NightRatio: 0.25     # 夜间用量占全天 25% 以上算空转
+  MinUsage: 1          # 全天用量不足 1 度的区域跳过, 避免噪音
+  MinConfidence: 0.5   # 置信度低于 0.5 的建议不产出

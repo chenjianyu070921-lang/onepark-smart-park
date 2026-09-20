@@ -20,9 +20,15 @@ Redis:
   Pass: ""
 
 # Kafka: 消费 M1 上报的设备遥测数据(接口55)
-# TODO: topic 名待与 M1 同学确认后定稿
+# Topic 不需要配: 代码直接取 common/kafka.TopicDeviceTelemetry(当前是 device-telemetry),
+# 和 M1 的 device-service / event-dispatcher 用的是同一个常量, 不会再出现两边对不上。
+# 本地联调要换 topic 时, 把下面 Topic 那行的注释打开覆盖即可。
 Kafka:
   Brokers:
     - 127.0.0.1:9092
-  Topic: onepark.device.telemetry
+  # Topic: device-telemetry
   Group: energy-data-group
+
+# 设备既没上报 zone_id、device 表也查不到 building_id 时, 归入这个区域
+# 兜底而不是丢弃: 数据不丢, 看到日报里"未分配"有量就知道要去 device 表补归属
+DefaultZone: 未分配

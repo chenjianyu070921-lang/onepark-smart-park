@@ -16,6 +16,8 @@ type ServiceContext struct {
 	DB *gorm.DB
 	// EnergyReading 能耗读数表的读写方法
 	EnergyReading *model.EnergyReadingModel
+	// Device 只读 M1 的 device 表, 用来给遥测数据补区域归属
+	Device *model.DeviceModel
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -26,5 +28,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Config:        c,
 		DB:            db,
 		EnergyReading: model.NewEnergyReadingModel(db),
+		Device:        model.NewDeviceModel(db),
 	}
 }

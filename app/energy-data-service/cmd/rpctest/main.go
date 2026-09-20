@@ -1,4 +1,5 @@
-// gRPC 调试小工具: 手动测试接口54(GetDailyReport)
+// 常驻联调工具: gRPC 接口没法用 ApiPost 直接测(走的是 HTTP/2, 和浏览器那套不一样),
+// 所以用这个小客户端调接口54(GetDailyReport), 以后新增 gRPC 接口也往这里加用例
 // 用法: 先启动服务(go run . -f etc/energydata-api.yaml), 再执行 go run ./cmd/rpctest
 package main
 
