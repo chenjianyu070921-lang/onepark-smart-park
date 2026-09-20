@@ -8,6 +8,7 @@ import (
 
 	lease "onepark/app/leasing-service/internal/handler/lease"
 	"onepark/app/leasing-service/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -16,9 +17,24 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				Method:  http.MethodPut,
+				Path:    "/bill/:id/status",
+				Handler: lease.BillStatusHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodPost,
 				Path:    "/bill/auto",
 				Handler: lease.BillAutoHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/bills",
+				Handler: lease.BillListHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/bills/summary",
+				Handler: lease.BillSummaryHandler(serverCtx),
 			},
 			{
 				Method:  http.MethodPost,
@@ -50,7 +66,23 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/occupancy",
 				Handler: lease.OccupancyHandler(serverCtx),
 			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/zone",
+				Handler: lease.ZoneUpsertHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/zones",
+				Handler: lease.ZoneListHandler(serverCtx),
+			},
 		},
 		rest.WithPrefix("/api/lease"),
+	)
+
+	server.AddRoutes(
+		[]rest.Route{
+			{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
+		},
 	)
 }

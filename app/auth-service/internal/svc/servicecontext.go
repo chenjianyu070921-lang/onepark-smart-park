@@ -5,6 +5,7 @@ import (
 
 	"onepark/app/auth-service/internal/config"
 	"onepark/common/gormx"
+	"onepark/common/redisx"
 )
 
 // ServiceContext 注入 JWT 配置与 sys_db 连接, 身份校验改为查询用户中心(DB).
@@ -14,6 +15,7 @@ type ServiceContext struct {
 	JwtExpire  int64
 	JwtRefresh int64
 	DB         *gormx.DB
+	Redis      *redisx.Client // 令牌注销黑名单; nil 表示未配置(注销降级为无操作)
 }
 
 // NewServiceContext 构建服务上下文: 初始化 sys_db 连接.
@@ -47,11 +49,18 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		panic(fmt.Sprintf("auth-service: sys_db 连通性检查失败: %v", err))
 	}
 
+	// 可选: 令牌注销黑名单 Redis; 仅当配置了 Addr 才初始化(未配置时注销降级为无操作).
+	var rdb *redisx.Client
+	if c.Redis.Addr != "" {
+		rdb = redisx.NewClient(&c.Redis)
+	}
+
 	return &ServiceContext{
 		Config:     c,
 		JwtSecret:  c.JwtSecret,
 		JwtExpire:  expire,
 		JwtRefresh: refresh,
 		DB:         db,
+		Redis:      rdb,
 	}
 }

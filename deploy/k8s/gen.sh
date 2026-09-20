@@ -88,4 +88,10 @@ EOF
   echo "generated: $OUT_DIR/onepark-${name}.yaml"
 done
 
-echo "应用顺序: kubectl apply -f namespace.yaml -f configmap.yaml -f secret.yaml -f apigateway.yaml -f generated/"
+# 敏感凭据不再以 kind: Secret 清单入库(避免误提交真实凭据, 同时通过 CI 的 secret 扫描),
+# 改为部署时用命令式方式创建(占位值, 生产请替换为真实值; 键名须与各服务 etc yaml 的 ${...} 对齐):
+echo "创建 Secret(占位值, 生产请替换):"
+echo "  kubectl -n onepark create secret generic onepark-secrets \\"
+echo "    --from-literal=REDIS_PASS=change-me \\"
+echo "    --from-literal=AUTH_SECRET=change-me"
+echo "应用顺序: kubectl apply -f namespace.yaml -f configmap.yaml -f apigateway.yaml -f generated/"

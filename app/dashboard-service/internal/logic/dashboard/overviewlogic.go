@@ -15,10 +15,6 @@ import (
 	"onepark/app/dashboard-service/internal/types"
 )
 
-// overviewSF 聚合计算的 singleflight 合并器: 按租户缓存键合并并发未命中,
-// 缓存失效瞬间大量并发请求只触发一次真实聚合, 防缓存击穿.
-var overviewSF singleflight.Group
-
 const (
 	// overviewTimeout 聚合接口整体预算, 保证大屏响应体验.
 	overviewTimeout = 800 * time.Millisecond
@@ -52,7 +48,39 @@ func NewOverviewLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Overview
 	}
 }
 
+// overviewSF 缓存击穿防护: 同一租户的并发请求只放一个进真正的聚合。
+//
+// 不这么做的后果很具体: 30s 缓存过期的那一瞬间, 若正好有 N 个并发请求到达,
+// N 个请求会**同时穿透到四路 gRPC**(500 并发 = 2000 次上游调用) ——
+// 恰好抵消了缓存"减轻 gRPC 压力"的意义。
+//
+// 必须是包级变量: OverviewLogic 是每请求构造的, 挂在实例上等于没有防护。
+var overviewSF singleflight.Group
+
+// overviewOutcome 聚合结果 + 它是否来自缓存.
+type overviewOutcome struct {
+	resp      *types.OverviewResp
+	fromCache bool
+}
+
+// finish 返回一份副本, 并写入"本次请求特有"的两个字段.
+//
+// 必须拷贝: singleflight 的返回值被多个并发调用方共享, 直接在上面改
+// Cached / ElapsedMs 就是数据竞争。浅拷贝足够 —— 这里只改值字段,
+// 不碰 Device/Alarm/Energy/WorkOrder 这些被共享的指针所指的对象。
+//
+// 跟随方(没能执行聚合的那一个)看到 Cached=false 且耗时很短,
+// 语义是准确的: 数据是刚聚合出来的(不是缓存), 只是不是我算的。
+func finish(resp *types.OverviewResp, fromCache bool, start time.Time) *types.OverviewResp {
+	out := *resp
+	out.Cached = fromCache
+	out.ElapsedMs = time.Since(start).Milliseconds()
+	return &out
+}
+
 // Overview 并行拉取 4 路数据源并聚合.
+//
+// 读序: 缓存 -> 击穿防护(singleflight) -> 真正聚合.
 //
 // 降级约定(组长验收口径): 某一路失败时该字段返回 null 并在 degraded 中列出,
 // 接口整体始终返回 200, 绝不因单路失败抛出 5xx.
@@ -61,9 +89,7 @@ func (l *OverviewLogic) Overview(req *types.OverviewReq) (*types.OverviewResp, e
 	cacheKey := overviewCacheKey(req.TenantId)
 
 	if cached, ok := l.readCache(cacheKey); ok {
-		cached.Cached = true
-		cached.ElapsedMs = time.Since(start).Milliseconds()
-		return cached, nil
+		return finish(cached, true, start), nil
 	}
 
 	// 缓存未命中时, 并发请求用 singleflight 合并为一次聚合计算, 防止缓存击穿.
@@ -74,15 +100,15 @@ func (l *OverviewLogic) Overview(req *types.OverviewReq) (*types.OverviewResp, e
 		return nil, err
 	}
 	resp := v.(*types.OverviewResp)
-	resp.Cached = false
-	resp.ElapsedMs = time.Since(start).Milliseconds()
-	return resp, nil
+	// 必须经 finish 拷一份再返回: singleflight 的返回值会被**所有并发调用方共享**,
+	// 在它上面直接改 Cached/ElapsedMs 既是数据竞争, 又会让 N 个调用方拿到同一个指针。
+	// 缓存命中路径同样走 finish, 两条路径保持一致。
+	return finish(resp, false, start), nil
 }
 
 // computeOverview 执行 4 路数据源并行聚合(逐源降级), 结果写入缓存.
 // 与 Overview 分离以便 singleflight 合并并发调用; 单次失败仅标记 degraded, 不返回 error.
 func (l *OverviewLogic) computeOverview(req *types.OverviewReq) (*types.OverviewResp, error) {
-	start := time.Now()
 	cacheKey := overviewCacheKey(req.TenantId)
 
 	resp := &types.OverviewResp{}
@@ -179,8 +205,11 @@ func (l *OverviewLogic) computeOverview(req *types.OverviewReq) (*types.Overview
 
 	resp.Degraded = degraded
 	resp.UpdatedAt = time.Now().Unix()
-	resp.ElapsedMs = time.Since(start).Milliseconds()
+	// ElapsedMs / Cached 刻意不在这里写: 这个对象会被 singleflight 共享给多个
+	// 并发调用方, 在这里写就是数据竞争; 由调用方在 finish 里按"本次请求"填写。
 
+	// 缓存必须**在这里**写: 本函数是 singleflight 真正的聚合体, 每个失效周期只执行一次。
+	// 漏掉这一句的后果是缓存永远填不上 —— 每次请求都会穿透到四路 gRPC, 等于没做缓存。
 	l.writeCache(cacheKey, resp)
 
 	return resp, nil

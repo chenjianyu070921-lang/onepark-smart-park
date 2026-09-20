@@ -12,8 +12,9 @@ Auth:
   Secret: ${AUTH_SECRET}
 
 # 限流依赖的 Redis(令牌桶计数). 未配置或 Redis 不可用时, 限流优雅降级为放行.
+# Addr 与其他业务服务一致用 ${REDIS_ADDR}(compose=redis:6379, 本地联调改 127.0.0.1:6379), 不再硬编码.
 Redis:
-  Addr: redis:6379
+  Addr: ${REDIS_ADDR}
   Pass: ${REDIS_PASS}
   DB: 0
   PoolSize: 50
@@ -71,6 +72,7 @@ Upstreams:
     Target: http://127.0.0.1:8062
   - Prefix: /api/energy/monthly
     Target: http://127.0.0.1:8062
+    
   - Prefix: /api/energy/zone
     Target: http://127.0.0.1:8062
   - Prefix: /api/energy

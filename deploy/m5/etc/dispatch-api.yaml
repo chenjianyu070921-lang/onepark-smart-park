@@ -1,0 +1,33 @@
+# M5 dispatch-service（指挥调度）—— **容器内**配置
+#
+# 与本地开发版的差异：连接目标全部走环境变量（容器内不能用 127.0.0.1）。
+Name: dispatch-api
+Host: 0.0.0.0
+Port: 8053
+
+MySQL:
+  DataSource: "${DISPATCH_MYSQL_DSN}"
+
+Redis:
+  Addr: "${REDIS_ADDR}"
+  Pass: "${REDIS_PASS}"
+  DB: 0
+
+# ===== Kafka 告警事件消费（自动建单）=====
+# 默认关闭。⚠️ 本消费者会**据事件自动建单**（写库），比 dashboard 的"只推送"影响面大，
+# 开启前务必确认：topic 授权、消费组不重名、broker 是否会在消费不存在的 topic 时隐式创建。
+Kafka:
+  Brokers: "${DISPATCH_KAFKA_BROKERS}"
+  Topic: alarm-event
+  # 消费组命名约定 m5-{service}-{env}-{owner}；多实例共享同一 group 才能分摊分区
+  Group: "${DISPATCH_KAFKA_GROUP}"
+  Enabled: false
+
+# ===== 指派超时重派 =====
+# 只读写本服务自己的库，不碰共享设施，故没有 Enabled 开关（停了就是 bug）。
+# 多实例安全：内部用 Redis 分布式锁防重复改派。
+Reassign:
+  IntervalSec: 60
+  MaxReassign: 3
+
+JwtSecret: "${JWT_SECRET}"

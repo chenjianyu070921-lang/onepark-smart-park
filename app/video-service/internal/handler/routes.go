@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"onepark/app/video-service/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -42,6 +43,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/video/camera/:id",
 				Handler: DeleteCameraHandler(serverCtx),
 			},
+		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, nil)},
 		},
 	)
 }

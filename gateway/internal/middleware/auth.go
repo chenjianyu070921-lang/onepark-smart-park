@@ -8,7 +8,9 @@ import (
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 	"onepark/common/jwt"
+	"onepark/common/redisx"
 	"onepark/common/response"
+	"onepark/common/tokenblk"
 )
 
 // Auth 网关统一鉴权中间件: 校验 Bearer Token, 并向转发请求注入身份 Header,
@@ -20,12 +22,15 @@ import (
 // 该公开集合必须与 auth-service 的 publicPaths 保持一致.
 //
 // 这是 RBAC 数据权限生效的前置阻塞项: 只有网关注入 x-tenant-id, 下游才能按租户隔离.
-func Auth(secret string) func(http.HandlerFunc) http.HandlerFunc {
-	// publicPaths 鉴权引导端点(获取/刷新 Token 的入口), 无需 JWT 即可访问.
+func Auth(secret string, rdb *redisx.Client) func(http.HandlerFunc) http.HandlerFunc {
+	// publicPaths 鉴权引导端点(获取/刷新/注销 Token 的入口), 无需 JWT 即可访问.
+	// 注: 网关 /health 是显式注册路由, 不走下方 NotFoundHandler 包裹的鉴权链, 故天然公开, 无需在此登记.
+	// 该公开集合必须与 auth-service 视为公开的路径保持一致.
 	publicPaths := map[string]bool{
 		"/api/auth/login":   true,
 		"/api/auth/refresh": true,
 		"/api/auth/verify":  true,
+		"/api/auth/logout":  true,
 	}
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -48,10 +53,19 @@ func Auth(secret string) func(http.HandlerFunc) http.HandlerFunc {
 				response.Fail(w, errorx.NewError(errorx.ErrUnauthorized, "身份凭证无效或已过期"))
 				return
 			}
+			// 主动吊销: 令牌 jti 进入黑名单(注销/改密后强制失效). redis 未配置时降级放行.
+			if tokenblk.IsRevoked(r.Context(), rdb, claims.ID) {
+				response.Fail(w, errorx.NewError(errorx.ErrUnauthorized, "令牌已注销"))
+				return
+			}
 			// 注入身份 Header, 下游服务通过 IdentityFromHeader 提升进 ctxdata.
 			r.Header.Set(ctxdata.CtxUserId, strconv.FormatInt(claims.UserId, 10))
 			r.Header.Set(ctxdata.CtxRoleIds, claims.RoleIds)
-			r.Header.Set(ctxdata.CtxTenantId, strconv.FormatInt(claims.TenantId, 10))
+			// tenant 未落地(claims.TenantId==0)时不注入 x-tenant-id, 交由 proxy 的 DefaultTenantId 兜底,
+			// 避免向下游注入 0 触发"缺少租户信息"400(登录目前未回填租户维度, 见 auth-service login.go).
+			if claims.TenantId != 0 {
+				r.Header.Set(ctxdata.CtxTenantId, strconv.FormatInt(claims.TenantId, 10))
+			}
 			// 透传 request-id, 保证链路追踪连续性.
 			if rid := ctxdata.GetRequestId(r.Context()); rid != "" {
 				r.Header.Set(ctxdata.CtxRequestId, rid)
