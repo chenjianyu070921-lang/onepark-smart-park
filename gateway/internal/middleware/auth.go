@@ -8,7 +8,9 @@ import (
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 	"onepark/common/jwt"
+	"onepark/common/redisx"
 	"onepark/common/response"
+	"onepark/common/tokenblk"
 )
 
 // Auth 网关统一鉴权中间件: 校验 Bearer Token, 并向转发请求注入身份 Header,
@@ -20,12 +22,13 @@ import (
 // 该公开集合必须与 auth-service 的 publicPaths 保持一致.
 //
 // 这是 RBAC 数据权限生效的前置阻塞项: 只有网关注入 x-tenant-id, 下游才能按租户隔离.
-func Auth(secret string) func(http.HandlerFunc) http.HandlerFunc {
-	// publicPaths 鉴权引导端点(获取/刷新 Token 的入口), 无需 JWT 即可访问.
+func Auth(secret string, rdb *redisx.Client) func(http.HandlerFunc) http.HandlerFunc {
+	// publicPaths 鉴权引导端点(获取/刷新/注销 Token 的入口), 无需 JWT 即可访问.
 	publicPaths := map[string]bool{
 		"/api/auth/login":   true,
 		"/api/auth/refresh": true,
 		"/api/auth/verify":  true,
+		"/api/auth/logout":  true,
 	}
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +49,11 @@ func Auth(secret string) func(http.HandlerFunc) http.HandlerFunc {
 			claims, err := jwt.Parse(secret, token)
 			if err != nil || claims.Type != jwt.TypeAccess {
 				response.Fail(w, errorx.NewError(errorx.ErrUnauthorized, "身份凭证无效或已过期"))
+				return
+			}
+			// 主动吊销: 令牌 jti 进入黑名单(注销/改密后强制失效). redis 未配置时降级放行.
+			if tokenblk.IsRevoked(r.Context(), rdb, claims.ID) {
+				response.Fail(w, errorx.NewError(errorx.ErrUnauthorized, "令牌已注销"))
 				return
 			}
 			// 注入身份 Header, 下游服务通过 IdentityFromHeader 提升进 ctxdata.

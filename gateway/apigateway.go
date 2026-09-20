@@ -40,7 +40,7 @@ func main() {
 			log.Fatalf("gateway: 鉴权已启用但 Auth.Secret 为空 (set AUTH_SECRET or Auth.Secret)")
 		}
 		// 全接口强制 JWT: 仅鉴权引导端点(login/refresh/verify)公开, 见 middleware.Auth.
-		final = middleware.Auth(c.Auth.Secret)(final)
+		final = middleware.Auth(c.Auth.Secret, ctx.Redis)(final)
 	}
 	// 全局令牌桶限流(单 IP): 需配置 Redis 且 Capacity>0; 否则优雅降级放行, 不影响可用性.
 	rateLimited := false

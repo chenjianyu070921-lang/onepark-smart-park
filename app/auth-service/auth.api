@@ -31,6 +31,13 @@ type ValidateResp {
     TenantId int64  `json:"tenantId"`
 }
 
+type LogoutReq {
+    Token string `json:"token"`
+}
+
+type LogoutResp {
+}
+
 service auth-api {
     @handler LoginHandler
     post /api/auth/login (LoginReq) returns (LoginResp)
@@ -40,4 +47,7 @@ service auth-api {
 
     @handler ValidateHandler
     post /api/auth/validate (ValidateReq) returns (ValidateResp)
+
+    @handler LogoutHandler
+    post /api/auth/logout (LogoutReq) returns (LogoutResp)
 }
