@@ -42,10 +42,17 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: MarkNoticeReadHandler(serverCtx),
 			},
 			{
+				// 公告		{
 				// 公告已读回填(路径参数版别名, 评审 P1 要求的 RESTful 风格)
 				Method:  http.MethodPost,
 				Path:    "/api/notice/:id/read",
 				Handler: MarkNoticeReadByIdHandler(serverCtx),
+			},
+			{
+				// 公告撤回(P2): 仅已发布可撤回, 置已撤回 + 补偿事件
+				Method:  http.MethodPost,
+				Path:    "/api/notice/:id/recall",
+				Handler: RecallNoticeHandler(serverCtx),
 			},
 		},
 	)

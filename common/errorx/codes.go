@@ -119,6 +119,8 @@ const (
 	ErrVisitorQRCodeExpired = "M2-E-2001" // 访客二维码已过期
 	ErrVisitorQRCodeUsed    = "M2-E-2002" // 访客二维码已被核销
 	ErrVisitorCheckinFailed = "M2-E-2003" // 访客签入失败（gRPC 开门失败等）
+	ErrVisitorBlacklisted   = "M2-E-2004" // 访客被拉黑, 禁止通行(邀请/签入实时拦截)
+	ErrVisitorVerifyChannel = "M2-E-2005" // 不支持的核验方式或凭证缺失/不匹配(多方式核验)
 
 	// 停车域 3001~3999
 	ErrParkingRecordNotFound = "M2-E-3001" // 停车记录不存在
@@ -126,7 +128,8 @@ const (
 	ErrParkingDeviceNotFound = "M2-E-3003" // 停车设备不存在或未接入
 
 	// 公告域 4001~4999
-	ErrNoticeNotFound = "M2-E-4001" // 公告不存在
+	ErrNoticeNotFound     = "M2-E-4001" // 公告不存在
+	ErrNoticeNotPublished = "M2-E-4002" // 仅已发布(2)公告可撤回
 
 	// 公共域 5001~5999
 	ErrM2Internal = "M2-E-5001" // M2 服务内部错误兜底

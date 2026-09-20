@@ -42,10 +42,23 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: ListVisitorsHandler(serverCtx),
 			},
 			{
+				// 访客		{
 				// 访客详情+门禁进出轨迹(P2: 签入产生的门禁动作留痕与访客记录关联)
 				Method:  http.MethodGet,
 				Path:    "/api/visitor/:id",
 				Handler: GetVisitorDetailHandler(serverCtx),
+			},
+			{
+				// 访客黑名单新增/更新(P2: 按手机号或身份证去重, 实时拦截用)
+				Method:  http.MethodPost,
+				Path:    "/api/visitor/blocklist",
+				Handler: AddVisitorBlocklistHandler(serverCtx),
+			},
+			{
+				// 访客黑名单解除(P2)
+				Method:  http.MethodPost,
+				Path:    "/api/visitor/blocklist/:id/unblock",
+				Handler: UnblockVisitorBlocklistHandler(serverCtx),
 			},
 		},
 	)

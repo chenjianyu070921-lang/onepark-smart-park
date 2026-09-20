@@ -16,6 +16,9 @@ type Config struct {
 	Kafka     KafkaConf          // Kafka 连接配置
 	DeviceRPC zrpc.RpcClientConf // M1 device-service gRPC(调用 SendCommand 开门)
 	Door      DoorConf           // 门岗开门设备配置
+	// QrSignSalt 访客二维码签名盐: 由配置中心/密钥管理注入, 提升安全性与运维灵活性;
+	// 缺省值 onepark-m2-visitor 仅作向后兼容(旧硬编码演示值), 生产应通过配置覆盖.
+	QrSignSalt string `json:",default=onepark-m2-visitor"`
 }
 
 // KafkaConf 定义 Kafka broker 列表, 供后续访客事件投递使用.
