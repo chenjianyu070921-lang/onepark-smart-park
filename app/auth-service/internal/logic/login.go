@@ -50,11 +50,11 @@ func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err erro
 	}
 	roleStr := joinRoleIDs(roleIds)
 
-	access, gerr := jwt.Generate(l.svcCtx.JwtSecret, int64(user.ID), roleStr, 0, jwt.TypeAccess, l.svcCtx.JwtExpire)
+	access, gerr := jwt.Generate(l.svcCtx.JwtSecret, int64(user.ID), roleStr, user.TenantId, jwt.TypeAccess, l.svcCtx.JwtExpire)
 	if gerr != nil {
 		return nil, errorx.NewError(errorx.ErrInternal, gerr.Error())
 	}
-	refresh, gerr := jwt.Generate(l.svcCtx.JwtSecret, int64(user.ID), roleStr, 0, jwt.TypeRefresh, l.svcCtx.JwtRefresh)
+	refresh, gerr := jwt.Generate(l.svcCtx.JwtSecret, int64(user.ID), roleStr, user.TenantId, jwt.TypeRefresh, l.svcCtx.JwtRefresh)
 	if gerr != nil {
 		return nil, errorx.NewError(errorx.ErrInternal, gerr.Error())
 	}
@@ -65,7 +65,7 @@ func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err erro
 		Expire:       l.svcCtx.JwtExpire,
 		UserId:       int64(user.ID),
 		RoleIds:      roleStr,
-		TenantId:     0, // 平台级用户: sys_user 无租户维度, 待用户-租户映射落地后回填
+		TenantId:     user.TenantId, // 回填用户真实所属园区(tenant_id 已由 M6 多租户试点迁移加入 sys_user 并回填)
 	}, nil
 }
 

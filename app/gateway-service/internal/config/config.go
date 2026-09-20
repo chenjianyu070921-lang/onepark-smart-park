@@ -21,4 +21,17 @@ type Config struct {
 	ReadTimeoutSec int `json:",default=120"`
 	// AuthTimeoutSec 建连后完成认证的时限, 超时断开
 	AuthTimeoutSec int `json:",default=10"`
+
+	// CoAP 多协议接入(与 TCP 共用 frame.Session 帧语义, 见 design/coap-integration-plan.md).
+	// Enabled 默认关: 灰度可控, 回滚 = 关配置, 零 DB 依赖零回归.
+	CoAP struct {
+		Enabled     bool   `json:",env=COAP_ENABLED,default=false"`
+		Host        string `json:",env=COAP_HOST,default=0.0.0.0"`
+		Port        int    `json:",env=COAP_PORT,default=5683"` // NoSec UDP 端口(内网/联调用)
+		DTLSEnabled bool   `json:",env=COAP_DTLS_ENABLED,default=false"`
+		DTLSPort    int    `json:",env=COAP_DTLS_PORT,default=5684"` // DTLS 端口(生产强制加密)
+		// DTLSPSK 单部署共享预共享密钥: DTLS 通道加密用. 注意 pion DTLS PSK 服务端为单一共享密钥,
+		// 无法把 DTLS 身份绑定到具体设备, 故设备仍走 frame 既有 bcrypt 逐设备认证(见 coap/server.go).
+		DTLSPSK string `json:",env=COAP_DTLS_PSK"`
+	}
 }

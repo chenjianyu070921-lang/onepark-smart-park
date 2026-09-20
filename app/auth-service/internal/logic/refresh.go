@@ -49,11 +49,11 @@ func (l *RefreshLogic) Refresh(req *types.RefreshReq) (resp *types.LoginResp, er
 	}
 	roleStr := joinRoleIDs(roleIds)
 
-	access, gerr := jwt.Generate(l.svcCtx.JwtSecret, claims.UserId, roleStr, 0, jwt.TypeAccess, l.svcCtx.JwtExpire)
+	access, gerr := jwt.Generate(l.svcCtx.JwtSecret, claims.UserId, roleStr, user.TenantId, jwt.TypeAccess, l.svcCtx.JwtExpire)
 	if gerr != nil {
 		return nil, errorx.NewError(errorx.ErrInternal, gerr.Error())
 	}
-	refresh, gerr := jwt.Generate(l.svcCtx.JwtSecret, claims.UserId, roleStr, 0, jwt.TypeRefresh, l.svcCtx.JwtRefresh)
+	refresh, gerr := jwt.Generate(l.svcCtx.JwtSecret, claims.UserId, roleStr, user.TenantId, jwt.TypeRefresh, l.svcCtx.JwtRefresh)
 	if gerr != nil {
 		return nil, errorx.NewError(errorx.ErrInternal, gerr.Error())
 	}
@@ -64,6 +64,6 @@ func (l *RefreshLogic) Refresh(req *types.RefreshReq) (resp *types.LoginResp, er
 		Expire:       l.svcCtx.JwtExpire,
 		UserId:       claims.UserId,
 		RoleIds:      roleStr,
-		TenantId:     0, // 平台级用户: sys_user 无租户维度, 待用户-租户映射落地后回填
+		TenantId:     user.TenantId, // 回填用户真实所属园区(tenant_id 已由 M6 多租户试点迁移加入 sys_user 并回填)
 	}, nil
 }

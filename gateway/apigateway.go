@@ -65,6 +65,7 @@ func main() {
 
 // isLocalMode 本地联调(dev/test)返回 true: 网关鉴权在此类环境默认关闭, 便于无 token 联调;
 // 其余环境(prod/pre 等)强制开启, 落实"JWT 校验/租权注入收口到网关".
+// 空字符串(未配置 Mode)按本地处理, 避免本地无 AUTH_SECRET 时因鉴权被强制开启而启动崩溃.
 func isLocalMode(mode string) bool {
-	return mode == service.DevMode || mode == service.TestMode
+	return mode == "" || mode == service.DevMode || mode == service.TestMode
 }

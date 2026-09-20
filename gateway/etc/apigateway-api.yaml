@@ -1,13 +1,19 @@
 Name: apigateway-api
 Host: 0.0.0.0
 Port: 8080
+# 运行模式: 驱动网关鉴权开关(见 apigateway.go 的 isLocalMode).
+# 本地联调默认 dev(关闭鉴权, 无需 token); 生产置 pre/prod(强制开启鉴权).
+# 由 compose/.env 注入 GATEWAY_MODE, 未设置时默认 dev.
+Mode: ${GATEWAY_MODE:-dev}
 
 # 无鉴权联调默认园区ID(生产由 M6 鉴权后经 Header 注入 x-tenant-id 覆盖)
 DefaultTenantId: 1
 DefaultUserId: 0
 
-# 网关统一鉴权密钥: 必须与 auth-service 的 JWT_SECRET 一致(由 compose 注入 AUTH_SECRET).
-# dev/test 默认不启用(见 apigateway.go 中 isLocalMode 判定); prod/pre 强制启用(失败即拒绝启动).
+# 网关统一鉴权: 是否启用 = Auth.Enabled || !isLocalMode(Mode)(见 apigateway.go).
+# Mode 来自本文件 top-level Mode(${GATEWAY_MODE}): dev/test 不启用(便于无 token 联调),
+# pre/prod 强制启用, 且 Auth.Secret 为空会 log.Fatalf 拒绝启动(安全兜底).
+# Auth.Secret 必须与 auth-service 的 JWT_SECRET 一致, 由 compose 注入 AUTH_SECRET.
 Auth:
   Secret: ${AUTH_SECRET}
 
@@ -25,12 +31,28 @@ RateLimit:
   Capacity: 200
   RatePerSec: 50
 
+# 上游表配置中心(可选, 与 internal/config.NacosConf 字段一一对应).
+# 启用条件: Address 非空. 启用后从 Nacos 拉取 dataId=gateway-upstreams 的上游表并监听热更新;
+# 拉取/解析失败自动回退下方静态 Upstreams, 不阻塞启动、不影响可用性(见 internal/discovery/nacos.go).
+#
+# 为什么集群/容器部署必须配它: 下方静态 Upstreams 的 host 是 127.0.0.1(本地联调口径),
+# 容器内 127.0.0.1 指向网关自身 -> 转发必然失败; 容器形态需由 Nacos 下发指向服务 DNS 名的上游表
+# (deploy/nacos/gateway-upstreams.json, 由 compose 的 nacos-init / K8s 的 onepark-nacos-init 发布).
+# 地址留空(未注入 NACOS_ADDRESS)时本段不生效, 网关退化为使用静态 Upstreams(本地联调行为不变).
+Nacos:
+  Address: ${NACOS_ADDRESS}
+  Namespace: ${NACOS_NS}
+  Group: ${NACOS_GROUP}
+  DataId: gateway-upstreams
+  Username: ${NACOS_USERNAME}
+  Password: ${NACOS_PASSWORD}
+
 # 路由前缀 -> 上游服务(最长前缀优先匹配, 见 internal/proxy/proxy.go).
 # 端口与各服务实际监听端口一致(来源 deploy/docker-compose.yml 的 PORT 与 app/*/etc/*-api.yaml):
 #   device 8001 / user-manage 8086 / auth 8088 / workorder 8082 / alarm 8009 /
 #   dispatch 8053 / leasing 8051 / dashboard 8052 / billing 8063.
-# 本地联调用 127.0.0.1; 容器编排下网关改用 Nacos 动态上游(deploy/nacos/gateway-upstreams.json,
-# 使用 compose 服务 DNS 名), 二者仅 host 不同, 前缀/端口保持一致.
+# 本地联调用 127.0.0.1(Nacos.Address 留空时生效); 容器/集群部署改由上方 Nacos 动态下发,
+# 二者仅 host 不同, 前缀/端口保持一致.
 Upstreams:
   - Prefix: /api/workorder
     Target: http://127.0.0.1:8082

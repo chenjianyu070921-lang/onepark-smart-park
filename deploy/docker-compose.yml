@@ -324,6 +324,8 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
       # 网关鉴权密钥必须与 auth-service 的 JWT_SECRET 一致, 否则无法校验 Token.
       AUTH_SECRET: ${JWT_SECRET}
+      # 网关运行模式: pre/prod 强制开启鉴权(dev/test 关闭便于联调); 见 apigateway-api.yaml 的 ${GATEWAY_MODE}.
+      GATEWAY_MODE: ${GATEWAY_MODE:-pre}
       # 限流 + Token 注销黑名单 Redis: 对应 apigateway-api.yaml 的 ${REDIS_ADDR}/${REDIS_PASS};
       # 与 redis 容器 requirepass(REDIS_PASSWORD) 一致. 此前漏注入, 部署态 Redis 无密码连不上,
       # 导致限流与黑名单 IsRevoked 全部静默降级放行(Token 失效机制在 prod 被击穿).
@@ -525,6 +527,12 @@ services:
       DASHBOARD_MYSQL_DSN: ${DASHBOARD_MYSQL_DSN}
       REDIS_ADDR: ${REDIS_ADDR}
       REDIS_PASS: ${REDIS_PASS}
+      # 四路聚合数据源的 gRPC 端点: 容器内必须用服务 DNS 名(127.0.0.1 指向本容器自身).
+      # 各上游 gRPC 由独立进程/端口提供: workorder 9091 / alarm 9009 / energy-data 9061 / device 9001.
+      DEVICE_RPC_ENDPOINTS: ${DEVICE_RPC_ENDPOINTS}
+      WORKORDER_RPC_ENDPOINTS: ${WORKORDER_RPC_ENDPOINTS}
+      ALARM_RPC_ENDPOINTS: ${ALARM_RPC_ENDPOINTS}
+      ENERGY_DATA_RPC_ENDPOINTS: ${ENERGY_DATA_RPC_ENDPOINTS}
     ports:
       - "${DASHBOARD_SERVICE_PORT:-8052}:8052"
     networks: [onepark]

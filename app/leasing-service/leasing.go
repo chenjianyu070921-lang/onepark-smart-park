@@ -21,7 +21,9 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
+	// conf.UseEnv() 必填: go-zero 默认不做 ${VAR} 环境变量展开,
+	// 不启用则 etc/leasing-api.yaml 里的 ${LEASING_MYSQL_DSN}/${REDIS_ADDR}/... 会以字面量生效.
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()

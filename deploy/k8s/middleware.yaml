@@ -1,0 +1,793 @@
+# =====================================================================
+# OnePark 中间件层 K8s 清单(8 个): MySQL / Redis / TDengine / Kafka / EMQX / Nacos / MinIO / Elasticsearch
+#
+# 与 deploy/docker-compose.yml 的中间件段同构 —— 镜像 tag、端口、环境变量、健康检查口径逐条对齐,
+# 差异只在于"编排原语":
+#   * 无状态或单副本有状态 -> Deployment + 独立 PVC(策略 Recreate, 避免 RWO 卷多挂)
+#   * 需稳定标识/序号       -> StatefulSet + volumeClaimTemplates
+#   * 全部 Service 为 ClusterIP: 中间件不对外暴露(与 compose "仅网关映射端口" 口径一致)
+#
+# 前置:
+#   1. 集群已装 StorageClass(默认 SC 即可)。此处刻意不声明 StorageClass ——
+#      它依赖具体集群(local-path/standard/ceph 等), 硬写会导致换集群即失效;
+#      PVC 不写 storageClassName = 用集群默认 SC。
+#   2. Secret `onepark-secrets` 已创建(见 README.md / gen.sh 末尾提示), 否则 Pod 起不来。
+#   3. 镜像可拉取(本机 Docker Hub 当前不可达, 故本文件尚未在真实集群验证, 见 README「已知限制」)。
+#
+# 容量: 均为演示/单节点量级, 生产需按实际数据量调大并改用高可用形态。
+# =====================================================================
+
+# ======================= MySQL(20 个业务库) =======================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-data
+  namespace: onepark
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: onepark
+  labels:
+    app: mysql
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: MYSQL_ROOT_PASSWORD
+            - name: TZ
+              value: Asia/Shanghai
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mysql-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: onepark
+spec:
+  type: ClusterIP
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+
+---
+# ======================= Redis(缓存 / 限流 / 令牌黑名单) =======================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: onepark
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: onepark
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          # 与 compose 一致: 开启密码 + AOF 持久化
+          command:
+            - sh
+            - -c
+            - exec redis-server --requirepass "$REDIS_PASSWORD" --appendonly yes
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: redis-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: onepark
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+
+---
+# ======================= TDengine(设备遥测时序库) =======================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tdengine
+  namespace: onepark
+  labels:
+    app: tdengine
+spec:
+  serviceName: tdengine
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tdengine
+  template:
+    metadata:
+      labels:
+        app: tdengine
+    spec:
+      containers:
+        - name: tdengine
+          image: tdengine/tdengine:3.3.3.0
+          env:
+            - name: TAOS_FQDN
+              value: tdengine
+            - name: TAOS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: TDENGINE_PASSWORD
+            - name: TZ
+              value: Asia/Shanghai
+          ports:
+            - name: native
+              containerPort: 6030
+            - name: rest
+              containerPort: 6041
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/taos
+          readinessProbe:
+            exec:
+              # 与 compose healthcheck 同口径: 能列出库即视为就绪
+              command: ["taos", "-s", "SHOW DATABASES"]
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 10
+          livenessProbe:
+            tcpSocket:
+              port: 6030
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tdengine
+  namespace: onepark
+spec:
+  type: ClusterIP
+  selector:
+    app: tdengine
+  ports:
+    - name: native
+      port: 6030
+      targetPort: 6030
+    - name: rest
+      port: 6041
+      targetPort: 6041
+
+---
+# ======================= Kafka(KRaft 单节点, 9 个业务 topic) =======================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: onepark
+  labels:
+    app: kafka
+spec:
+  serviceName: kafka
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+        - name: kafka
+          image: bitnami/kafka:3.7
+          env:
+            # 与 compose 完全一致: KRaft 模式(无 ZooKeeper), 单节点既当 controller 又当 broker
+            - name: KAFKA_CFG_NODE_ID
+              value: "1"
+            - name: KAFKA_CFG_PROCESS_ROLES
+              value: "controller,broker"
+            - name: KAFKA_CFG_LISTENERS
+              value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+            - name: KAFKA_CFG_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://kafka:9092"
+            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+              value: "1@kafka:9093"
+            - name: ALLOW_PLAINTEXT_LISTENER
+              value: "yes"
+          ports:
+            - name: plaintext
+              containerPort: 9092
+            - name: controller
+              containerPort: 9093
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/kafka
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - kafka-topics.sh --bootstrap-server localhost:9092 --list
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 10
+          livenessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: onepark
+spec:
+  type: ClusterIP
+  selector:
+    app: kafka
+  ports:
+    - name: plaintext
+      port: 9092
+      targetPort: 9092
+    - name: controller
+      port: 9093
+      targetPort: 9093
+
+---
+# ======================= EMQX(MQTT Broker: 设备上行订阅 / 指令下行) =======================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: emqx-data
+  namespace: onepark
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emqx
+  namespace: onepark
+  labels:
+    app: emqx
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: emqx
+  template:
+    metadata:
+      labels:
+        app: emqx
+    spec:
+      containers:
+        - name: emqx
+          image: emqx/emqx:5.5.1
+          env:
+            - name: EMQX_NAME
+              value: onepark
+            - name: EMQX_HOST
+              value: emqx
+          ports:
+            - name: mqtt
+              containerPort: 1883
+            - name: mqtt-ws
+              containerPort: 8083
+            - name: dashboard
+              containerPort: 18083
+          volumeMounts:
+            - name: data
+              mountPath: /opt/emqx/data
+            # 日志不持久化: 交 emptyDir, 避免为一个日志目录再开 PVC
+            - name: log
+              mountPath: /opt/emqx/log
+          readinessProbe:
+            exec:
+              command: ["emqx", "ctl", "status"]
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 10
+          livenessProbe:
+            tcpSocket:
+              port: 1883
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: emqx-data
+        - name: log
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx
+  namespace: onepark
+spec:
+  type: ClusterIP
+  selector:
+    app: emqx
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: 1883
+    - name: mqtt-ws
+      port: 8083
+      targetPort: 8083
+    - name: dashboard
+      port: 18083
+      targetPort: 18083
+
+---
+# ======================= Nacos(注册/配置中心: 网关动态上游表) =======================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nacos-data
+  namespace: onepark
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nacos
+  namespace: onepark
+  labels:
+    app: nacos
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nacos
+  template:
+    metadata:
+      labels:
+        app: nacos
+    spec:
+      containers:
+        - name: nacos
+          image: nacos/nacos-server:v2.4.3
+          env:
+            # 与 compose 一致: standalone + 开启鉴权; 单机 derby 存储(不接外部 MySQL)
+            - name: MODE
+              value: standalone
+            - name: PREFER_HOST_MODE
+              value: hostname
+            - name: JVM_XMS
+              value: 512m
+            - name: JVM_XMX
+              value: 512m
+            - name: NACOS_AUTH_ENABLE
+              value: "true"
+            - name: NACOS_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: NACOS_AUTH_TOKEN
+            - name: NACOS_AUTH_IDENTITY_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: NACOS_AUTH_KEY
+            - name: NACOS_AUTH_IDENTITY_VALUE
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: NACOS_AUTH_VALUE
+          ports:
+            - name: http
+              containerPort: 8848
+            - name: grpc
+              containerPort: 9848
+          volumeMounts:
+            - name: data
+              mountPath: /home/nacos/data
+          readinessProbe:
+            httpGet:
+              path: /nacos/actuator/health
+              port: 8848
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8848
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nacos-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nacos
+  namespace: onepark
+spec:
+  type: ClusterIP
+  selector:
+    app: nacos
+  ports:
+    - name: http
+      port: 8848
+      targetPort: 8848
+    - name: grpc
+      port: 9848
+      targetPort: 9848
+
+---
+# ======================= MinIO(工单附件对象存储) =======================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: onepark
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: onepark
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: coollabsio/minio:latest
+          # 与 compose 一致: 数据目录 /data, 控制台 9001
+          command: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: MINIO_ROOT_PASSWORD
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 40
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minio-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: onepark
+spec:
+  type: ClusterIP
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+
+---
+# ======================= Elasticsearch(告警历史检索 / 双写) =======================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: onepark
+  labels:
+    app: elasticsearch
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      # 官方镜像以 uid/gid 1000 运行, 卷需可写 —— 不设置会因权限拒绝启动
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: elasticsearch
+          image: elasticsearch:8.13.4
+          # discovery.type / xpack.security.enabled 含点号, K8s 环境变量名不允许点号,
+          # 故 compose 里的两个环境变量改用启动参数传入(等价效果)。
+          args:
+            - "-Ediscovery.type=single-node"
+            - "-Expack.security.enabled=false"
+            - "-Ediscovery.seed_hosts="
+          env:
+            - name: ES_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: ES_PASSWORD
+          ports:
+            - name: http
+              containerPort: 9200
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            tcpSocket:
+              port: 9200
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: onepark
+spec:
+  type: ClusterIP
+  selector:
+    app: elasticsearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200

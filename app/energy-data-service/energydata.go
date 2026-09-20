@@ -26,7 +26,9 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
+	// conf.UseEnv() 必填: 本服务既未用 conf.UseEnv() 也未在 ServiceContext 里 os.ExpandEnv,
+	// 不启用则 etc/energydata-api.yaml 的 ${ENERGY_DATA_MYSQL_DSN}/${REDIS_ADDR}/... 全部以字面量生效.
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 	ctx := svc.NewServiceContext(c)
 
 	// HTTP 服务: 接口52/53, 给页面和 ApiPost 调用
