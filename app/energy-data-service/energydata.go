@@ -43,7 +43,9 @@ func main() {
 	defer rpcServer.Stop()
 
 	// Kafka 消费者: 接口55, 收 M1 上报的遥测数据写进 energy_reading
-	consumer := mq.NewConsumer(c.Kafka.Brokers, c.Kafka.Topic, c.Kafka.Group, ctx.EnergyReading)
+	// topic 用 c.TopicName(), 没配置就取 common/kafka 的公共常量, 保证和 M1 发布端一致
+	consumer := mq.NewConsumer(c.Kafka.Brokers, c.TopicName(), c.Kafka.Group, c.DefaultZone,
+		ctx.EnergyReading, ctx.Device)
 
 	// 三个一起启动(HTTP + gRPC + Kafka消费者), 缺一个就整体退出
 	group := service.NewServiceGroup()

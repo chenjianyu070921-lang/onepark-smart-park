@@ -122,3 +122,19 @@ func (m *EnergyReadingModel) ListHourlyUsage(ctx context.Context, zoneID string,
 	sort.Slice(list, func(i, j int) bool { return list[i].Hour < list[j].Hour })
 	return list, nil
 }
+
+// ListZones 查某段时间内有哪些区域上报过数据
+// 定时出账要用: 得先知道该给哪些区域出账, 再逐个去匹配规则
+func (m *EnergyReadingModel) ListZones(ctx context.Context, start, end time.Time) ([]string, error) {
+	var zones []string
+	err := m.db.WithContext(ctx).
+		Model(&EnergyReading{}).
+		Where("reported_at >= ? AND reported_at < ? AND zone_id <> ''", start, end).
+		Distinct().
+		Pluck("zone_id", &zones).Error
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(zones) // 顺序稳定, 日志好看
+	return zones, nil
+}
