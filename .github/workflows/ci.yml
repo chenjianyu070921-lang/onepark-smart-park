@@ -31,6 +31,16 @@ jobs:
             (cd "$d" && go build ./...) || exit 1
           done
 
+  # 校验 deploy/docker-compose.yml 的 ${VAR} 均能被 .env.example 解析(无缺失变量).
+  # 守护"compose 注入完整性": 例如曾遗漏网关 REDIS_PASS, 导致 Token 失效机制在部署态静默降级.
+  compose-validate:
+    name: compose config validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compose env substitution
+        run: docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config -q
+
   # M6-P2: 明文密钥/硬编码凭据扫描. 默认仅扫描 PR/push 的增量 diff, 不翻历史, 避免误伤 docs 示例.
   secret-scan:
     name: secret scan

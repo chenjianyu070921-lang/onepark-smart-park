@@ -14,3 +14,8 @@ MySQL:
   DataSource: ${AUTH_MYSQL_DSN}
   MaxOpenConns: 20
   MaxIdleConns: 10
+
+# 令牌注销黑名单 Redis(可选). 不配 Addr 时注销降级为无操作, 不影响登录/刷新.
+Redis:
+  Addr: ${AUTH_REDIS_ADDR}
+  Pass: ${AUTH_REDIS_PASS}

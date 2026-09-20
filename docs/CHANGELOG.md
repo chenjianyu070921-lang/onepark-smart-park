@@ -2,6 +2,79 @@
 
 > 由 AI 按用户规则 29 在每次代码修改后自动维护。最新变更置顶。
 
+## 2026-09-20（二）— 收尾任务清单执行(编译/临时文件/env对齐/中间件就绪/DeviceTelemetry清理)
+
+### 执行结果
+- **① 全量编译绿**: 遍历 22 个 `go.mod` 模块逐一 `go build ./...`，**全部通过，0 失败**；包含本次 parking 重构，无回退。（注：用户口径"19/19"指 19 个业务服务，均绿；外加 common/gateway/proto 共 22。）
+- **② 临时文件清理**: 扫描发现 `.codebuddy/backup/gw.exe`（25MB 网关编译产物备份，非源码），已删除。其余无临时/构建产物残留。
+- **③ .env.example ↔ 各服务 yaml 对齐（含 tokenblk）**: 脚本提取全部服务 `etc/*.yaml` 的 `${VAR}` 比对 `.env.example`，**全部已定义**；`docker compose config -q`（以 `.env.example` 为 env-file）返回 0。tokenblk 相关 `REDIS_ADDR/REDIS_PASS`(网关)、`AUTH_REDIS_ADDR/PASS`(auth) 均已对齐并注入 compose。
+- **④ 中间件就绪检查**: **本机 Docker 守护进程未运行，live `healthy` 无法实跑**（与 09-18 的 B2/B3 一致，需在可运行 Docker 的环境验证）。静态核查发现部署就绪致命缺口：
+  - `init.sql` 仅建 20 库、零建表；compose 的 mysql 仅挂载 `init.sql`+`sys.sql` ⇒ **模块建表脚本与迁移脚本未自动执行**，全新 `up` 后业务表缺失。
+  - **架构矛盾（修复前需定夺）**：`m2_mysql_tables.sql` 注释声明 M2 的 11 张表落共享库 `onepark-smart-park`（脚本无 USE），但 `init.sql` 建的是每服务独立库且未建 `onepark-smart-park`，各服务 DSN 也连独立库 → 三者矛盾。m3/m5/billing 各自 `USE` 独立库（与"每服务独立库"一致），仅 M2 为"共享库"异类。
+  - `m1_tdengine_tables.sql` 是 TDengine SQL，绝不能进 MySQL `initdb.d`；迁移脚本（`m1_device_add_*`/`m5_mysql_migrations`/`l2_tenant_id_migration`/`rbac_data_scope`）注释明确"全新环境无需/会报错"，不可自动跑。
+  - 处置：未盲改，已将完整结论 + 修复方向（方案 A 每服务独立库 / 方案 B 共享库）写入 `deploy/中间件就绪检查-20260918.md` 第六节，**待用户确认数据库模型后实施 SQL 编排修复**。
+- **⑤ tokenblk ↔ auth 集成**: `gateway/internal/middleware` 测试 `ok`，端到端（auth 写黑名单 → 网关 `IsRevoked`）生效；上次补的网关 `REDIS_PASS` 注入已使 prod 下不再静默降级。
+- **⑥ DeviceTelemetry 重复定义清理**: `app/parking-service/.../consumer.go` 本地 `deviceTelemetry` 信封**重构为复用 `common/kafka.DeviceTelemetry`**（保留 `parkingTelemetry` 业务归一化 + `telemetryPayload` 取 Payload 字段），`go build` 通过，符合契约"各服务不得再本地定义同名结构"。`energy-data-service` 的 `Telemetry` 为独立能耗契约，非重复定义，未改。
+
+### 待决策
+1. ④ 数据库模型：共享库 `onepark-smart-park` 还是每服务独立库（决定 SQL 编排修复方案）。
+2. ④ 实跑验证：需在可运行 Docker 的环境执行 `docker compose up -d` + `ps` 验证全 healthy 与建表。
+
+---
+
+## 2026-09-20 — 收尾质量门禁: ④点核查与整改( env 一致性 + tokenblk 集成 + CI )
+
+### 背景
+按用户四点收尾要求逐条核查: ① common 封装厚度 ② CI 自动编译 ③ 环境变量名一致性 ④ tokenblk↔auth 集成. 核查中发现一处部署级致命缺陷并修复, 另补一道 CI 防线.
+
+### 关键发现与整改
+- **④ / ③ [致命] 网关 compose 漏注入 REDIS_PASS**: `deploy/docker-compose.yml` 的 `gateway` 容器此前仅注入 Nacos + `AUTH_SECRET`, 未注入 `REDIS_ADDR/REDIS_PASS`; 而 `gateway/etc/apigateway-api.yaml` 的 `Redis.Pass: ${REDIS_PASS}` 且 redis 容器设了 `requirepass`. 结果: compose 部署态网关连 Redis **无密码 → 限流 + 令牌黑名单 `IsRevoked` 全部静默降级放行**, Token 失效机制在 prod 被击穿. 其余 6 个业务服务(workorder/alarm/dispatch/leasing/dashboard/billing)均已注入, 仅网关遗漏.
+  - 整改: 网关 compose 块补 `REDIS_ADDR/REDIS_PASS` 注入; `apigateway-api.yaml` 的 `Redis.Addr` 由硬编码 `redis:6379` 改为 `${REDIS_ADDR}`(与全网服务一致, 本地联调可切 127.0.0.1:6379).
+- **③ [清理] 死变量**: `deploy/.env.example` 中 `JWT_ACCESS_SECRET/JWT_ACCESS_EXPIRE/JWT_REFRESH_EXPIRE` 全仓 0 引用(auth-service 用单一 `JWT_SECRET` + token Type 区分, 过期取自配置). 已移除, 避免误导.
+- **③ [残留债, 未动] Redis 密码三命名**: `REDIS_PASSWORD`(容器)/`REDIS_PASS`(应用)/`AUTH_REDIS_PASS`(auth) 实为同一值, 建议后续统一为 `REDIS_PASS`; 属 B 类重构, 未本次改动.
+- **② [纠正+增强]**: 仓库已有 `.github/workflows/ci.yml`, **已对全部 22 个 go module 执行 `go test` + `go build`**, "无 CI" 说法不准确. 但原 CI 不校验 compose 注入完整性, 故新增 `compose-validate` job: `docker compose config -q` 守卫 `${VAR}` 无缺失(注: 该检查只能抓"变量未定义", "已定义但未注入某服务"类问题仍需集成测试/人工审计 — 本次网关缺陷即属此类, 已由注入修复本身解决).
+
+### ① common 封装评估(不改)
+`common/` 共 19 个包, 多为对 go-redis/go-zero/gorm 的薄封装, **属合理设计(集中 DRY, 统一配置/降级语义)**, 非缺陷. 核查确认 JWT 校验未重复造轮子: 仅 gateway/dashboard/device 解析 JWT 且都走 `common/jwt`; 下游统一信任网关注入的 `x-*` Header(M6 收口). 真正缺口是**测试覆盖**: 19 包仅 5 包有单测(jwt/tokenblk/datascope/kafka/tdengine), 约 14 包无单测, 且 CI 无运行时/集成测试.
+
+### 验证
+- `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config -q` → `0`
+- `cd gateway && go build ./...` → `0`; `go test ./internal/middleware/` → `ok`
+
+---
+
+## 2026-09-19 — 登录认证功能验证 + 网关 Auth 测试回归修复
+
+### 背景
+按用户要求对"账号密码登录 + Token 签发 + Token 失效机制"做运行时验证。登录/签发/失效代码与编译此前已确认完整；本次重点实证"失效机制"闭环，并修复 `Auth` 签名重构遗留的测试回归。
+
+### 变更点
+- `gateway/internal/middleware/auth_chain_test.go` / `auth_test.go`：补 `Auth(secret, rdb)` 第二参数（`rdb=nil`，黑名单降级放行），修复 `Auth` 加 `rdb` 参数时漏改的 3 处测试调用方（否则 `go test` 编译失败）。
+- `gateway/internal/middleware/auth_blacklist_test.go`（新增）：代码级端到端用例，复用**真实生产中间件 + 真实 Redis**，跑通"签发 → 网关放行 → 注销吊销 jti → 同一 token 过网关被 401 拒绝"，实证 Token 失效机制；Redis 不可达时自动 Skip，不阻塞 CI。
+
+### 验证
+- `go test ./internal/middleware/` → `ok`（TestAuth / TestJWTToDownstreamCtxdata / TestTokenInvalidationClosedLoop 全 PASS）
+- 登录↔sys_db 的运行时联调因本机 Docker/WSL2 下 MySQL 8.0.46 初始化受限（bootstrap 线程 errno 1）未能实跑；该路径已通过 `go build`、`sys.sql` 种子(admin/`Admin@123456`)与代码审查确认。需用户提供宿主 `mysql80` 凭据方可跑通完整登录流。
+
+---
+
+## 2026-09-18 — compose 注入 auth-service 令牌黑名单 Redis
+
+### 背景
+M6 在研的「登录态注销 + token 黑名单」（`common/tokenblk`、`app/auth-service` 的 `logout`）已落地，但 `deploy/docker-compose.yml` 的 `auth-service` 容器此前仅注入 `JWT_SECRET` 与 `AUTH_MYSQL_DSN`，**未注入** `AUTH_REDIS_ADDR/AUTH_REDIS_PASS`。`auth-api.yaml` 引用这两个变量，未配置时 `tokenblk` 静默降级为无操作（注销不生效）。本次补齐注入，使黑名单在 compose 部署态真正可用。
+
+### 变更点
+- `deploy/docker-compose.yml` · `auth-service.environment` 新增（纯增量）：
+  - `AUTH_REDIS_ADDR: ${AUTH_REDIS_ADDR}`
+  - `AUTH_REDIS_PASS: ${AUTH_REDIS_PASS}`
+- 注入值与 `.env.example` 一致：`AUTH_REDIS_ADDR=redis:6379`、`AUTH_REDIS_PASS=onepark123`，与 redis 容器 `requirepass`（`REDIS_PASSWORD=onepark123`）匹配。
+
+### 验证
+- `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config -q` → `0`（变量替换与 YAML 合法，无缺失变量）
+- 纯增量，不影响本地 `go run` 开发模型（本地不读 compose 注入，仍按 `auth-api.yaml` 注释降级为无操作）
+
+---
+
 ## 2026-09-17 — auth/user 双模 gRPC + CD 流水线
 
 ### 背景

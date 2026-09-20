@@ -41,3 +41,10 @@ type VerifyResp struct {
 	TenantId  int64  `json:"tenantId"`
 	ExpiresAt int64  `json:"expiresAt"`
 }
+
+// LogoutReq 携带待注销的令牌(access 或 refresh), 其 jti 将被加入黑名单.
+type LogoutReq struct {
+	Token string `json:"token"`
+}
+
+type LogoutResp struct{}

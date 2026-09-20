@@ -316,6 +316,11 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
       # 网关鉴权密钥必须与 auth-service 的 JWT_SECRET 一致, 否则无法校验 Token.
       AUTH_SECRET: ${JWT_SECRET}
+      # 限流 + Token 注销黑名单 Redis: 对应 apigateway-api.yaml 的 ${REDIS_ADDR}/${REDIS_PASS};
+      # 与 redis 容器 requirepass(REDIS_PASSWORD) 一致. 此前漏注入, 部署态 Redis 无密码连不上,
+      # 导致限流与黑名单 IsRevoked 全部静默降级放行(Token 失效机制在 prod 被击穿).
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
     ports:
       - "${GATEWAY_PORT:-8080}:8080"
     networks: [onepark]
@@ -346,6 +351,10 @@ services:
     environment:
       JWT_SECRET: ${JWT_SECRET}
       AUTH_MYSQL_DSN: ${AUTH_MYSQL_DSN}
+      # 令牌注销黑名单 Redis: 对应 auth-api.yaml 的 ${AUTH_REDIS_ADDR}/${AUTH_REDIS_PASS};
+      # 与 redis 容器 requirepass(REDIS_PASSWORD) 一致. 留空则注销降级为无操作.
+      AUTH_REDIS_ADDR: ${AUTH_REDIS_ADDR}
+      AUTH_REDIS_PASS: ${AUTH_REDIS_PASS}
     ports:
       - "${AUTH_SERVICE_PORT:-8088}:8088"
     networks: [onepark]

@@ -3,6 +3,8 @@
 package jwt
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"strconv"
 	"time"
@@ -34,6 +36,7 @@ func Generate(secret string, userID int64, roleIDs string, tenantID int64, token
 		TenantId: tenantID,
 		Type:     tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        genJti(), // 令牌唯一标识, 供注销黑名单吊销
 			Subject:   strconv.FormatInt(userID, 10),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(expireSeconds) * time.Second)),
@@ -41,6 +44,13 @@ func Generate(secret string, userID int64, roleIDs string, tenantID int64, token
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))
+}
+
+// genJti 生成全局唯一令牌标识, 用于黑名单吊销. 16 字节随机数即可满足碰撞概率要求.
+func genJti() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // Parse 校验并解析 JWT, 返回 Claims. 签名/过期错误均返回 error.
