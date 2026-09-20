@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"onepark/app/energy-data-service/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -22,6 +23,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/energy/realtime/:deviceId",
 				Handler: RealtimeHandler(serverCtx),
 			},
+		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(nil, nil)},
 		},
 	)
 }

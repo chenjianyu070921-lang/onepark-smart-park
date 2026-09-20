@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"onepark/app/device-service/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -61,6 +62,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodGet,
 				Path:    "/api/products",
 				Handler: ProductListHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/health",
+				Handler: health.Handler(serverCtx.DB, nil),
 			},
 		},
 	)

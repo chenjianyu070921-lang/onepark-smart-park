@@ -28,8 +28,8 @@ func TestJWTToDownstreamCtxdata(t *testing.T) {
 		gotRoles = ctxdata.GetRoleIds(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}
-	// 真实链路: 网关 Auth → 下游 IdentityFromHeader.
-	chain := Auth(secret)(commonmw.IdentityFromHeader(downstreamFn))
+	// 真实链路: 网关 Auth → 下游 IdentityFromHeader. rdb 传 nil(本用例不测黑名单, IsRevoked 自动降级放行).
+	chain := Auth(secret, nil)(commonmw.IdentityFromHeader(downstreamFn))
 
 	// 登录签发 access token: user=100, tenant=5, roles=1,2
 	tok, err := jwt.Generate(secret, 100, "1,2", 5, jwt.TypeAccess, 7200)

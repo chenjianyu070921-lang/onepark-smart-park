@@ -29,8 +29,10 @@ services:
       - "${MYSQL_PORT}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-      - ./sql/sys.sql:/docker-entrypoint-initdb.d/sys.sql:ro
+      # 数据库初始化编排: 所有 DDL 作为只读数据挂载到 /sql-init,
+      # 仅 run-all.sh 被 mysql 容器入口执行, 按"每服务独立库"模型建表.
+      - ./sql:/sql-init:ro
+      - ./sql/run-all.sh:/docker-entrypoint-initdb.d/run-all.sh:ro
     networks: [onepark]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
@@ -227,6 +229,7 @@ services:
       MYSQL_PORT: 3306
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-device_db}
+      MYSQL_DSN: ${DEVICE_MYSQL_DSN}
       REDIS_HOST: redis
       REDIS_PORT: ${REDIS_PORT:-6379}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -321,6 +324,11 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
       # 网关鉴权密钥必须与 auth-service 的 JWT_SECRET 一致, 否则无法校验 Token.
       AUTH_SECRET: ${JWT_SECRET}
+      # 限流 + Token 注销黑名单 Redis: 对应 apigateway-api.yaml 的 ${REDIS_ADDR}/${REDIS_PASS};
+      # 与 redis 容器 requirepass(REDIS_PASSWORD) 一致. 此前漏注入, 部署态 Redis 无密码连不上,
+      # 导致限流与黑名单 IsRevoked 全部静默降级放行(Token 失效机制在 prod 被击穿).
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
     ports:
       - "${GATEWAY_PORT:-8080}:8080"
     networks: [onepark]
@@ -351,6 +359,10 @@ services:
     environment:
       JWT_SECRET: ${JWT_SECRET}
       AUTH_MYSQL_DSN: ${AUTH_MYSQL_DSN}
+      # 令牌注销黑名单 Redis: 对应 auth-api.yaml 的 ${AUTH_REDIS_ADDR}/${AUTH_REDIS_PASS};
+      # 与 redis 容器 requirepass(REDIS_PASSWORD) 一致. 留空则注销降级为无操作.
+      AUTH_REDIS_ADDR: ${AUTH_REDIS_ADDR}
+      AUTH_REDIS_PASS: ${AUTH_REDIS_PASS}
     ports:
       - "${AUTH_SERVICE_PORT:-8088}:8088"
     networks: [onepark]
@@ -550,6 +562,296 @@ services:
       timeout: 5s
       retries: 20
 
+  # ---- 业务服务: parking-service (M2 停车, 端口 8084, 依赖 MySQL+Redis+Kafka) ----
+  parking-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/parking-service
+        MAIN: parking.go
+        PORT: 8084
+        CFG: parking-api.yaml
+    image: onepark/parking-service:latest
+    container_name: onepark-parking-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      PARKING_MYSQL_DSN: ${PARKING_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+    ports:
+      - "${PARKING_SERVICE_PORT:-8084}:8084"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8084 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: visitor-service (M2 访客, 端口 8083, 依赖 MySQL+Redis+Kafka) ----
+  visitor-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/visitor-service
+        MAIN: visitor.go
+        PORT: 8083
+        CFG: visitor-api.yaml
+    image: onepark/visitor-service:latest
+    container_name: onepark-visitor-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      VISITOR_MYSQL_DSN: ${VISITOR_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      DEVICE_RPC_ENDPOINTS: ${DEVICE_RPC_ENDPOINTS}
+    ports:
+      - "${VISITOR_SERVICE_PORT:-8083}:8083"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8083 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: notice-service (M2 公告, 端口 8085, 依赖 MySQL+Redis+Kafka) ----
+  notice-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/notice-service
+        MAIN: notice.go
+        PORT: 8085
+        CFG: notice-api.yaml
+    image: onepark/notice-service:latest
+    container_name: onepark-notice-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      NOTICE_MYSQL_DSN: ${NOTICE_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+    ports:
+      - "${NOTICE_SERVICE_PORT:-8085}:8085"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8085 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: access-control-service (M3 门禁, 端口 8010, 依赖 MySQL+Redis+device RPC) ----
+  access-control-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/access-control-service
+        MAIN: accesscontrol.go
+        PORT: 8010
+        CFG: accesscontrol-api.yaml
+    image: onepark/access-control-service:latest
+    container_name: onepark-access-control-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      device-service:
+        condition: service_healthy
+    environment:
+      ACCESS_MYSQL_DSN: ${ACCESS_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+      DEVICE_RPC_ENDPOINTS: ${DEVICE_RPC_ENDPOINTS}
+    ports:
+      - "${ACCESS_SERVICE_PORT:-8010}:8010"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8010 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: energy-data-service (M4 能耗采集, REST 8061 / gRPC 9061, 依赖 MySQL+Redis+Kafka) ----
+  energy-data-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/energy-data-service
+        MAIN: energydata.go
+        PORT: 8061
+        CFG: energydata-api.yaml
+    image: onepark/energy-data-service:latest
+    container_name: onepark-energy-data-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      ENERGY_DATA_MYSQL_DSN: ${ENERGY_DATA_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+    ports:
+      - "${ENERGY_DATA_SERVICE_PORT:-8061}:8061"
+      - "${ENERGY_DATA_GRPC_PORT:-9061}:9061"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8061 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: energy-analysis-service (M4 能耗分析, 端口 8062, 依赖 MySQL+Redis) ----
+  energy-analysis-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/energy-analysis-service
+        MAIN: energyanalysis.go
+        PORT: 8062
+        CFG: energyanalysis-api.yaml
+    image: onepark/energy-analysis-service:latest
+    container_name: onepark-energy-analysis-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENERGY_ANALYSIS_MYSQL_DSN: ${ENERGY_ANALYSIS_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+    ports:
+      - "${ENERGY_ANALYSIS_SERVICE_PORT:-8062}:8062"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8062 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: video-service (M3 视频, 端口 8011, 依赖 MySQL+Redis+Kafka) ----
+  video-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/video-service
+        MAIN: video.go
+        PORT: 8011
+        CFG: video-api.yaml
+    image: onepark/video-service:latest
+    container_name: onepark-video-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      VIDEO_MYSQL_DSN: ${VIDEO_MYSQL_DSN}
+      REDIS_ADDR: ${REDIS_ADDR}
+      REDIS_PASS: ${REDIS_PASS}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      VIDEO_FLV_BASE_URL: ${VIDEO_FLV_BASE_URL}
+      VIDEO_STREAM_SIGN_SECRET: ${VIDEO_STREAM_SIGN_SECRET}
+    ports:
+      - "${VIDEO_SERVICE_PORT:-8011}:8011"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8011 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: shadow-service (M1 设备影子, gRPC 9002, 依赖 MySQL) ----
+  shadow-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/shadow-service
+        MAIN: shadow.go
+        PORT: 9002
+        CFG: shadow.yaml
+    image: onepark/shadow-service:latest
+    container_name: onepark-shadow-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_DSN: ${SHADOW_MYSQL_DSN}
+    ports:
+      - "${SHADOW_SERVICE_PORT:-9002}:9002"
+    networks: [onepark]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9002 && exit 0 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # ---- 业务服务: event-dispatcher (M1 MQTT/Kafka 事件分发, 无 HTTP 端口, 依赖 emqx+kafka) ----
+  event-dispatcher:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SVC_DIR: app/event-dispatcher
+        MAIN: dispatcher.go
+        PORT: 9000
+        CFG: dispatcher.yaml
+    image: onepark/event-dispatcher:latest
+    container_name: onepark-event-dispatcher
+    restart: unless-stopped
+    depends_on:
+      emqx:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      EMQX_BROKER: ${EMQX_BROKER}
+      EMQX_CLIENT: ${EMQX_CLIENT}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+    networks: [onepark]
+
   # ---- 初始化: 将网关上游表发布到 Nacos 配置中心(幂等, 失败不阻断) ----
   nacos-init:
     image: curlimages/curl:latest
@@ -563,10 +865,12 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        # Nacos Basic Auth 凭据: 默认 nacos/nacos(dev), 生产请通过环境变量覆盖.
+        creds="$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}"
         for i in $$(seq 1 30); do
-          code=$$(curl -s -o /dev/null -w "%{http_code}" -u "$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}" "http://nacos:8848/nacos/v1/cs/configs?dataId=gateway-upstreams&group=$${NACOS_GROUP:-DEFAULT_GROUP}")
+          code=$$(curl -s -o /dev/null -w "%{http_code}" -u "$$creds" "http://nacos:8848/nacos/v1/cs/configs?dataId=gateway-upstreams&group=$${NACOS_GROUP:-DEFAULT_GROUP}")
           if [ "$$code" = "200" ]; then echo "gateway-upstreams already exists"; exit 0; fi
-          if curl -s -u "$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}" -X POST "http://nacos:8848/nacos/v1/cs/configs" \
+          if curl -s -u "$$creds" -X POST "http://nacos:8848/nacos/v1/cs/configs" \
                --data-urlencode "dataId=gateway-upstreams" \
                --data-urlencode "group=$${NACOS_GROUP:-DEFAULT_GROUP}" \
                --data-urlencode "content@/data/gateway-upstreams.json"; then

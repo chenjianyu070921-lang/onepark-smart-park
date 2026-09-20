@@ -18,7 +18,7 @@ func downstream() http.HandlerFunc {
 
 func TestAuth(t *testing.T) {
 	const secret = "gw-secret"
-	auth := Auth(secret)(downstream())
+	auth := Auth(secret, nil)(downstream())
 
 	// 1) 无 token -> 401
 	rec := httptest.NewRecorder()
@@ -50,7 +50,7 @@ func TestAuth(t *testing.T) {
 	}
 
 	// 4) 鉴权引导端点公开(无需 token)
-	authPublic := Auth(secret)(downstream())
+	authPublic := Auth(secret, nil)(downstream())
 	rec4 := httptest.NewRecorder()
 	authPublic.ServeHTTP(rec4, httptest.NewRequest(http.MethodPost, "/api/auth/login", nil))
 	if rec4.Code != http.StatusOK {

@@ -8,6 +8,7 @@ import (
 
 	dashboard "onepark/app/dashboard-service/internal/handler/dashboard"
 	"onepark/app/dashboard-service/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -27,5 +28,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			},
 		},
 		rest.WithPrefix("/api/dashboard"),
+	)
+
+	server.AddRoutes(
+		[]rest.Route{
+			{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
+		},
 	)
 }

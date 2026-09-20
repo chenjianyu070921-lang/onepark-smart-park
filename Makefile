@@ -154,8 +154,23 @@ build:
 	@echo "building gateway..."
 	@(cd gateway && go build -o ../bin/gateway .)
 
+# 全量编译(等价于"根目录 go build ./..."): 根目录无 go.mod, 故逐 module 编译.
+# 覆盖 common/proto/gateway + app 下全部服务(共 22 个 module), 任一模块失败即中断.
+build-all:
+	@set -e; for d in common proto gateway app/*; do \
+		printf 'building %-40s' "$$d"; \
+		( cd $$d && go build ./... ); \
+		echo 'OK'; \
+	done
+	@echo "== all 22 modules built OK =="
+
+# 全量测试: 同 build-all, 逐 module 执行(根目录无 go.mod, 不能直接 go test ./...).
 test:
-	go test ./...
+	@set -e; for d in common proto gateway app/*; do \
+		printf 'testing  %-40s' "$$d"; \
+		( cd $$d && go test ./... ); \
+		echo 'OK'; \
+	done
 
 up:
 	docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
@@ -166,7 +181,7 @@ down:
 clean:
 	rm -rf bin/
 
-.PHONY: device-goctl workorder-goctl visitor-goctl parking-goctl notice-goctl alarm-goctl accesscontrol-goctl video-goctl energydata-goctl energyanalysis-goctl billing-goctl leasing-goctl dashboard-goctl dispatch-goctl auth-goctl usermanage-goctl apigateway-goctl shadow-goctl run-device run-workorder run-visitor run-parking run-notice run-alarm run-accesscontrol run-video run-energydata run-energyanalysis run-billing run-leasing run-dashboard run-dispatch run-auth run-usermanage run-apigateway run-shadow run-alarm-grpc run-gateway-service run-event-dispatcher install-tools genproto build test up down clean
+.PHONY: device-goctl workorder-goctl visitor-goctl parking-goctl notice-goctl alarm-goctl accesscontrol-goctl video-goctl energydata-goctl energyanalysis-goctl billing-goctl leasing-goctl dashboard-goctl dispatch-goctl auth-goctl usermanage-goctl apigateway-goctl shadow-goctl run-device run-workorder run-visitor run-parking run-notice run-alarm run-accesscontrol run-video run-energydata run-energyanalysis run-billing run-leasing run-dashboard run-dispatch run-auth run-usermanage run-apigateway run-shadow run-alarm-grpc run-gateway-service run-event-dispatcher install-tools genproto build build-all test up down clean
 
 
 
