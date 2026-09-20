@@ -33,7 +33,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/billing/rules",
 				Handler: RuleListHandler(serverCtx),
 			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/health",
+				Handler: health.Handler(nil, serverCtx.Redis),
+			},
 		},
-		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(nil, serverCtx.Redis)},
 	)
 }

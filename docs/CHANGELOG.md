@@ -2,6 +2,33 @@
 
 > 由 AI 按用户规则 29 在每次代码修改后自动维护。最新变更置顶。
 
+## 2026-09-20（三）— 四大缺口落地: SQL编排 / 健康检查 / Compose补全 / 网关熔断灰度
+
+### 背景
+用户清单 7 项"阻塞/缺口"经逐条核查: auth-service/user-manage/RBAC/Token签发/用户表/限流 **均已实现**(非空桩/非缺失)。真正待办 = ① 网关熔断+灰度缺失 ② 各服务无 HTTP 健康检查端点 ③ Compose 缺 9 服务 ④ 上轮遗留 SQL 编排缺口(部署阻塞, 需定数据库模型)。用户确认采用 **方案 A 每服务独立库**。
+
+### 执行结果
+- **SQL 编排修复(方案 A)**:
+  - `m1_mysql_tables.sql` 补 `USE device_db`；`m2_mysql_tables.sql` 按服务拆分为 `m2_workorder_tables.sql`/`m2_notice_tables.sql`/`m2_energy_reading.sql`(**删除**原打包文件), 规避重复定义与错库建表；`m2_parking_visitor_tables.sql` 与 `billing_tables.sql` 各自覆盖 parking/visitor/billing 域, 互不重复。
+  - 新增 `deploy/sql/run-all.sh` 编排脚本, 按"每服务独立库"模型执行各模块 DDL(全部 `IF NOT EXISTS`/带守卫, 幂等); `m5_mysql_migrations`/`l2_tenant_id_migration`/`m1_device_add_*`(存量迁移) 与 `m1_tdengine_tables.sql`(TDengine) 刻意跳过(全新环境不需要/非 MySQL)。
+  - compose mysql 卷改为挂载 `./sql:/sql-init:ro` + 仅 `run-all.sh` 入 `initdb.d`, 替代原直接挂载 `init.sql`/`sys.sql`。
+  - 归属: `energy_reading` 由 M4 energy-data-service 写入、billing 只读, 现阶段置于 `billing_db`(见 `m2_energy_reading.sql` 注释); energy-data 经 `ENERGY_DATA_MYSQL_DSN`→billing_db 写入。
+- **健康检查端点**: 新增 `common/health` 共享包(探测 MySQL/Redis, 依赖缺失则跳过, 状态 ok/degraded); 全部 16 个 REST 服务 + 网关注入 `/health`(根路径; 多行路由格式服务用独立 AddRoutes 避免切片闭合错误)。RPC/Worker 类(shadow/event-dispatcher)无 HTTP 端点。
+- **Compose 补 9 服务**: parking/visitor/notice/access-control/energy-data/energy-analysis/video(REST)+shadow(gRPC)+event-dispatcher(Worker) 纳入 `docker-compose.yml`, 端口/依赖/健康检查对齐既有模式；修正两处历史硬编码——`energy-data`/`energy-analysis` yaml 的外部 IP `115.191.16.159`+旧库 `onepark-smart-park` 参数化为 `ENERGY_DATA_MYSQL_DSN`/`ENERGY_ANALYSIS_MYSQL_DSN`/`REDIS_ADDR`/`KAFKA_BROKERS`；`.env.example` 的 `MYSQL_DSN`(指向不存在的 `onepark-smart-park`) 改为 `DEVICE_MYSQL_DSN`(device_db)+`SHADOW_MYSQL_DSN`(shadow_db)；`.env.example` 补齐缺失 DSN 与 9 服务端口变量；visitor/access-control 的 `DeviceRPC` 端点参数化为 `DEVICE_RPC_ENDPOINTS`(容器内→`device-service:9001`)。
+- **网关熔断 + 灰度**: 重写 `gateway/internal/proxy/proxy.go`, 每上游内置熔断器(连续失败阈值 5→断开, 冷却 10s→半开探测, 断开期快速返回 503, 防雪崩)；新增灰度(`UpstreamConf.CanaryTarget`/`CanaryWeight`/`CanaryHeader`, 按权重或 Header 命中导向灰度实例, 灰度目标同样受熔断保护)；`statusRecorder` 透传 Flush/Hijack 保证 WebSocket/流式不受影响。
+
+### 验证
+- 全量编译 22 个 `go.mod` 模块 `go build ./...` **全部通过, 0 失败**。
+- compose YAML 段落缩进与既有服务一致(人工核验); 受本机无 Docker 守护进程限制, `docker compose up` 实跑与全 healthy 验证待可运行 Docker 的环境执行。
+
+### 已知限制 / 待办
+1. docker 实跑验证(`docker compose up -d` + 全部 healthy + 建表)未在本地完成(守护进程未运行), 需目标环境验证。
+2. energy-data/energy-analysis 健康检查传 `(nil,nil)`(其 DB/Redis 为异构客户端, 暂未探测); shadow/event-dispatcher 无 HTTP 端点。
+3. 网关灰度需部署侧在 Nacos/upstreams 配置 `canary_target` 等才生效, 当前默认仅主上游。
+4. dashboard/energy_analysis/energy_data/shadow/event 等业务库目前无独立 DDL 脚本(可能依赖 AutoMigrate 或只读聚合), 已建空库占位, 非阻塞。
+
+---
+
 ## 2026-09-20（二）— 收尾任务清单执行(编译/临时文件/env对齐/中间件就绪/DeviceTelemetry清理)
 
 ### 执行结果
@@ -17,7 +44,7 @@
 - **⑥ DeviceTelemetry 重复定义清理**: `app/parking-service/.../consumer.go` 本地 `deviceTelemetry` 信封**重构为复用 `common/kafka.DeviceTelemetry`**（保留 `parkingTelemetry` 业务归一化 + `telemetryPayload` 取 Payload 字段），`go build` 通过，符合契约"各服务不得再本地定义同名结构"。`energy-data-service` 的 `Telemetry` 为独立能耗契约，非重复定义，未改。
 
 ### 待决策
-1. ④ 数据库模型：共享库 `onepark-smart-park` 还是每服务独立库（决定 SQL 编排修复方案）。
+1. ④ 数据库模型：**已决(选 A 每服务独立库)**, 修复见 2026-09-20（三）SQL 编排修复。
 2. ④ 实跑验证：需在可运行 Docker 的环境执行 `docker compose up -d` + `ps` 验证全 healthy 与建表。
 
 ---

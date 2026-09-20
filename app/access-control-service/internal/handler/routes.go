@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"onepark/app/access-control-service/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -32,6 +33,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/access/records",
 				Handler: ListAccessRecordsHandler(serverCtx),
 			},
+		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, nil)},
 		},
 	)
 }

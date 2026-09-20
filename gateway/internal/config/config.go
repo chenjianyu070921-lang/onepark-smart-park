@@ -55,4 +55,10 @@ type AuthConf struct {
 type UpstreamConf struct {
 	Prefix string // 路径前缀, 如 /api/workorder
 	Target string // 上游基址, 如 http://127.0.0.1:8082
+	// CanaryTarget 灰度目标基址(可选); 非空时启用灰度, 按权重或 Header 将部分流量导向该实例.
+	CanaryTarget string `json:",optional"`
+	// CanaryWeight 灰度流量权重(0-100, 百分比); 默认 0 表示仅按 Header 命中才走灰度.
+	CanaryWeight int `json:",optional"`
+	// CanaryHeader 灰度命中 Header 名; 请求携带该 Header(值非 "false")即走灰度(可用于内部验证/定向).
+	CanaryHeader string `json:",optional"`
 }

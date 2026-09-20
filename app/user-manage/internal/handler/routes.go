@@ -24,7 +24,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			{Method: http.MethodPost, Path: "/api/menus", Handler: MenuCreateHandler(serverCtx)},
 			{Method: http.MethodPost, Path: "/api/roles/menus", Handler: RoleMenuAssignHandler(serverCtx)},
 			{Method: http.MethodPost, Path: "/api/permissions/check", Handler: PermissionCheckHandler(serverCtx)},
+			{
+				Method:  http.MethodGet,
+				Path:    "/health",
+				Handler: health.Handler(serverCtx.DB, nil),
+			},
 		},
-		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, nil)},
 	)
 }
