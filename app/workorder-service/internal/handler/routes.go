@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"onepark/app/workorder-service/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -60,5 +61,6 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: ListWorkOrderAttachmentsHandler(serverCtx),
 			},
 		},
+		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
 	)
 }
