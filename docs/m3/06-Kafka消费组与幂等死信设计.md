@@ -24,14 +24,14 @@
 
 | 项 | 值 | 说明 |
 |---|---|---|
-| 消费 topic | `onepark.device.event` | M1 生产 → M3 消费 |
-| 消费组 | `alarm-service-group` | 仅 alarm-service 使用（access/video 不消费 Kafka） |
+| 消费 topic | `device-telemetry` | M1 生产 → M3 消费（2026-09-18 M1 契约定稿，`common/kafka/topics.go` TopicDeviceTelemetry；本文初稿的 `onepark.device.event` 已废弃） |
+| 消费组 | `alarm-service` | 仅 alarm-service 使用（access/video 不消费 Kafka） |
 | 分区数 | 6（单 broker，`--replication-factor 1`） | 分区数 = 最大消费并发度 |
 | 生产 topic | `onepark.alarm.event` | M3 → M5（告警确认/解决） |
-| DLQ topic | `onepark.device.event.dlq` | 见 §5 |
+| DLQ | MySQL `alarm_dlq` 表（见 §5） | broker 侧不建 DLQ topic |
 | 分区键 | `deviceId` | 同设备事件保序 |
-| 初始 offset | `OffsetNewest` | 首次启动不回放历史；需回放改 `OffsetOldest` |
-| 提交方式 | **手动 `MarkMessage` + `Commit`** | 处理成功才提交 → at-least-once |
+| 初始 offset | `FirstOffset` | 首次启动不回放历史；需回放改 `OffsetOldest` |
+| 提交方式 | **手动提交**（处理成功才 Commit） | 处理成功才提交 → at-least-once |
 
 **语义**：Kafka 侧 at-least-once + 消费端幂等（§4）= 端到端有效 exactly-once。
 

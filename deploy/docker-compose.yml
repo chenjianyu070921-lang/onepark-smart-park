@@ -219,6 +219,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       # 容器内中间件主机名固定为服务名; 敏感值来自 .env.example
       MYSQL_HOST: mysql
@@ -228,6 +230,9 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: ${REDIS_PORT:-6379}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # HTTP 事件降级通道(/device/event)直投 Kafka, 不注入时 config 默认 localhost:9092,
+      # 容器内必然连不上 broker, 表现为事件上报静默失败.
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
     ports:
       - "${DEVICE_SERVICE_PORT:-8001}:8001"
     networks: [onepark]
