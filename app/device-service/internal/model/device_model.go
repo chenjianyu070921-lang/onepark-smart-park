@@ -20,9 +20,10 @@ type (
 		FindByDeviceID(ctx context.Context, deviceID string) (*Device, error)
 		FindByProductKeyAndName(ctx context.Context, productKey, deviceName string) (*Device, error)
 		FindList(ctx context.Context, page, size int, productKey string, status int8) ([]*Device, int64, error)
-		// CountGroupByStatus 按状态分组统计未删除设备数; productKey 为空表示全部产品.
+		// CountGroupByStatus 按状态分组统计未删除设备数; productKey 为空表示全部产品,
+		// deviceType 为 0 表示全部设备类型(1地磁 2门禁 3摄像头...).
 		// 返回 map[status]count, 仅包含库中实际出现的状态取值, 由调用方做枚举映射与求和.
-		CountGroupByStatus(ctx context.Context, productKey string) (map[int8]int64, error)
+		CountGroupByStatus(ctx context.Context, productKey string, deviceType int8) (map[int8]int64, error)
 		UpdateStatus(ctx context.Context, deviceID string, status int8) error
 		// UpdateOnline 更新在线状态并刷新最后在线时间, 由遥测消费端驱动.
 		UpdateOnline(ctx context.Context, deviceID string, status int8, at time.Time) error
@@ -85,13 +86,16 @@ type statusCount struct {
 	Cnt    int64 `gorm:"column:cnt"`
 }
 
-func (m *deviceModel) CountGroupByStatus(ctx context.Context, productKey string) (map[int8]int64, error) {
+func (m *deviceModel) CountGroupByStatus(ctx context.Context, productKey string, deviceType int8) (map[int8]int64, error) {
 	var rows []statusCount
 	tx := m.db.WithContext(ctx).Model(&Device{}).
 		Select("status, COUNT(*) AS cnt").
 		Where("deleted_at IS NULL")
 	if productKey != "" {
 		tx = tx.Where("product_key = ?", productKey)
+	}
+	if deviceType != 0 {
+		tx = tx.Where("type = ?", deviceType)
 	}
 	if err := tx.Group("status").Scan(&rows).Error; err != nil {
 		return nil, err

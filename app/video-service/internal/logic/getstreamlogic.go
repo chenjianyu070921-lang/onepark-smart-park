@@ -55,12 +55,27 @@ func (l *GetStreamLogic) GetStream(req *types.IdReq) (*types.StreamResp, error) 
 	if expires <= 0 {
 		expires = 3600
 	}
+	expiresAt := time.Now().Add(time.Duration(expires) * time.Second).Unix()
+
+	// 流地址时效签名(docs/m3/01 P1-6): 未配置 SignSecret 时 sign 为空串、FLV 不带签名参数,
+	// 与签名能力上线前行为完全一致(向后兼容)。
+	//
+	// RTSP 不追加签名查询串: 它是给后端/媒体网关拉流用的, 部分设备/播放器不接受带 query 的
+	// rtsp:// 地址; 其鉴权改用响应里的 sign 字段, 由调用方按 VerifyStreamSign 校验。
+	secret := l.svcCtx.Config.Stream.SignSecret
+	sign := SignStream(secret, camera.ID, expiresAt)
+	alg := ""
+	if sign != "" {
+		alg = SignAlgorithm
+	}
 
 	return &types.StreamResp{
 		CameraId:  camera.ID,
 		RtspUrl:   camera.RtspURL,
-		FlvUrl:    flvURL(l.svcCtx.Config.Stream.FlvBaseURL, camera.DeviceID),
-		ExpiresAt: time.Now().Add(time.Duration(expires) * time.Second).Unix(),
+		FlvUrl:    signedFlvURL(flvURL(l.svcCtx.Config.Stream.FlvBaseURL, camera.DeviceID), camera.ID, expiresAt, secret),
+		ExpiresAt: expiresAt,
+		Sign:      sign,
+		SignAlg:   alg,
 	}, nil
 }
 

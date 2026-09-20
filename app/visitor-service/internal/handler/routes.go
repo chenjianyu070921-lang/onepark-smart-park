@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"onepark/app/visitor-service/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -41,6 +42,13 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/visitors",
 				Handler: ListVisitorsHandler(serverCtx),
 			},
+			{
+				// 访客详情+门禁进出轨迹(P2: 签入产生的门禁动作留痕与访客记录关联)
+				Method:  http.MethodGet,
+				Path:    "/api/visitor/:id",
+				Handler: GetVisitorDetailHandler(serverCtx),
+			},
+		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
 		},
 	)
 }

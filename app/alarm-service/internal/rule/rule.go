@@ -46,11 +46,24 @@ type Spec struct {
 	Logic      string      `json:"logic"`
 	Conditions []Condition `json:"conditions"`
 	Field      string      `json:"field"`
+	Op         string      `json:"op"`
 	Operator   string      `json:"operator"`
 	Value      interface{} `json:"value"`
 	WindowSec  int         `json:"window_sec"`
 	Threshold  int         `json:"threshold"`
 	Match      *Condition  `json:"match"`
+}
+
+// OperatorOf 返回归一化后的扁平条件操作符.
+//
+// 与 Condition.OperatorOf 同一套兼容策略: 文档 04 的扁平示例用 operator,
+// 文档 07 的嵌套写法用 op. 只认其中一个会让"另一种写法"静默丢操作符,
+// 现象是创建规则时报"操作符非法", 而报错文案指向的条件看起来完全合法.
+func (s Spec) OperatorOf() string {
+	if s.Op != "" {
+		return s.Op
+	}
+	return s.Operator
 }
 
 // NormalizedSpec 解析并归一化后的规则条件, 供求值器直接使用.
@@ -91,7 +104,8 @@ func ParseSpec(raw string) (*NormalizedSpec, error) {
 	conditions := spec.Conditions
 	if len(conditions) == 0 && spec.Field != "" {
 		// 扁平单条件写法(doc 04): {"field":"temperature","operator":">","value":50}
-		conditions = []Condition{{Field: spec.Field, Op: spec.Operator, Value: spec.Value}}
+		// 操作符经 OperatorOf 归一: op / operator 两种写法都接受.
+		conditions = []Condition{{Field: spec.Field, Op: spec.OperatorOf(), Value: spec.Value}}
 	}
 
 	logic := strings.ToUpper(strings.TrimSpace(spec.Logic))
@@ -176,11 +190,12 @@ type Fields struct {
 	DeviceID   string
 	DeviceType string
 	AreaID     int64
+	ZoneID     string // M1 统一契约的能源区域编码, 旧消息/未分区设备为空
 	TenantID   int64
 	Payload    map[string]interface{}
 }
 
-// ResolveField 按路径取值: 支持 payload.xxx(可多级)、event_type、device_id、device_type、area_id、tenant_id.
+// ResolveField 按路径取值: 支持 payload.xxx(可多级)、event_type、device_id、device_type、area_id、zone_id、tenant_id.
 func (f Fields) ResolveField(path string) (interface{}, bool) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -195,6 +210,8 @@ func (f Fields) ResolveField(path string) (interface{}, bool) {
 		return f.DeviceType, true
 	case "area_id":
 		return f.AreaID, true
+	case "zone_id":
+		return f.ZoneID, true
 	case "tenant_id":
 		return f.TenantID, true
 	}

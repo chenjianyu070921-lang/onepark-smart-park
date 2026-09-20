@@ -17,7 +17,7 @@ RemoteOpen:
 # M1 device-service gRPC 客户端 (远程开门下发 open_door 命令)
 DeviceRPC:
   Endpoints:
-    - 127.0.0.1:9001
+    - ${DEVICE_RPC_ENDPOINTS:-127.0.0.1:9001}
   Timeout: 1000 # ms, 略大于 logic 内 800ms 短超时, 避免客户端先于业务超时
 
 # Redis 连接配置 (Day2 预留占位, 门禁权限缓存业务尚未接入)

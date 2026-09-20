@@ -13,8 +13,12 @@ import (
 	"onepark/app/dispatch-service/internal/svc"
 	"onepark/app/dispatch-service/internal/types"
 	"onepark/common/ctxdata"
+	"onepark/app/dispatch-service/internal/ecode"
 	"onepark/common/errorx"
 )
+
+// errVersionConflict 乐观锁冲突: 更新 affected rows=0, 说明 version 已被他人抢占.
+var errVersionConflict = errors.New("dispatch task version conflict")
 
 // TaskStatusLogic 状态回写: start 开始处理 / finish 完成 / close 关闭.
 type TaskStatusLogic struct {
@@ -37,21 +41,24 @@ func (l *TaskStatusLogic) TaskStatus(req *types.TaskStatusReq) (*types.TaskStatu
 	if l.svcCtx.DB == nil {
 		return nil, errorx.NewError(errorx.ErrDepConnect, "数据库未初始化")
 	}
+	tenantID := ctxdata.GetTenantId(l.ctx)
 
 	var task model.DispatchTask
-	err := l.svcCtx.DB.WithContext(l.ctx).First(&task, req.Id).Error
+	err := l.svcCtx.DB.WithContext(l.ctx).
+		Where("id = ? AND tenant_id = ?", req.Id, tenantID).
+		First(&task).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, errorx.NewError(errorx.ErrNotFound, "调度工单不存在")
+		return nil, errorx.NewError(ecode.ErrTaskNotFound, "调度工单不存在")
 	}
 	if err != nil {
 		l.Errorf("[dispatch] load task failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "加载调度工单失败")
+		return nil, errorx.NewError(ecode.ErrTaskQueryFailed, "加载调度工单失败")
 	}
 
 	action := req.Action
 	to, ok := state.Next(task.Status, action)
 	if !ok {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "当前状态不允许该操作")
+		return nil, errorx.NewError(ecode.ErrTaskStatusInvalid, "当前状态不允许该操作")
 	}
 
 	updates := map[string]interface{}{
@@ -63,26 +70,33 @@ func (l *TaskStatusLogic) TaskStatus(req *types.TaskStatusReq) (*types.TaskStatu
 		updates["finished_at"] = time.Now()
 	}
 
-	res := l.svcCtx.DB.WithContext(l.ctx).Model(&model.DispatchTask{}).
-		Where("id = ? AND version = ?", task.Id, task.Version).
-		Updates(updates)
-	if res.Error != nil {
-		l.Errorf("[dispatch] update task status failed: %v", res.Error)
-		return nil, errorx.NewError(errorx.ErrInternal, "更新工单状态失败")
+	// 乐观锁更新与审计流水同事务, 防止审计断档.
+	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&model.DispatchTask{}).
+			Where("id = ? AND tenant_id = ? AND version = ?", task.Id, tenantID, task.Version).
+			Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errVersionConflict
+		}
+		return tx.Create(&model.DispatchTaskLog{
+			TenantID:   tenantID,
+			TaskId:     task.Id,
+			FromStatus: task.Status,
+			ToStatus:   to,
+			Action:     action,
+			Remark:     req.Remark,
+			OperatorId: ctxdata.GetUserId(l.ctx),
+		}).Error
+	})
+	if errors.Is(err, errVersionConflict) {
+		return nil, errorx.NewError(ecode.ErrTaskConflict, "工单已被他人修改, 请刷新后重试")
 	}
-	if res.RowsAffected == 0 {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "工单已被他人修改, 请刷新后重试")
-	}
-
-	if err := l.svcCtx.DB.WithContext(l.ctx).Create(&model.DispatchTaskLog{
-		TaskId:     task.Id,
-		FromStatus: task.Status,
-		ToStatus:   to,
-		Action:     action,
-		Remark:     req.Remark,
-		OperatorId: ctxdata.GetUserId(l.ctx),
-	}).Error; err != nil {
-		l.Errorf("[dispatch] write task log failed: taskId=%d, err=%v", task.Id, err)
+	if err != nil {
+		l.Errorf("[dispatch] update task status failed: %v", err)
+		return nil, errorx.NewError(ecode.ErrTaskUpdateFailed, "更新工单状态失败")
 	}
 
 	return &types.TaskStatusResp{Id: task.Id, Status: int32(to)}, nil

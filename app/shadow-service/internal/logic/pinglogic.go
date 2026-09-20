@@ -24,7 +24,6 @@ func NewPingLogic(ctx context.Context, svcCtx *svc.ServiceContext) *PingLogic {
 }
 
 func (l *PingLogic) Ping(in *shadow.Request) (*shadow.Response, error) {
-	// todo: add your logic here and delete this line
-
-	return &shadow.Response{}, nil
+	// 回显请求内容作为 pong, 调用方可用任意 payload 验证链路连通
+	return &shadow.Response{Pong: in.GetPing()}, nil
 }

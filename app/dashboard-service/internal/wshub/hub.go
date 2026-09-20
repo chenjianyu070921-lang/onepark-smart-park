@@ -23,6 +23,10 @@ const (
 	writeTimeout = 5 * time.Second
 	// readLimit 客户端上行消息上限 —— 大屏只收不发, 收到超限报文视为异常.
 	readLimit = 512
+	// pingPeriod 服务端主动向客户端发 Ping 的间隔, 必须小于 pongWait.
+	pingPeriod = 30 * time.Second
+	// pongWait 等待客户端 Pong 的超时; 超时即判定连接半开/已断开, 触发注销.
+	pongWait = 60 * time.Second
 )
 
 // Client 一条大屏连接.
@@ -43,12 +47,17 @@ func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 
 // ReadPump 只负责感知断开(大屏不往上发业务数据).
 // 收到错误或连接关闭时自动注销; 阻塞, 应在独立 goroutine 中运行.
+// 通过 SetPongHandler 在收到 Pong 时续期读超时, 配合 WritePump 的 Ping 探测半开连接.
 func (c *Client) ReadPump() {
 	defer func() {
 		c.hub.Unregister(c)
 		_ = c.conn.Close()
 	}()
 	c.conn.SetReadLimit(readLimit)
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
 	for {
 		if _, _, err := c.conn.ReadMessage(); err != nil {
 			return
@@ -57,13 +66,32 @@ func (c *Client) ReadPump() {
 }
 
 // WritePump 唯一拥有该连接写权限的 goroutine.
-// 从发送通道取消息写 socket; 通道被关闭(Unregister)后退出.
+// 从发送通道取消息写 socket; 周期性发 Ping 探测连接存活, 通道被关闭(Unregister)后优雅退出.
 func (c *Client) WritePump() {
-	defer func() { _ = c.conn.Close() }()
-	for msg := range c.send {
-		_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-			return
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		_ = c.conn.Close()
+	}()
+	for {
+		select {
+		case msg, ok := <-c.send:
+			if !ok {
+				// 发送通道已关闭(Unregister), 发关闭帧后退出.
+				_ = c.conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				return
+			}
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			// 心跳: 服务端主动 Ping, 客户端应回 Pong(由 ReadPump 续期读超时).
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }

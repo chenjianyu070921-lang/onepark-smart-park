@@ -75,7 +75,6 @@ func (s *DeviceServer) SendCommand(ctx context.Context, in *commonpb.DeviceComma
 }
 
 // GetDevice 查询设备详情.
-// TODO: type/latitude/longitude 依赖 device 表新增列, 当前返回零值, 待建表后补齐.
 func (s *DeviceServer) GetDevice(ctx context.Context, in *devicepb.GetDeviceReq) (*devicepb.GetDeviceResp, error) {
 	if in.GetDeviceId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "device_id 不能为空")
@@ -89,7 +88,14 @@ func (s *DeviceServer) GetDevice(ctx context.Context, in *devicepb.GetDeviceReq)
 
 	resp := &devicepb.GetDeviceResp{
 		DeviceId: d.DeviceID,
+		Type:     int32(d.Type),
 		Status:   mapDeviceStatus(d.Status),
+	}
+	if d.Latitude != nil {
+		resp.Latitude = *d.Latitude
+	}
+	if d.Longitude != nil {
+		resp.Longitude = *d.Longitude
 	}
 	if d.LastOnlineAt != nil {
 		resp.LastSeen = d.LastOnlineAt.Unix()
@@ -100,14 +106,14 @@ func (s *DeviceServer) GetDevice(ctx context.Context, in *devicepb.GetDeviceReq)
 // GetDeviceStat 设备数量统计, 供 M5 dashboard-service 大屏计算在线率(清单 #69/#72).
 // 只返回台数不返回列表, 避免把全量设备拉到消费方计数; 恒等关系 total = online + offline + fault.
 func (s *DeviceServer) GetDeviceStat(ctx context.Context, in *devicepb.GetDeviceStatReq) (*devicepb.GetDeviceStatResp, error) {
-	// device 表当前没有 type 列, 类型过滤需待补列后启用(与 GetDeviceResp.type 的 TODO 同批).
-	// 显式拒绝而不是静默忽略, 避免调用方拿到"看似已过滤"的全量数.
-	if in.GetType() != 0 {
+	// type 取值为设备类型枚举(1地磁/2门禁/...), 0 表示不过滤; 超出 int8 枚举范围需显式拒绝,
+	// 避免负数/超大值被截断后变成意外的类型条件.
+	if t := in.GetType(); t < 0 || t > 127 {
 		return nil, status.Error(codes.InvalidArgument,
-			fmt.Sprintf("暂不支持按设备类型筛选(type=%d): device 表尚无 type 列", in.GetType()))
+			fmt.Sprintf("非法设备类型 type=%d: 取值应为 0(全部) 或 1~127 的类型枚举", t))
 	}
 
-	counts, err := s.svcCtx.DeviceModel.CountGroupByStatus(ctx, in.GetProductKey())
+	counts, err := s.svcCtx.DeviceModel.CountGroupByStatus(ctx, in.GetProductKey(), int8(in.GetType()))
 	if err != nil {
 		logx.WithContext(ctx).Errorf("gRPC 设备统计失败: productKey=%s, err=%v", in.GetProductKey(), err)
 		return nil, status.Error(codes.Internal, err.Error())

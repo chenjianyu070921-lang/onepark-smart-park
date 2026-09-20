@@ -22,7 +22,8 @@ type BillAutoReq struct {
 type BillAutoResp struct {
 	Period  string `json:"period"`
 	Created int64  `json:"created"` // 新生成账单数
-	Skipped int64  `json:"skipped"` // 幂等跳过数
+	Skipped int64  `json:"skipped"` // 幂等跳过数(该账期账单已存在)
+	Failed  int64  `json:"failed"`  // 落库失败数(非重复错误, 需人工介入)
 }
 
 type BillListReq struct {

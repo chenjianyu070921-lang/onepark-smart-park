@@ -35,8 +35,9 @@ func main() {
 	// Cors 对 OPTIONS 直接返回 204 并中断, 不会走到 JWT。
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
-	// JWT 鉴权: secret 为空时透传(开发期), 只在配置里填了密钥才真正校验
-	server.Use(middleware.JWT(c.JwtSecret))
+	// 下游只透传: JWT 校验/租户注入已收口到网关(见 gateway/internal/middleware.Auth),
+	// 本服务仅通过 IdentityFromHeader 提升网关注入的身份 Header.
+	server.Use(middleware.IdentityFromHeader)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)

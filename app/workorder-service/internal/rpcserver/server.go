@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"onepark/app/workorder-service/internal/model"
+	"onepark/app/workorder-service/internal/state"
 	"onepark/common/errorx"
 	"onepark/common/gormx"
 	commonpb "onepark/proto/common"
@@ -43,6 +44,18 @@ func (s *WorkorderServer) scoped(ctx context.Context, tenantId int64) *gormx.DB 
 	return q
 }
 
+// WorkOrderStats ListWorkOrders 聚合统计的扫描载体.
+// 单次聚合查询同时算出全部指标, 替代原先 5 次 COUNT + 1 次 AVG 的串行扫描;
+// 大屏高频轮询场景下统计查询开销降为原来的 1/6.
+type WorkOrderStats struct {
+	Total          int64   // 工单总数
+	Pending        int64   // 待处理数(待派单0+处理中1)
+	TodayNew       int64   // 今日新建
+	CompletedToday int64   // 今日完成(状态3且 finished_at 在今日)
+	Done           int64   // 已完成总数(计算完成率用)
+	AvgProcessMin  float64 // 平均处理时长(分钟, 仅已完成工单)
+}
+
 // ListWorkOrders 供 M5 大屏聚合查询工单摘要列表、总数与待处理数.
 // 入参: tenant_id 园区过滤(0 不限), status 状态过滤(0 不限), page/page_size 分页.
 // 返回: 摘要列表 + 符合条件总数 + 待处理(待派单+处理中)工单总数 +
@@ -57,46 +70,37 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 
 	tenant := req.TenantId
 
-	// 总数.
-	var total int64
-	s.scoped(ctx, tenant).Count(&total)
-	resp.Total = total
-
-	// 待处理数: 待派单(0)+处理中(1).
-	var pending int64
-	s.scoped(ctx, tenant).Where("status IN (?)", []int8{0, 1}).Count(&pending)
-	resp.PendingCount = pending
-
 	// 今日零点(本地时区).
 	now := time.Now()
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	// 今日新建.
-	var todayCount int64
-	s.scoped(ctx, tenant).Where("created_at >= ?", startOfDay).Count(&todayCount)
-	resp.TodayCount = todayCount
-
-	// 今日完成(已完成状态且 finished_at 在今日).
-	var completedToday int64
-	s.scoped(ctx, tenant).Where("status = ? AND finished_at >= ?", int8(3), startOfDay).Count(&completedToday)
-	resp.CompletedToday = completedToday
-
-	// 平均处理时长: 已完成工单 (finished_at - created_at) 的分钟均值.
-	var avgMinutes float64
-	s.scoped(ctx, tenant).
-		Where("status = ? AND finished_at IS NOT NULL", int8(3)).
-		Select("AVG(TIMESTAMPDIFF(MINUTE, created_at, finished_at))").
-		Scan(&avgMinutes)
-	if avgMinutes < 0 || s.DB == nil {
-		avgMinutes = 0
+	// 聚合统计: COUNT/SUM/AVG 单次扫描完成, 替代原先 5 次 COUNT + 1 次 AVG 的串行扫描;
+	// 状态值用 state 常量参数化, 不在 SQL 中硬编码; SUM/AVG 空表返回 NULL, 用 COALESCE 归零避免扫描报错.
+	// 统计查询统一检查错误: 失败返回错误, 让上游(dashboard)走降级而非拿到静默的 0.
+	var stats WorkOrderStats
+	if err := s.scoped(ctx, tenant).Select(
+		"COUNT(*) AS total, "+
+			"COALESCE(SUM(status IN (?,?)), 0) AS pending, "+
+			"COALESCE(SUM(created_at >= ?), 0) AS today_new, "+
+			"COALESCE(SUM(status = ? AND finished_at >= ?), 0) AS completed_today, "+
+			"COALESCE(SUM(status = ?), 0) AS done, "+
+			"COALESCE(AVG(CASE WHEN status = ? AND finished_at IS NOT NULL THEN "+
+			"TIMESTAMPDIFF(MINUTE, created_at, finished_at) END), 0) AS avg_process_min",
+		state.StatusPendingDispatch, state.StatusProcessing,
+		startOfDay, state.StatusCompleted, startOfDay, state.StatusCompleted, state.StatusCompleted,
+	).Scan(&stats).Error; err != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "工单聚合统计查询失败")
 	}
-	resp.AvgProcessMinutes = avgMinutes
+
+	resp.Total = stats.Total
+	resp.PendingCount = stats.Pending
+	resp.TodayCount = stats.TodayNew
+	resp.CompletedToday = stats.CompletedToday
+	resp.AvgProcessMinutes = stats.AvgProcessMin
 
 	// 完成率: 已完成(状态3)/总数 * 100.
-	if total > 0 {
-		var done int64
-		s.scoped(ctx, tenant).Where("status = ?", int8(3)).Count(&done)
-		resp.CompletionRate = float64(done) / float64(total) * 100
+	if stats.Total > 0 {
+		resp.CompletionRate = float64(stats.Done) / float64(stats.Total) * 100
 	}
 
 	// 分页摘要列表.
@@ -107,9 +111,15 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	if size < 1 {
 		size = 10
 	}
+	listQ := s.scoped(ctx, tenant)
+	if req.Status != 0 {
+		listQ = listQ.Where("status = ?", int8(req.Status))
+	}
 	var list []model.WorkOrder
-	s.scoped(ctx, tenant).Where(statusFilter(req.Status)).
-		Order("id DESC").Offset(int((page - 1) * size)).Limit(int(size)).Find(&list)
+	if err := listQ.Order("id DESC").
+		Offset(int((page - 1) * size)).Limit(int(size)).Find(&list).Error; err != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "查询工单列表失败")
+	}
 
 	summaries := make([]*workorderpb.WorkOrderSummary, 0, len(list))
 	for _, wo := range list {
@@ -126,35 +136,4 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	resp.List = summaries
 
 	return resp, nil
-}
-
-// statusFilter 生成状态过滤条件; status=0 表示不限.
-func statusFilter(status int32) string {
-	if status == 0 {
-		return "1=1"
-	}
-	return "status = " + itoa(int(status))
-}
-
-// itoa 轻量整型转字符串, 避免引入 strconv 仅用于此场景.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [12]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
 }

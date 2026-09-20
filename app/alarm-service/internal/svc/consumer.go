@@ -45,7 +45,9 @@ var ErrMalformedEvent = errors.New("alarm: malformed device event")
 // 远小于 Consumer.Group.Rebalance.Timeout(60s), 不会触发不必要的重平衡.
 var retryBackoff = []time.Duration{100 * time.Millisecond, 500 * time.Millisecond, 2 * time.Second}
 
-// DeviceEvent M1 设备遥测事件, 与 M1 约定的 DeviceEvent v1 结构.
+// DeviceEvent M1 设备遥测事件, 按 common/kafka.DeviceTelemetry 统一契约(2026-09-18 定稿)解析:
+// 事件时间取 occurred_at(Unix 秒), 区域取 zone_id(能源区域编码).
+// AreaID/Timestamp 为契约定稿前的旧字段, 仅用于兼容历史消息, 新生产端不会发送.
 // 字段缺失时的降级策略见 IdempotentID / MatchIntrusionRule 注释.
 type DeviceEvent struct {
 	RequestID  string          `json:"request_id"`
@@ -53,20 +55,34 @@ type DeviceEvent struct {
 	DeviceID   string          `json:"device_id"`
 	DeviceType string          `json:"device_type"`
 	EventType  string          `json:"event_type"`
-	AreaID     int64           `json:"area_id"`
+	ZoneID     string          `json:"zone_id"`     // 能源区域编码, 空表示未分区
+	OccurredAt int64           `json:"occurred_at"` // 事件时间(Unix 秒)
 	Payload    json.RawMessage `json:"payload"`
-	Timestamp  int64           `json:"timestamp"` // 事件时间(毫秒)
+	AreaID   int64 `json:"area_id"`   // 旧契约字段(历史消息兼容)
+	Timestamp int64 `json:"timestamp"` // 旧契约字段, 毫秒(历史消息兼容)
+}
+
+// EventTime 返回事件时间的 Unix 秒.
+// 优先统一契约的 occurred_at; 历史消息仅有 timestamp(毫秒) 时换算; 均缺失返回 0.
+func (e DeviceEvent) EventTime() int64 {
+	if e.OccurredAt > 0 {
+		return e.OccurredAt
+	}
+	if e.Timestamp > 0 {
+		return e.Timestamp / 1000
+	}
+	return 0
 }
 
 // IdempotentID 返回写入 alarm.request_id 的幂等键.
-// 优先使用消息自带 request_id; 缺失时按 sha1(deviceId|eventType|timestamp) 生成指纹降级,
+// 优先使用消息自带 request_id; 缺失时按 sha1(deviceId|eventType|EventTime) 生成指纹降级,
 // 并打 WARN 计数, 以推动 M1 补齐 request_id (P0-2).
 // 禁止用 partition-offset 作幂等键: 重放时 offset 变化会导致重复处理.
 func (e DeviceEvent) IdempotentID() string {
 	if r := strings.TrimSpace(e.RequestID); r != "" {
 		return r
 	}
-	raw := strings.Join([]string{e.DeviceID, e.EventType, strconv.FormatInt(e.Timestamp, 10)}, "|")
+	raw := strings.Join([]string{e.DeviceID, e.EventType, strconv.FormatInt(e.EventTime(), 10)}, "|")
 	sum := sha1.Sum([]byte(raw))
 	return "fp:" + hex.EncodeToString(sum[:])
 }
@@ -93,6 +109,7 @@ func (e DeviceEvent) RuleFields() rule.Fields {
 		DeviceID:   e.DeviceID,
 		DeviceType: e.DeviceType,
 		AreaID:     e.AreaID,
+		ZoneID:     e.ZoneID,
 		TenantID:   e.TenantID,
 		Payload:    payload,
 	}
@@ -351,6 +368,29 @@ func (s *ServiceContext) recordDeadLetter(ctx context.Context, msg kafkago.Messa
 	return nil
 }
 
+// ReplayDeadLetter 重放一条死信(docs/m3/06 §5.4): 用台账里保存的原始报文重新走一遍消费主链路.
+//
+// 为什么先删 L1 幂等键: 死信多是"过了 L1 之后的下游步骤失败"产生的, 此时 alarm:dedup:{requestId}
+// 仍在 24h TTL 内。若不清键, 重放会被 L1 判成"已处理"直接返回 nil,
+// 表现为"点了重放却什么都没发生" —— 这是最难排查的一类静默失败。
+// 人工重放是运维的显式意图, 应当真正重新处理; 重复落库由 L3 唯一索引(uk_request_rule)兜底, 不依赖 L1.
+func (s *ServiceContext) ReplayDeadLetter(ctx context.Context, entry *model.AlarmDLQ) error {
+	if s.Redis != nil && entry.RequestID != "" {
+		if err := s.Redis.Del(ctx, keyDedup+entry.RequestID).Err(); err != nil {
+			// 清键失败不阻断重放: 最坏情况是重放被 L1 跳过, 由上层据返回值判断.
+			logx.WithContext(ctx).Errorf("alarm replay clear dedup key failed request_id=%s err=%v",
+				entry.RequestID, err)
+		}
+	}
+	msg := kafkago.Message{
+		Topic:     entry.Topic,
+		Partition: entry.PartitionNo,
+		Offset:    entry.MsgOffset,
+		Value:     []byte(entry.Payload),
+	}
+	return s.HandleDeviceEvent(ctx, msg)
+}
+
 // truncate 截断超长文本, 避免 error_msg 超过列宽导致整条死信写不进去.
 func truncate(s string, max int) string {
 	if len(s) <= max {
@@ -365,6 +405,14 @@ func truncate(s string, max int) string {
 func (s *ServiceContext) evaluateRules(ctx context.Context, ev *DeviceEvent, idempotentID string) ([]*rule.Draft, error) {
 	if s.Engine != nil && s.Engine.HasRules(ctx) {
 		return s.Engine.Evaluate(ctx, ev.RuleFields(), idempotentID)
+	}
+	// 回退由配置显式控制(Rule.DisableLegacyFallback), 不再隐式兜底:
+	// 关闭时必须留 WARN —— 否则"规则未生效"和"没有匹配事件"在现象上完全一样, 无法区分.
+	if s.Config.Rule.DisableLegacyFallback {
+		logx.WithContext(ctx).Slowf(
+			"alarm no enabled rule and legacy fallback disabled, event dropped device_id=%s device_type=%s event_type=%s",
+			ev.DeviceID, ev.DeviceType, ev.EventType)
+		return nil, nil
 	}
 	if ev.MatchIntrusionRule() {
 		return []*rule.Draft{{

@@ -7,6 +7,7 @@ import (
 	"onepark/app/leasing-service/internal/model"
 	"onepark/app/leasing-service/internal/svc"
 	"onepark/app/leasing-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/gormx"
 )
 
@@ -15,6 +16,15 @@ import (
 // 为什么值得逐条测: 这些校验与状态判定**早就写好了**, 但此前 0 用例覆盖 ——
 // 既拉低覆盖率, 更危险的是「有人误删其中一条校验也不会有测试报警」。
 // 每条用例只改一个字段, 失败时能直接定位是哪条校验没了。
+
+// testCtx 带租户的 ctx。
+//
+// 建合同现在**从 ctx 取租户**(ctxdata.GetTenantId), 且刻意不信任请求体里的 tenant_id
+// —— 否则客户端可以伪造租户越权建合同。测试必须如实模拟网关注入的租户上下文,
+// 用 context.Background() 会得到"缺少租户信息(x-tenant-id)"。
+func testCtx() context.Context {
+	return ctxdata.SetTenantId(context.Background(), 1)
+}
 
 // validCreateReq 一份合法的创建请求.
 //
@@ -39,7 +49,7 @@ func validCreateReq() *types.ContractCreateReq {
 // TestContractCreate_Validation 创建合同: 逐条命中校验分支.
 func TestContractCreate_Validation(t *testing.T) {
 	svcCtx := &svc.ServiceContext{DB: openTestDB(t)}
-	ctx := context.Background()
+	ctx := testCtx()
 
 	cases := []struct {
 		name   string
@@ -75,7 +85,7 @@ func TestContractCreate_Validation(t *testing.T) {
 func TestContractCreate_OptionalDeposit(t *testing.T) {
 	db := openTestDB(t)
 	svcCtx := &svc.ServiceContext{DB: db}
-	ctx := context.Background()
+	ctx := testCtx()
 
 	req := validCreateReq()
 	req.Deposit = "" // 省略押金
@@ -117,7 +127,7 @@ func cleanupContract(ctx context.Context, db *gormx.DB, id int64) {
 func TestContractUpdate_Validation(t *testing.T) {
 	db := openTestDB(t)
 	svcCtx := &svc.ServiceContext{DB: db}
-	ctx := context.Background()
+	ctx := testCtx()
 
 	created := createTestContract(t, ctx, svcCtx)
 	t.Cleanup(func() { cleanupContract(ctx, db, created.Id) })
@@ -171,7 +181,7 @@ func TestContractUpdate_NotFound(t *testing.T) {
 func TestContractLifecycle(t *testing.T) {
 	db := openTestDB(t)
 	svcCtx := &svc.ServiceContext{DB: db}
-	ctx := context.Background()
+	ctx := testCtx()
 
 	created := createTestContract(t, ctx, svcCtx)
 	t.Cleanup(func() { cleanupContract(ctx, db, created.Id) })

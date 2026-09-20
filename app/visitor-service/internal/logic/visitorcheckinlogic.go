@@ -40,6 +40,13 @@ func NewVisitorCheckinLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Vi
 func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp *types.VisitorCheckinResp, err error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 
+	// 签名校验(防伪造): 验签不通过直接拒绝且不查库.
+	// 对外统一报"二维码无效", 不透出具体校验失败原因, 避免帮助攻击者定位绕过路径.
+	if e := verifyQRSign(req.QRCode); e != nil {
+		l.Errorf("verify qr sign failed: %v", e)
+		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "二维码无效")
+	}
+
 	var rec model.VisitorRecord
 	if e := l.svcCtx.DB.WithContext(l.ctx).Where("qr_code=? AND tenant_id=?", req.QRCode, tenantID).First(&rec).Error; e != nil {
 		if e == gorm.ErrRecordNotFound {
@@ -62,10 +69,11 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "二维码已被核销")
 	}
 
-	// 1) 核销并置为已签入.
-	// 并发安全: 必须带 status=待使用 原子条件, 防止同一二维码被并发签入两次导致重复开门.
-	// 利用 MySQL 行级 UPDATE 的原子性: 仅当记录仍为待使用时才更新成功(RowsAffected==1),
-	// 并发的第二次请求命中 status 已变更 → RowsAffected==0 → 判定为已被核销.
+	// 1) 核销并置为已签入(RBAC 隔离: 带 tenant_id 条件).
+	//
+	// 更新条件必须带上 status=待使用(CAS): 上面的"先查后改"在并发重复扫码下会同时读到
+	// status=1 并各自写入一次, 结果是重复触发开门 + 签入时间被覆盖。
+	// RowsAffected=0 即说明已被另一路请求核销, 此时不能再走开门。
 	res := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).
 		Where("id=? AND tenant_id=? AND status=?", rec.ID, tenantID, model.VisitorStatusPending).
 		Updates(map[string]interface{}{
@@ -73,34 +81,72 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 			"checkin_at": now,
 			"updated_at": now,
 		})
-	if res.Error != nil {
-		l.Errorf("visitor checkin failed: %v", res.Error)
+	if e := res.Error; e != nil {
+		l.Errorf("visitor checkin failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrVisitorCheckinFailed, "签入失败")
 	}
 	if res.RowsAffected == 0 {
-		// 同一条码已被并发/重复核销(状态已非待使用), 直接拒绝, 避免重复触发 M1 开门.
+		// 并发下第二次扫码走到这里: 返回"已核销"而不是成功, 绝不重复开门.
+		l.Infof("visitor checkin skipped, already consumed rec_id=%d", rec.ID)
 		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "二维码已被核销")
 	}
 
 	// 2) 调 M1 开门并把开门设备ID回填 visitor_record.device_id(失败降级, 不阻断签入).
-	deviceID := l.openDoor(rec.ID, tenantID)
+	deviceID, openMsg := l.openDoor(rec.ID, tenantID)
+
+	// 发布访客事件(评审 P1): checkin → Kafka visitor-event, 供大屏等消费方实时感知; 尽力而为不阻断.
+	rec.Status = model.VisitorStatusCheckin
+	rec.DeviceID = deviceID
+	publishVisitorEvent(l.ctx, l.svcCtx, l.Logger, VisitorEvent{
+		Event:        "checkin",
+		TenantId:     rec.TenantID,
+		VisitorId:    rec.ID,
+		VisitorName:  rec.VisitorName,
+		VisitorPhone: rec.VisitorPhone,
+		InviterId:    rec.InviterID,
+		Status:       rec.Status,
+		DeviceId:     deviceID,
+	})
 
 	return &types.VisitorCheckinResp{
 		Id:        rec.ID,
 		Status:    model.VisitorStatusCheckin,
 		CheckinAt: now.Unix(),
 		DeviceID:  deviceID,
+		OpenMsg:   openMsg,
 	}, nil
+}
+
+// openDoorResult 开门降级提示语(场景3 验收口径): 无论 M1 是否开门成功, 签入均不阻断,
+// 降级时明确提示"请联系前台人工开门", 由前台兜底放行.
+const (
+	openMsgSuccess  = "开门成功"
+	openMsgDegrade  = "门禁未响应，签入已记录，请联系前台人工开门"
+	openMsgNoConfig = "门禁未配置，签入已记录，请联系前台人工开门"
+)
+
+// openDoorMsg 开门结果提示语构造(纯函数, 便于降级策略单测).
+// 入参: configured M1 开门链路是否已配置(DeviceRPC+门岗设备); opened 开门是否实际成功.
+func openDoorMsg(configured, opened bool) string {
+	switch {
+	case opened:
+		return openMsgSuccess
+	case !configured:
+		return openMsgNoConfig
+	default:
+		return openMsgDegrade
+	}
 }
 
 // openDoor 向 M1 device-service 下发开门指令, 并将实际开门设备ID回填到访客记录.
 // 入参: recID 访客记录ID, tenantID 园区ID(回填时 RBAC 隔离).
-// 返回: 回填的 device_id; M1 未配置/不可达时返回空串并仅记日志(降级不阻断签入).
-func (l *VisitorCheckinLogic) openDoor(recID, tenantID int64) string {
+// 返回: 回填的 device_id + 开门结果提示语; M1 未配置/不可达时 device_id 为空、
+// 提示"请联系前台人工开门"(降级不阻断签入, 超时由 m1OpenDoorTimeout 短超时控制).
+func (l *VisitorCheckinLogic) openDoor(recID, tenantID int64) (string, string) {
 	door := l.svcCtx.Config.Door
 	if l.svcCtx.DeviceRPC == nil || door.DeviceID == "" {
 		l.Infof("skip M1 open door: device rpc or door device not configured (rec_id=%d)", recID)
-		return ""
+		return "", openDoorMsg(false, false)
 	}
 
 	command := door.Command
@@ -115,9 +161,9 @@ func (l *VisitorCheckinLogic) openDoor(recID, tenantID int64) string {
 		Command:  command,
 	})
 	if e != nil {
-		// M1 不可达: 降级, 不阻断访客签入.
+		// M1 不可达/超时: 降级, 不阻断访客签入, 明确提示人工兜底.
 		l.Errorf("call M1 SendCommand failed, degrade checkin: %v", e)
-		return ""
+		return "", openDoorMsg(true, false)
 	}
 
 	// 优先使用 M1 返回的实际开门设备ID, 缺省回落到配置的门岗设备ID.
@@ -133,5 +179,5 @@ func (l *VisitorCheckinLogic) openDoor(recID, tenantID int64) string {
 		Update("device_id", deviceID).Error; e != nil {
 		l.Errorf("backfill visitor device_id failed: %v", e)
 	}
-	return deviceID
+	return deviceID, openDoorMsg(true, true)
 }

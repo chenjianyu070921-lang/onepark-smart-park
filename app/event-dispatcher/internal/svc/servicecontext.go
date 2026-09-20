@@ -1,15 +1,22 @@
 package svc
 
 import (
+	"fmt"
 	"os"
+	"time"
 
+	"github.com/zeromicro/go-zero/core/logx"
+
+	"onepark/app/event-dispatcher/internal/archive"
 	"onepark/app/event-dispatcher/internal/config"
+	"onepark/common/gormx"
 	"onepark/common/kafka"
 )
 
 type ServiceContext struct {
 	Config   config.Config
 	Producer *kafka.Producer
+	Resolver *archive.Resolver
 }
 
 // NewServiceContext 初始化上下文.
@@ -35,8 +42,19 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		c.KafkaBrokers = "localhost:9092"
 	}
 
+	// 设备档案只读连接: 未配置 DSN 时保持 nil, dispatch 侧零值放行(降级启动约定).
+	var resolver *archive.Resolver
+	if dsn := os.ExpandEnv(c.MySQLDSN); dsn != "" {
+		db, err := gormx.NewDB(dsn)
+		if err != nil {
+			logx.Must(fmt.Errorf("初始化 MySQL 失败: %w", err))
+		}
+		resolver = archive.NewResolver(archive.NewGormReader(db), 30*time.Second)
+	}
+
 	return &ServiceContext{
 		Config:   c,
 		Producer: kafka.NewProducer(c.KafkaBrokers),
+		Resolver: resolver,
 	}
 }

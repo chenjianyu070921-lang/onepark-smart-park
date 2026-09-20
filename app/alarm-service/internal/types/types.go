@@ -158,3 +158,41 @@ type ListRulesResp struct {
 	PageSize int64      `json:"page_size"`
 	List     []RuleItem `json:"list"`
 }
+
+// ListDLQReq 死信台账列表请求(docs/m3/06 §5.4 可查/可重放).
+type ListDLQReq struct {
+	Status   int8   `form:"status,optional"` // 死信状态: 0待处理 1已重放 2已丢弃; 不传或<0表示全部
+	DeviceId string `form:"device_id,optional"`
+	Page     int64  `form:"page,optional"`
+	PageSize int64  `form:"page_size,optional"`
+}
+
+// DLQItem 死信台账条目; Payload 为原始报文, 供运维定位与重放.
+type DLQItem struct {
+	Id          int64  `json:"id"`
+	Topic       string `json:"topic"`
+	PartitionNo int    `json:"partition_no"`
+	MsgOffset   int64  `json:"msg_offset"`
+	RequestId   string `json:"request_id"`
+	DeviceId    string `json:"device_id"`
+	EventType   string `json:"event_type"`
+	Payload     string `json:"payload"`
+	ErrorMsg    string `json:"error_msg"`
+	RetryCount  int    `json:"retry_count"`
+	Status      int8   `json:"status"`
+	CreatedAt   int64  `json:"created_at"`
+}
+
+type ListDLQResp struct {
+	Total    int64     `json:"total"`
+	Page     int64     `json:"page"`
+	PageSize int64     `json:"page_size"`
+	List     []DLQItem `json:"list"`
+}
+
+// ReplayDLQResp 死信重放结果.
+// Replayed 为 false 表示主链路仍未处理成功(台账状态保持待处理), 便于运维判断是否继续重试.
+type ReplayDLQResp struct {
+	Id       int64 `json:"id"`
+	Replayed bool  `json:"replayed"`
+}

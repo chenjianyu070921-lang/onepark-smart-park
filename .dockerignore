@@ -1,11 +1,9 @@
+# 构建上下文排除项: 减小 docker build 上下文体积, 避免无关/敏感文件进入镜像.
 .git
-.gitignore
-.idea
-.vscode
-bin
-dist
-*.md
 docs
 deploy
-.env
-*.local
+*.md
+.idea
+.vscode
+*.tmp
+.DS_Store

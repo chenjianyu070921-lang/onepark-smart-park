@@ -18,8 +18,9 @@ type TimeWindow {
 
 // RemoteOpenReq 远程开门请求
 type RemoteOpenReq {
-	DeviceId string `json:"device_id"`       // 门禁设备ID(来自 M1)
-	Reason   string `json:"reason,optional"` // 开门缘由, 如"访客放行", 写入审计
+	DeviceId  string `json:"device_id"`             // 门禁设备ID(来自 M1)
+	Reason    string `json:"reason,optional"`       // 开门缘由, 如"访客放行", 写入审计
+	RequestId string `json:"request_id,optional"`   // 幂等键: 成功开门后同一 request_id 不再重复下发; 被拒/失败/超时会释放该键, 可带同一 request_id 重试
 }
 
 // RemoteOpenResp 远程开门响应

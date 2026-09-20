@@ -15,6 +15,7 @@ import (
 	"onepark/app/leasing-service/internal/logic/lease"
 	"onepark/app/leasing-service/internal/svc"
 	"onepark/app/leasing-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -38,6 +39,16 @@ func (s *LeasingServer) Ping(_ context.Context, _ *commonpb.Empty) (*commonpb.Em
 func (s *LeasingServer) GetContract(ctx context.Context, req *leasingpb.GetContractReq) (*leasingpb.GetContractResp, error) {
 	if req.GetId() <= 0 {
 		return nil, errorx.NewError(errorx.ErrBadRequest, "合同ID不能为空")
+	}
+
+	// 把调用方**声明**的租户注入 ctx: 下层的 ContractDetail 是按 **ctx 里的租户** 做行级隔离的
+	// (Where id = ? AND tenant_id = ?), 而服务间 gRPC 不经过网关中间件, 租户只能来自 req.TenantId。
+	// 不注入的后果很具体: 下层恒按 tenant_id=0 过滤, 只要合同租户非 0 就永远返回"合同不存在"。
+	//
+	// req.TenantId = 0 时保持 ctx 无租户, 下层于是按 0 过滤 —— 即查不到任何非 0 租户的合同。
+	// 这是刻意的 **fail-closed**: "没声明租户"不等于"可以看所有租户"。
+	if tid := req.GetTenantId(); tid != 0 {
+		ctx = ctxdata.SetTenantId(ctx, tid)
 	}
 
 	// 复用 HTTP 详情逻辑: 两个协议的数据来源与口径完全一致

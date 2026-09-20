@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net"
 	"testing"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -13,15 +12,21 @@ import (
 	workorderpb "onepark/proto/workorder"
 )
 
-// 本文件补齐 M2 工单适配器的测试 —— 此前 alarm/device/energy 三个适配器都有测试,
-// 唯独工单没有(覆盖率 0%)。而它有两个**算出来的值**(完成率、今日新增),
-// 算错了大屏只会显示一个错误的数字, 不会有任何报错。
+// 本文件覆盖 M2 工单适配器。
+//
+// ⚠️ 2026-09-20 合并 develop 时**重写过一次**：M2 在 09-18 联调时把统计字段
+// （today_count / pending_count / completion_rate / avg_process_minutes）放进了
+// ListWorkOrders 的服务端响应，本端于是改为**单次调用直采**，不再自己拉列表数数 ——
+// 因此旧的 `countCreatedToday` 及其日期边界用例一并删除（那个函数已不存在）。
+// 这次改动本身是改进：消除了「pageSize=500 截断导致今日新增偏小」与「完成率口径
+// 与 M2 不一致」两个漂移，数据归属方（M2）的口径成为唯一口径。
+//
+// 保留下来的是三类仍然成立的断言：字段映射与**单位换算**、错误必须上传、未配置占位。
 
-// fakeWorkOrderServer 假工单服务: 按 status 参数返回不同 total, 以便验证"聚合到底查了什么".
+// fakeWorkOrderServer 假工单服务。
 type fakeWorkOrderServer struct {
 	workorderpb.UnimplementedWorkorderServiceServer
-	all     *workorderpb.ListWorkOrdersResp // status=0(不限)时返回
-	totals  map[int32]int64                 // status!=0 时返回的 total
+	resp    *workorderpb.ListWorkOrdersResp
 	gotReqs []*workorderpb.ListWorkOrdersReq
 	err     error
 }
@@ -31,13 +36,13 @@ func (s *fakeWorkOrderServer) ListWorkOrders(_ context.Context, req *workorderpb
 	if s.err != nil {
 		return nil, s.err
 	}
-	if req.GetStatus() == 0 && s.all != nil {
-		return s.all, nil
+	if s.resp != nil {
+		return s.resp, nil
 	}
-	return &workorderpb.ListWorkOrdersResp{Total: s.totals[req.GetStatus()]}, nil
+	return &workorderpb.ListWorkOrdersResp{}, nil
 }
 
-// newWorkOrderClient 起进程内 gRPC 服务并返回真客户端(与 alarm_test.go 同模式).
+// newWorkOrderClient 起进程内 gRPC 服务并返回真客户端（与 alarm_test.go 同模式）.
 func newWorkOrderClient(t *testing.T, fake *fakeWorkOrderServer) workorderpb.WorkorderServiceClient {
 	t.Helper()
 
@@ -59,23 +64,18 @@ func newWorkOrderClient(t *testing.T, fake *fakeWorkOrderServer) workorderpb.Wor
 	return workorderpb.NewWorkorderServiceClient(conn)
 }
 
-// TestWorkOrderStat_Mapping 字段映射与两个派生值的算法.
+// TestWorkOrderStat_Mapping 字段直采 + 两个单位换算.
+//
+// 单位换算是本端唯一的"加工"动作，也是唯一可能算错的地方：
+// M2 给「0~100 的百分数」与「分钟」，大屏要「0~1 的比例」与「秒」。
 func TestWorkOrderStat_Mapping(t *testing.T) {
-	now := time.Now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
-
 	fake := &fakeWorkOrderServer{
-		all: &workorderpb.ListWorkOrdersResp{
-			Total:        100,
-			PendingCount: 12, // 待派单 + 处理中
-			List: []*workorderpb.WorkOrderSummary{
-				{CreatedAt: todayStart},          // 今天
-				{CreatedAt: now.Unix()},          // 今天
-				{CreatedAt: todayStart - 1},      // 昨天 23:59:59 -> 不算
-				{CreatedAt: todayStart - 86400},  // 更早 -> 不算
-			},
+		resp: &workorderpb.ListWorkOrdersResp{
+			TodayCount:        17,  // M2 按 created_at 当天精确统计
+			PendingCount:      12,  // 待派单 + 处理中
+			CompletionRate:    70,  // M2 口径: 0~100
+			AvgProcessMinutes: 8.5, // M2 口径: 分钟
 		},
-		totals: map[int32]int64{3: 40, 4: 30}, // 已完成 40 / 已关闭 30
 	}
 	p := NewWorkOrder(newWorkOrderClient(t, fake))
 
@@ -84,38 +84,41 @@ func TestWorkOrderStat_Mapping(t *testing.T) {
 		t.Fatalf("Stat 失败: %v", err)
 	}
 
-	if stat.TodayTotal != 2 {
-		t.Errorf("TodayTotal = %d, 期望 2(只有两条落在今天)", stat.TodayTotal)
+	if stat.TodayTotal != 17 {
+		t.Errorf("TodayTotal = %d, 期望 17(直接采 M2 的 today_count)", stat.TodayTotal)
 	}
 	if stat.Unfinished != 12 {
-		t.Errorf("Unfinished = %d, 期望 12(直接取 pending_count)", stat.Unfinished)
+		t.Errorf("Unfinished = %d, 期望 12(直接采 pending_count)", stat.Unfinished)
 	}
-	// 完成率 = (已完成 40 + 已关闭 30) / 总数 100
+	// 完成率 0~100 -> 0~1
 	if diff := stat.CompleteRate - 0.70; diff > 1e-9 || diff < -1e-9 {
-		t.Errorf("CompleteRate = %v, 期望 0.70", stat.CompleteRate)
+		t.Errorf("CompleteRate = %v, 期望 0.70(70 / 100)", stat.CompleteRate)
 	}
-	// M2 契约未暴露 finished_at -> 平均处理时长不可得, 必须是 nil 而不是 0
-	if stat.AvgHandleSec != nil {
-		t.Errorf("AvgHandleSec = %v, 期望 nil(M2 契约未暴露 finished_at)", *stat.AvgHandleSec)
+	// 平均处理时长 分钟 -> 秒
+	if stat.AvgHandleSec == nil {
+		t.Fatal("M2 给了平均处理时长, AvgHandleSec 不应为 nil")
+	}
+	if *stat.AvgHandleSec != 510 {
+		t.Errorf("AvgHandleSec = %v, 期望 510(8.5 分钟 * 60)", *stat.AvgHandleSec)
 	}
 
-	// 契约验证: 租户必须透传, 否则会把别的园区工单算进本园区大屏
+	// 契约: 租户必须透传, 否则会把别的园区工单算进本园区大屏
 	if len(fake.gotReqs) == 0 || fake.gotReqs[0].GetTenantId() != 7 {
-		t.Errorf("列表请求未透传 tenant_id, 实际: %+v", fake.gotReqs[0])
+		t.Errorf("请求未透传 tenant_id, 实际: %+v", fake.gotReqs[0])
 	}
-	// 列表请求应拉全量(status=0)且用约定的页大小
-	if got := fake.gotReqs[0].GetStatus(); got != 0 {
-		t.Errorf("全量查询的 status = %d, 期望 0(不限)", got)
+	// 只要聚合字段, 不该拉列表数据
+	if got := fake.gotReqs[0].GetPageSize(); got != 1 {
+		t.Errorf("PageSize = %d, 期望 1(只消费聚合字段, 不拉列表)", got)
+	}
+	// 只应调用一次: 旧实现要额外按状态查两次拿完成率, 现在服务端一次给全
+	if n := len(fake.gotReqs); n != 1 {
+		t.Errorf("上游调用次数 = %d, 期望 1(M2 单次调用即返回全部指标)", n)
 	}
 }
 
-// TestWorkOrderStat_ZeroTotalNoNaN 总数为 0 时完成率必须是 0, 不能是 NaN.
-// (0/0 会得到 NaN, 前端显示会直接炸; 这是除法最容易漏的边界)
-func TestWorkOrderStat_ZeroTotalNoNaN(t *testing.T) {
-	fake := &fakeWorkOrderServer{
-		all:    &workorderpb.ListWorkOrdersResp{Total: 0},
-		totals: map[int32]int64{},
-	}
+// TestWorkOrderStat_ZeroValues 空园区的全零响应.
+func TestWorkOrderStat_ZeroValues(t *testing.T) {
+	fake := &fakeWorkOrderServer{resp: &workorderpb.ListWorkOrdersResp{}}
 	p := NewWorkOrder(newWorkOrderClient(t, fake))
 
 	stat, err := p.Stat(context.Background(), 0)
@@ -123,17 +126,22 @@ func TestWorkOrderStat_ZeroTotalNoNaN(t *testing.T) {
 		t.Fatalf("Stat 失败: %v", err)
 	}
 	if stat.CompleteRate != 0 {
-		t.Errorf("CompleteRate = %v, 期望 0(总数为 0 时不能出现 NaN)", stat.CompleteRate)
+		t.Errorf("CompleteRate = %v, 期望 0", stat.CompleteRate)
 	}
 	if stat.TodayTotal != 0 || stat.Unfinished != 0 {
 		t.Errorf("空数据下各计数应为 0, 实际 today=%d unfinished=%d", stat.TodayTotal, stat.Unfinished)
+	}
+	// 「没有已完成工单所以算不出平均时长」与「平均时长真的是 0 秒」是两件事，
+	// 必须是 nil —— 否则大屏会显示「平均处理时长 0 秒」，看起来像性能极好。
+	if stat.AvgHandleSec != nil {
+		t.Errorf("无已完成工单时 AvgHandleSec 应为 nil, 实际 %v", *stat.AvgHandleSec)
 	}
 }
 
 // TestWorkOrderStat_ErrorPropagated 上游报错必须向上传 —— 聚合层靠它把该源标成 degraded.
 //
-// 若这里把错误吞掉返回零值, 大屏会显示"今日工单 0 件"这种**看起来正常但完全错误**的数据,
-// 比直接显示"此卡片暂不可用"危险得多。
+// 若这里把错误吞掉返回零值, 大屏会显示「今日工单 0 件」这种**看起来正常但完全错误**的数据,
+// 比直接显示「此卡片暂不可用」危险得多。
 func TestWorkOrderStat_ErrorPropagated(t *testing.T) {
 	fake := &fakeWorkOrderServer{err: errors.New("upstream down")}
 	p := NewWorkOrder(newWorkOrderClient(t, fake))
@@ -143,38 +151,10 @@ func TestWorkOrderStat_ErrorPropagated(t *testing.T) {
 	}
 }
 
-// TestCountCreatedToday 纯函数: 今日新增的日期边界.
-func TestCountCreatedToday(t *testing.T) {
-	now := time.Now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
-
-	cases := []struct {
-		name string
-		list []*workorderpb.WorkOrderSummary
-		want int64
-	}{
-		{"空列表", nil, 0},
-		{"今日零点整算今天", []*workorderpb.WorkOrderSummary{{CreatedAt: todayStart}}, 1},
-		{"昨日最后一秒不算", []*workorderpb.WorkOrderSummary{{CreatedAt: todayStart - 1}}, 0},
-		{"混合只数今天的", []*workorderpb.WorkOrderSummary{
-			{CreatedAt: todayStart}, {CreatedAt: todayStart - 1}, {CreatedAt: now.Unix()},
-		}, 2},
-		{"含 nil 元素不 panic", []*workorderpb.WorkOrderSummary{nil, {CreatedAt: now.Unix()}}, 1},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := countCreatedToday(c.list); got != c.want {
-				t.Errorf("countCreatedToday = %d, 期望 %d", got, c.want)
-			}
-		})
-	}
-}
-
 // TestNotReady_AllReturnErrSourceNotReady 四个未配置占位都必须返回 ErrSourceNotReady.
 //
-// 这是"降级路径可被真实触发"的依据: 聚合层靠这个哨兵错误把该源列入 degraded,
-// 而不是把占位实现当成"数据为 0 的正常源"。
+// 这是「降级路径可被真实触发」的依据: 聚合层靠这个哨兵错误把该源列入 degraded,
+// 而不是把占位实现当成「数据为 0 的正常源」。
 func TestNotReady_AllReturnErrSourceNotReady(t *testing.T) {
 	ctx := context.Background()
 

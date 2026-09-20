@@ -58,6 +58,64 @@ type ActiveParkingReq {
 	PageSize int64 `form:"page_size"`
 }
 
+// CreateMonthlyCardReq 创建月卡请求(P2 月卡管理)
+type CreateMonthlyCardReq {
+	PlateNo   string `json:"plate_no"` // 车牌号
+	OwnerName string `json:"owner_name,optional"` // 车主姓名
+	Phone     string `json:"phone,optional"` // 联系电话
+	StartTime int64  `json:"start_time"` // 生效起(秒级时间戳)
+	EndTime   int64  `json:"end_time"` // 生效止(秒级时间戳, 须晚于生效起)
+}
+
+// MonthlyCardResp 月卡响应
+type MonthlyCardResp {
+	Id        int64  `json:"id"`
+	PlateNo   string `json:"plate_no"`
+	OwnerName string `json:"owner_name,optional"`
+	Phone     string `json:"phone,optional"`
+	StartTime int64  `json:"start_time"` // 秒级时间戳
+	EndTime   int64  `json:"end_time"` // 秒级时间戳(到期时间)
+	Status    int8   `json:"status"` // 1生效 2停用
+}
+
+// MonthlyCardIdReq 月卡ID请求(停用)
+type MonthlyCardIdReq {
+	Id int64 `json:"id"`
+}
+
+// RenewMonthlyCardReq 月卡续费请求(P2: 延长有效期)
+type RenewMonthlyCardReq {
+	Id      int64 `json:"id"`
+	EndTime int64 `json:"end_time"` // 新到期时间(秒级, 须晚于当前到期时间)
+}
+
+// ListMonthlyCardsReq 月卡分页请求(P2: 到期提醒经 expiring_days 筛选)
+type ListMonthlyCardsReq {
+	Status       int8   `form:"status,optional"` // 1生效 2停用, 0不限
+	PlateNo      string `form:"plate_no,optional"` // 车牌模糊查询
+	ExpiringDays int64  `form:"expiring_days,optional"` // 到期提醒: 仅返回 N 天内到期的生效月卡
+	Page         int64  `form:"page"`
+	PageSize     int64  `form:"page_size"`
+}
+
+// MonthlyCardItem 月卡列表项
+type MonthlyCardItem {
+	Id        int64  `json:"id"`
+	PlateNo   string `json:"plate_no"`
+	OwnerName string `json:"owner_name,optional"`
+	Phone     string `json:"phone,optional"`
+	StartTime int64  `json:"start_time"`
+	EndTime   int64  `json:"end_time"`
+	Status    int8   `json:"status"`
+	DaysLeft  int64  `json:"days_left,optional"` // 剩余有效天数(不足1天为0, 到期提醒展示用)
+}
+
+// MonthlyCardListResp 月卡分页响应
+type MonthlyCardListResp {
+	Total int64             `json:"total"`
+	List  []MonthlyCardItem `json:"list"`
+}
+
 service parking-api {
 	@handler ParkingEntry
 	post /api/parking/entry (ParkingEntryReq) returns (ParkingRecordResp)
@@ -70,5 +128,18 @@ service parking-api {
 
 	@handler ActiveParking
 	get /api/parking/active (ActiveParkingReq) returns (ParkingListResp)
+
+	// 月卡管理(P2: 创建/续费/停用/列表+到期提醒)
+	@handler CreateMonthlyCard
+	post /api/parking/monthly-card (CreateMonthlyCardReq) returns (MonthlyCardResp)
+
+	@handler RenewMonthlyCard
+	post /api/parking/monthly-card/renew (RenewMonthlyCardReq) returns (MonthlyCardResp)
+
+	@handler DisableMonthlyCard
+	post /api/parking/monthly-card/disable (MonthlyCardIdReq) returns (MonthlyCardResp)
+
+	@handler ListMonthlyCards
+	get /api/parking/monthly-cards (ListMonthlyCardsReq) returns (MonthlyCardListResp)
 }
 

@@ -1,9 +1,11 @@
 -- ============================================================
 -- OnePark M1 物联接入底座 - MySQL 业务表
--- 适用数据库：onepark-smart-park（4张表全放一个库）
--- 执行方式：Navicat 直接执行
+-- 适用数据库：device_db（init.sql 已预创建; 由 deploy/sql/run-all.sh 编排执行）
+-- 执行方式：docker-compose mysql 初始化自动执行（mysql -D device_db）
 -- 约定：不建物理外键，仅逻辑关联
 -- ============================================================
+
+USE `device_db`;
 
 -- ############################################################
 -- 1. product 产品表
@@ -41,11 +43,16 @@ CREATE TABLE `device` (
   `device_name`     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '设备名称',
   `device_secret`   VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'bcrypt 加密后的设备密钥',
   `product_key`     VARCHAR(32)  NOT NULL COMMENT '所属产品 key(逻辑关联 product.product_key)',
+  `tenant_id`       BIGINT       NOT NULL DEFAULT 0 COMMENT '租户 ID(多园区隔离), 0 平台默认',
+  `zone_id`         VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '能源区域编码(M4 计费/分析维度), 空未分区',
+  `type`            TINYINT      NOT NULL DEFAULT 0 COMMENT '设备类型: 1地磁 2门禁 3摄像头..., 0未分类',
   `park_id`         VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '园区 ID',
   `building_id`     VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '楼栋 ID',
   `floor`           VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '楼层',
   `location`        VARCHAR(128) NOT NULL DEFAULT '' COMMENT '具体位置描述',
-  `status`          TINYINT      NOT NULL DEFAULT 0 COMMENT '0离线 1在线 2禁用',
+  `latitude`        DECIMAL(10,7) NULL DEFAULT NULL COMMENT '纬度(WGS84), 未建档定位为空',
+  `longitude`       DECIMAL(10,7) NULL DEFAULT NULL COMMENT '经度(WGS84), 未建档定位为空',
+  `status`          TINYINT      NOT NULL DEFAULT 0 COMMENT '0离线 1在线 2故障',
   `last_online_at`  DATETIME     NULL DEFAULT NULL COMMENT '最后在线时间',
   `created_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -53,6 +60,9 @@ CREATE TABLE `device` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_device_id` (`device_id`),
   KEY `idx_product_status` (`product_key`, `status`),
+  KEY `idx_type` (`type`),
+  KEY `idx_tenant` (`tenant_id`),
+  KEY `idx_zone` (`zone_id`),
   KEY `idx_park` (`park_id`),
   KEY `idx_deleted_at` (`deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备表(设备主数据, 软删除)';

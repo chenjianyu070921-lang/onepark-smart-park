@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 
@@ -33,6 +34,9 @@ func main() {
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+	// 摄像头心跳消费 + 超时离线扫描: 驱动地址簿的在线状态(#50 列表 / #51 取流都依赖它).
+	ctx.StartHeartbeatConsumer(context.Background())
+	ctx.StartOfflineSweeper(context.Background())
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()

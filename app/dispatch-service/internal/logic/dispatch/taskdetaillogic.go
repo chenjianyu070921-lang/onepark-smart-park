@@ -10,6 +10,8 @@ import (
 	"onepark/app/dispatch-service/internal/model"
 	"onepark/app/dispatch-service/internal/svc"
 	"onepark/app/dispatch-service/internal/types"
+	"onepark/app/dispatch-service/internal/ecode"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -36,13 +38,16 @@ func (l *TaskDetailLogic) TaskDetail(req *types.TaskDetailReq) (*types.TaskDetai
 	}
 
 	var task model.DispatchTask
-	err := l.svcCtx.DB.WithContext(l.ctx).First(&task, req.Id).Error
+	// 按 id+租户加载, 防止越权读取其它园区工单(RBAC 行级隔离).
+	err := l.svcCtx.DB.WithContext(l.ctx).
+		Where("id = ? AND tenant_id = ?", req.Id, ctxdata.GetTenantId(l.ctx)).
+		First(&task).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, errorx.NewError(errorx.ErrNotFound, "调度工单不存在")
+		return nil, errorx.NewError(ecode.ErrTaskNotFound, "调度工单不存在")
 	}
 	if err != nil {
 		l.Errorf("[dispatch] query task failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "查询调度工单失败")
+		return nil, errorx.NewError(ecode.ErrTaskQueryFailed, "查询调度工单失败")
 	}
 
 	return &types.TaskDetailResp{Task: toTaskDTO(&task)}, nil
