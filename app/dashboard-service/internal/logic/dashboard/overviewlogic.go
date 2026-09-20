@@ -9,6 +9,7 @@ import (
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 
 	"onepark/app/dashboard-service/internal/svc"
 	"onepark/app/dashboard-service/internal/types"
@@ -47,7 +48,39 @@ func NewOverviewLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Overview
 	}
 }
 
+// overviewSF 缓存击穿防护: 同一租户的并发请求只放一个进真正的聚合。
+//
+// 不这么做的后果很具体: 30s 缓存过期的那一瞬间, 若正好有 N 个并发请求到达,
+// N 个请求会**同时穿透到四路 gRPC**(500 并发 = 2000 次上游调用) ——
+// 恰好抵消了缓存"减轻 gRPC 压力"的意义。
+//
+// 必须是包级变量: OverviewLogic 是每请求构造的, 挂在实例上等于没有防护。
+var overviewSF singleflight.Group
+
+// overviewOutcome 聚合结果 + 它是否来自缓存.
+type overviewOutcome struct {
+	resp      *types.OverviewResp
+	fromCache bool
+}
+
+// finish 返回一份副本, 并写入"本次请求特有"的两个字段.
+//
+// 必须拷贝: singleflight 的返回值被多个并发调用方共享, 直接在上面改
+// Cached / ElapsedMs 就是数据竞争。浅拷贝足够 —— 这里只改值字段,
+// 不碰 Device/Alarm/Energy/WorkOrder 这些被共享的指针所指的对象。
+//
+// 跟随方(没能执行聚合的那一个)看到 Cached=false 且耗时很短,
+// 语义是准确的: 数据是刚聚合出来的(不是缓存), 只是不是我算的。
+func finish(resp *types.OverviewResp, fromCache bool, start time.Time) *types.OverviewResp {
+	out := *resp
+	out.Cached = fromCache
+	out.ElapsedMs = time.Since(start).Milliseconds()
+	return &out
+}
+
 // Overview 并行拉取 4 路数据源并聚合.
+//
+// 读序: 缓存 -> 击穿防护 -> 双检缓存 -> 真正聚合.
 //
 // 降级约定(组长验收口径): 某一路失败时该字段返回 null 并在 degraded 中列出,
 // 接口整体始终返回 200, 绝不因单路失败抛出 5xx.
@@ -56,11 +89,35 @@ func (l *OverviewLogic) Overview(req *types.OverviewReq) (*types.OverviewResp, e
 	cacheKey := overviewCacheKey(req.TenantId)
 
 	if cached, ok := l.readCache(cacheKey); ok {
-		cached.Cached = true
-		cached.ElapsedMs = time.Since(start).Milliseconds()
-		return cached, nil
+		return finish(cached, true, start), nil
 	}
 
+	// 同一租户的并发在这里汇合: 只有第一个调用方会真正执行下面的函数体
+	v, err, _ := overviewSF.Do(cacheKey, func() (interface{}, error) {
+		// 双检: 等在门外的期间, 可能已有前一个请求写好了缓存, 那就别再聚合一次
+		if cached, ok := l.readCache(cacheKey); ok {
+			return &overviewOutcome{resp: cached, fromCache: true}, nil
+		}
+		resp, aerr := l.aggregate(req)
+		if aerr != nil {
+			return nil, aerr
+		}
+		l.writeCache(cacheKey, resp)
+		return &overviewOutcome{resp: resp}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	outcome, ok := v.(*overviewOutcome)
+	if !ok || outcome == nil || outcome.resp == nil {
+		return nil, fmt.Errorf("overview 聚合结果类型异常")
+	}
+
+	return finish(outcome.resp, outcome.fromCache, start), nil
+}
+
+// aggregate 真正执行四路并发聚合(不含缓存读写与耗时统计).
+func (l *OverviewLogic) aggregate(req *types.OverviewReq) (*types.OverviewResp, error) {
 	resp := &types.OverviewResp{}
 	var (
 		mu       sync.Mutex
@@ -155,9 +212,8 @@ func (l *OverviewLogic) Overview(req *types.OverviewReq) (*types.OverviewResp, e
 
 	resp.Degraded = degraded
 	resp.UpdatedAt = time.Now().Unix()
-	resp.ElapsedMs = time.Since(start).Milliseconds()
-
-	l.writeCache(cacheKey, resp)
+	// ElapsedMs / Cached 刻意不在这里写: 这个对象会被 singleflight 共享给多个
+	// 并发调用方, 在这里写就是数据竞争; 由调用方在 finish 里按"本次请求"填写。
 
 	return resp, nil
 }

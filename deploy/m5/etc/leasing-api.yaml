@@ -1,0 +1,22 @@
+# M5 leasing-service（HTTP 入口）—— **容器内**配置
+#
+# 与 app/leasing-service/etc/leasing-api.yaml（本地开发版）的差异只有一个：连接目标。
+# 本地开发版写死 127.0.0.1，因为服务跑在宿主机；
+# 容器里 127.0.0.1 指向容器自己，跨容器必须用**服务名**，故这里全部走环境变量注入。
+#
+# 环境变量由 deploy/m5/docker-compose.m5.yml 提供，见同目录 README.md。
+Name: leasing-api
+Host: 0.0.0.0
+Port: 8051
+
+MySQL:
+  DataSource: "${LEASING_MYSQL_DSN}"
+
+Redis:
+  Addr: "${REDIS_ADDR}"
+  Pass: "${REDIS_PASS}"
+  # ⚠️ 必须是数字字面量, 写成 ${REDIS_DB} 会被展开成字符串导致 int 字段类型不匹配
+  DB: 0
+
+# 为空 = 放行(开发联调期)。容器里由 compose 注入 M5_JWT_SECRET。
+JwtSecret: "${JWT_SECRET}"

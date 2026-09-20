@@ -21,7 +21,11 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
+	// conf.UseEnv() 必填: go-zero 的 ${VAR} 环境变量展开默认是关闭的, 不启用则占位符是死字符串。
+	// etc/leasing-api.yaml 的注释写着"部署环境请改回 ${LEASING_MYSQL_DSN} 形式", 不启用这句话就是假的 ——
+	// 届时 DSN 会带着未展开的 ${...} 去连库, 只报出一句难懂的 invalid DSN。
+	// 全平台多数服务(workorder/billing/alarm/video/...)以及本服务的 gRPC 入口都已启用, 此处补齐。
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()

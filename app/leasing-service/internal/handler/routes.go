@@ -16,9 +16,24 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				Method:  http.MethodPut,
+				Path:    "/bill/:id/status",
+				Handler: lease.BillStatusHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodPost,
 				Path:    "/bill/auto",
 				Handler: lease.BillAutoHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/bills",
+				Handler: lease.BillListHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/bills/summary",
+				Handler: lease.BillSummaryHandler(serverCtx),
 			},
 			{
 				Method:  http.MethodPost,
@@ -49,6 +64,16 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodGet,
 				Path:    "/occupancy",
 				Handler: lease.OccupancyHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/zone",
+				Handler: lease.ZoneUpsertHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/zones",
+				Handler: lease.ZoneListHandler(serverCtx),
 			},
 		},
 		rest.WithPrefix("/api/lease"),

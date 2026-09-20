@@ -1,6 +1,8 @@
 package lease
 
 import (
+	"time"
+
 	"github.com/shopspring/decimal"
 
 	"onepark/app/leasing-service/internal/model"
@@ -9,6 +11,44 @@ import (
 
 // dateLayout 合同日期对外格式.
 const dateLayout = "2006-01-02"
+
+// periodLayout 账期对外格式(与 lease_bill.billing_period 的存储格式一致).
+const periodLayout = "2006-01"
+
+// validPeriod 校验账期格式是否为 yyyy-MM.
+// time.Parse 会顺带挡住 2026-13 这种越界月份。
+func validPeriod(p string) bool {
+	_, err := time.Parse(periodLayout, p)
+	return err == nil
+}
+
+// toBillDTO 账单模型 -> 对外契约.
+// 金额与合同口径一致: 定长 2 位小数字符串(见 moneyString)。
+func toBillDTO(m *model.LeaseBill) types.Bill {
+	return types.Bill{
+		Id:            m.Id,
+		BillNo:        m.BillNo,
+		ContractId:    m.ContractId,
+		TenantId:      m.TenantId,
+		BillingPeriod: m.BillingPeriod,
+		Amount:        moneyString(m.Amount),
+		Status:        int32(m.Status),
+		CreatedAt:     m.CreatedAt.Unix(),
+		UpdatedAt:     m.UpdatedAt.Unix(),
+	}
+}
+
+// toZoneDTO 可租区域模型 -> 对外契约.
+func toZoneDTO(m *model.LeaseZone) types.Zone {
+	return types.Zone{
+		Id:           m.Id,
+		ZoneCode:     m.ZoneCode,
+		ZoneName:     m.ZoneName,
+		TotalAreaSqm: m.TotalAreaSqm,
+		CreatedAt:    m.CreatedAt.Unix(),
+		UpdatedAt:    m.UpdatedAt.Unix(),
+	}
+}
 
 // moneyScale 金额对外显示的小数位数, 与 DDL 声明保持一致
 // (lease_contract.monthly_rent / deposit 与 lease_bill.amount 均为 DECIMAL(12,2)).
