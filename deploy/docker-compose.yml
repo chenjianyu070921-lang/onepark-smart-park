@@ -29,8 +29,10 @@ services:
       - "${MYSQL_PORT}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-      - ./sql/sys.sql:/docker-entrypoint-initdb.d/sys.sql:ro
+      # 数据库初始化编排: 所有 DDL 作为只读数据挂载到 /sql-init,
+      # 仅 run-all.sh 被 mysql 容器入口执行, 按"每服务独立库"模型建表.
+      - ./sql:/sql-init:ro
+      - ./sql/run-all.sh:/docker-entrypoint-initdb.d/run-all.sh:ro
     networks: [onepark]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
@@ -567,10 +569,12 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        # Nacos Basic Auth 凭据: 默认 nacos/nacos(dev), 生产请通过环境变量覆盖.
+        creds="$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}"
         for i in $$(seq 1 30); do
-          code=$$(curl -s -o /dev/null -w "%{http_code}" -u "$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}" "http://nacos:8848/nacos/v1/cs/configs?dataId=gateway-upstreams&group=$${NACOS_GROUP:-DEFAULT_GROUP}")
+          code=$$(curl -s -o /dev/null -w "%{http_code}" -u "$$creds" "http://nacos:8848/nacos/v1/cs/configs?dataId=gateway-upstreams&group=$${NACOS_GROUP:-DEFAULT_GROUP}")
           if [ "$$code" = "200" ]; then echo "gateway-upstreams already exists"; exit 0; fi
-          if curl -s -u "$${NACOS_USERNAME:-nacos}:$${NACOS_PASSWORD:-nacos}" -X POST "http://nacos:8848/nacos/v1/cs/configs" \
+          if curl -s -u "$$creds" -X POST "http://nacos:8848/nacos/v1/cs/configs" \
                --data-urlencode "dataId=gateway-upstreams" \
                --data-urlencode "group=$${NACOS_GROUP:-DEFAULT_GROUP}" \
                --data-urlencode "content@/data/gateway-upstreams.json"; then

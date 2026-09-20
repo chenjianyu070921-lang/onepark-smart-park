@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"onepark/app/auth-service/internal/svc"
+	"onepark/common/health"
 	"onepark/common/errorx"
 	"onepark/common/response"
 
@@ -41,6 +42,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: LogoutHandler(serverCtx),
 			},
 		},
+		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
 	)
 }
 

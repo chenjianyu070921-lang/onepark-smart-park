@@ -13,6 +13,7 @@ import (
 	"onepark/gateway/internal/config"
 	"onepark/gateway/internal/middleware"
 	"onepark/gateway/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
@@ -52,6 +53,11 @@ func main() {
 	// WithNotFoundHandler: 所有未匹配显式路由的请求交给网关代理(已含鉴权/限流)处理.
 	server := rest.MustNewServer(c.RestConf, rest.WithNotFoundHandler(http.HandlerFunc(final)))
 	defer server.Stop()
+
+	// 健康检查端点: 网关无本地 DB, 仅探测 Redis; 供 K8s/Docker 探针与运维使用.
+	server.AddRoutes([]rest.Route{
+		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(nil, ctx.Redis)},
+	})
 
 	fmt.Printf("Starting gateway at %s:%d (auth=%v ratelimit=%v)...\n", c.Host, c.Port, authEnabled, rateLimited)
 	server.Start()
