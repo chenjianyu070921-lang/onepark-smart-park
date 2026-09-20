@@ -26,3 +26,6 @@ DeviceRPC:
 Door:
   DeviceID: gate-main-01
   Command: open_door
+
+# 访客二维码签名盐(配置中心注入, 缺省 onepark-m2-visitor)
+QrSignSalt: onepark-m2-visitor

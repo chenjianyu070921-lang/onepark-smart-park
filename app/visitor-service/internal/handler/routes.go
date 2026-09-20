@@ -48,7 +48,19 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/visitor/:id",
 				Handler: GetVisitorDetailHandler(serverCtx),
 			},
-		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
+			{
+				// 访客黑名单新增/更新(P2: 按手机号或身份证去重, 实时拦截用)
+				Method:  http.MethodPost,
+				Path:    "/api/visitor/blocklist",
+				Handler: AddVisitorBlocklistHandler(serverCtx),
+			},
+			{
+				// 访客黑名单解除(P2)
+				Method:  http.MethodPost,
+				Path:    "/api/visitor/blocklist/:id/unblock",
+				Handler: UnblockVisitorBlocklistHandler(serverCtx),
+			},
+			{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
 		},
 	)
 }

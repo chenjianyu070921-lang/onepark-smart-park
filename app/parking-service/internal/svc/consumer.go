@@ -106,6 +106,12 @@ func (t *deviceTelemetry) IdempotentID() string {
 // 幂等(L1 + L3): Kafka 是 at-least-once, 重平衡/重投会让同一条消息被处理多次。
 // 没有幂等时入场会建出多条"停车中"记录, 离场会重复计费并重复广播事件。
 func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Message) error {
+	// nil-DB 守卫: NewServiceContext 允许无 MySQL DSN 时启动(本地无中间件仍可起服务),
+	// 若消费者在 DB 未初始化状态下收到消息, 直接跳过并留痕, 避免 nil 指针 panic 卡死分区.
+	if s.DB == nil {
+		fmt.Printf("[warn] parking consumer 跳过: 数据库未初始化, msg.offset=%d\n", msg.Offset)
+		return nil
+	}
 	var raw deviceTelemetry
 	if err := json.Unmarshal(msg.Value, &raw); err != nil {
 		// 坏消息: 重试多少次结果都一样, 只能记日志跳过(返回 nil 提交位移),

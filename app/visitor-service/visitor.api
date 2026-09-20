@@ -11,6 +11,10 @@ type VisitorInviteReq {
 	VisitTime    int64  `json:"visit_time"` // 预期到访时间(秒级时间戳)
 	ExpireTime   int64  `json:"expire_time"` // 二维码过期时间(秒级时间戳)
 	Reason       string `json:"reason,optional"` // 来访原因
+	IdNo         string `json:"id_no,optional"` // 身份证号(核验方式=3, 加密存储)
+	FaceToken    string `json:"face_token,optional"` // 人脸特征令牌(核验方式=4)
+	BadgeNo      string `json:"badge_no,optional"` // 工牌号(核验方式=5)
+	VerifyChannel int8 `json:"verify_channel,optional"` // 核验方式 1二维码(默认) 2手机号 3身份证 4人脸 5工牌
 }
 
 // VisitorInviteResp 邀请响应(返回加密二维码内容 + go-qrcode 渲染的二维码图片)
@@ -21,9 +25,12 @@ type VisitorInviteResp {
 	ExpireAt int64  `json:"expire_at"`          // 过期时间(秒级时间戳)
 }
 
-// VisitorCheckinReq 访客扫码签入请求(带二维码内容)
+// VisitorCheckinReq 访客签入请求(多方式核验).
+// VerifyChannel=1(默认) 用 QRCode; 其余方式(2手机号/3身份证/4人脸/5工牌) 用 Credential 传对应维度凭证值.
 type VisitorCheckinReq {
-	QRCode string `json:"qr_code"`
+	QRCode       string `json:"qr_code,optional"` // 加密二维码内容(核验方式=1)
+	VerifyChannel int8  `json:"verify_channel,optional"` // 核验方式 1二维码(默认) 2手机号 3身份证 4人脸 5工牌
+	Credential   string `json:"credential,optional"` // 非二维码方式的凭证值(手机号/身份证/人脸令牌/工牌号)
 }
 
 // VisitorCheckinResp 签入响应
@@ -117,5 +124,13 @@ service visitor-api {
 	// 访客详情+门禁进出轨迹(P2: 访客签入时产生的门禁动作留痕与访客记录关联, 详情页/轨迹追溯)
 	@handler GetVisitorDetail
 	get /api/visitor/:id (VisitorIdReq) returns (VisitorDetailResp)
+
+	// 访客黑名单新增/更新(P2: 按手机号或身份证去重, 实时拦截用)
+	@handler AddVisitorBlocklist
+	post /api/visitor/blocklist (AddVisitorBlocklistReq) returns (AddVisitorBlocklistResp)
+
+	// 访客黑名单解除(P2)
+	@handler UnblockVisitorBlocklist
+	post /api/visitor/blocklist/:id/unblock (UnblockVisitorBlocklistReq) returns (UnblockVisitorBlocklistResp)
 }
 

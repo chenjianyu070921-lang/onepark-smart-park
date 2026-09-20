@@ -29,6 +29,12 @@ type VisitorRecord struct {
 	CheckoutAt   *time.Time `gorm:"column:checkout_at" json:"checkout_at"`
 	DeviceID     string     `gorm:"column:device_id;type:varchar(64);default:''" json:"device_id"` // 签入/签出开门设备ID
 	Blacklisted  int8       `gorm:"column:blacklisted;not null;default:0" json:"blacklisted"`      // 是否黑名单 0否 1是
+
+	// 多方式核验字段(P2): 身份证/人脸/工牌凭证 + 核验方式, 对齐 deploy/sql/m2_p2_visitor_verify.sql.
+	IdNo          string `gorm:"column:id_no;type:varchar(64);not null;default:''" json:"id_no"`            // 身份证号(加密存储, 核验方式=3)
+	VerifyChannel int8   `gorm:"column:verify_channel;not null;default:1" json:"verify_channel"`            // 核验方式 1二维码 2手机号 3身份证 4人脸 5工牌
+	FaceToken     string `gorm:"column:face_token;type:varchar(256);not null;default:''" json:"face_token"` // 人脸特征令牌(核验方式=4)
+	BadgeNo       string `gorm:"column:badge_no;type:varchar(64);not null;default:''" json:"badge_no"`      // 工牌号(核验方式=5)
 }
 
 // TableName 指定访客记录表名(对齐 visitor_db 库).

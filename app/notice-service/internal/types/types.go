@@ -61,3 +61,16 @@ type NoticeResp struct {
 	Top       bool   `json:"top"`                 // 是否置顶
 	PublishAt int64  `json:"publish_at,optional"` // 发布时间(秒级时间戳)
 }
+
+// RecallNoticeReq 公告撤回请求(P2): 路径 id + 可选撤回原因.
+// 仅已发布(2)公告可撤回, 草稿/已撤回不可重复撤回.
+type RecallNoticeReq struct {
+	Id     int64  `path:"id"`              // 公告ID(路径参数)
+	Reason string `json:"reason,optional"` // 撤回原因(可选)
+}
+
+// RecallNoticeResp 公告撤回响应.
+type RecallNoticeResp struct {
+	Id     int64 `json:"id"`     // 公告ID
+	Status int8  `json:"status"` // 撤回后状态(3已撤回)
+}
