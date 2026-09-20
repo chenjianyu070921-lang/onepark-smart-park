@@ -17,9 +17,11 @@
   { "prefix": "/api/alarm", "target": "http://alarm-service:8009" },
   { "prefix": "/api/access", "target": "http://access-control-service:8010" },
   { "prefix": "/api/video", "target": "http://video-service:8011" },
-  { "prefix": "/api/energy/daily", "target": "http://energy-data-service:8062" },
-  { "prefix": "/api/energy/monthly", "target": "http://energy-data-service:8062" },
-  { "prefix": "/api/energy/zone", "target": "http://energy-data-service:8062" },
-  { "prefix": "/api/energy", "target": "http://energy-analysis-service:8061" },
-  { "prefix": "/api/billing", "target": "http://billing-service:8063" }
+  { "prefix": "/api/energy/daily", "target": "http://energy-analysis-service:8062" },
+  { "prefix": "/api/energy/monthly", "target": "http://energy-analysis-service:8062" },
+  { "prefix": "/api/energy/zone", "target": "http://energy-analysis-service:8062" },
+  { "prefix": "/api/energy", "target": "http://energy-data-service:8061" },
+  { "prefix": "/api/billing", "target": "http://billing-service:8063" },
+  { "prefix": "/ws/alarm", "target": "http://alarm-service:8009" },
+  { "prefix": "/ws/dashboard", "target": "http://dashboard-service:8052" }
 ]
