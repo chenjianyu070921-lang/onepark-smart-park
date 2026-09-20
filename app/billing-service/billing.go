@@ -6,9 +6,11 @@ import (
 
 	"onepark/app/billing-service/internal/config"
 	"onepark/app/billing-service/internal/handler"
+	"onepark/app/billing-service/internal/job"
 	"onepark/app/billing-service/internal/svc"
 
 	"github.com/zeromicro/go-zero/core/conf"
+	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/rest"
 )
 
@@ -26,6 +28,14 @@ func main() {
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
 
-	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
-	server.Start()
+	// HTTP 接口 + 定时出账任务一起拉起, 缺一个就整体退出
+	group := service.NewServiceGroup()
+	defer group.Stop()
+	group.Add(server)
+	if c.BillJob.Enable {
+		group.Add(job.NewBillJob(ctx, c.BillJob.DayOfMonth))
+	}
+
+	fmt.Printf("Starting billing server at %s:%d...\n", c.Host, c.Port)
+	group.Start()
 }
