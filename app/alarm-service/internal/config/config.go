@@ -66,6 +66,13 @@ type ESConf struct {
 	Password  string   `json:",optional"`
 	// Index 历史告警索引名, 留空用 search.DefaultIndex(alarm_history).
 	Index string `json:",optional"`
+	// Analyzer content 字段的分词器; 留空用 ES 默认分词器(standard).
+	//
+	// 中文场景应填 ik_max_word(索引)/ik_smart(检索), 但**必须 ES 已装 ik 插件**:
+	// compose 起的是官方镜像(无插件), 填了会让建索引失败 —— 此时 search.EnsureIndex
+	// 会自动降级为默认分词器并记 WARN, 不会让检索整体不可用。
+	// 未装插件时留空即可: 关键词检索走 LIKE/默认分词仍可用, 只是中文召回粒度是单字。
+	Analyzer string `json:",optional"`
 }
 
 // NacosConf 注册/配置中心 (可选).
