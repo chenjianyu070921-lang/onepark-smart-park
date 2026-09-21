@@ -173,7 +173,10 @@ func openTestDB(t *testing.T) *gormx.DB {
 // 幂等靠的是 uk_alarm_id 唯一索引, 而不是应用层的"先查后插"(那有并发竞态)。
 func TestHandle_Idempotent(t *testing.T) {
 	db := openTestDB(t)
-	h := NewAlarmHandler(db)
+	// 用一个非 0、且不等于 DB 默认值(0)的兜底园区 —— 才能证明租户是"配置注入"进来的,
+	// 而不是恰好被数据库默认值填上的。
+	const fallbackTenant = 42
+	h := NewAlarmHandler(db, fallbackTenant)
 	ctx := context.Background()
 
 	alarmID := fmt.Sprintf("req-test-%d", time.Now().UnixNano())
@@ -214,6 +217,12 @@ func TestHandle_Idempotent(t *testing.T) {
 	if task.Source != model.SourceAlarm {
 		t.Errorf("Source = %d, 期望 %d(告警自动创建)", task.Source, model.SourceAlarm)
 	}
+	// 自动建单必须落到 config.DefaultTenantId 指定的兜底园区(告警消息不带租户)。
+	// 不写租户的话恒为 0 —— 网关注入非 0 租户时, 这张单会**建出来就查不到**。
+	if task.TenantID != fallbackTenant {
+		t.Errorf("TenantID = %d, 期望 %d(来自 config.DefaultTenantId 兜底)",
+			task.TenantID, fallbackTenant)
+	}
 	if task.Priority != model.PriorityUrgent {
 		t.Errorf("Priority = %d, 期望 %d(火灾为紧急)", task.Priority, model.PriorityUrgent)
 	}
@@ -229,7 +238,7 @@ func TestHandle_Idempotent(t *testing.T) {
 // 若返回 error, 位移不提交, 整条分区会被这一条毒消息卡死。
 func TestHandle_BadMessageNotBlocking(t *testing.T) {
 	db := openTestDB(t)
-	h := NewAlarmHandler(db)
+	h := NewAlarmHandler(db, 1)
 
 	for _, bad := range []string{`{`, `{"device_id":"d1"}`, ``} {
 		if err := h.Handle(context.Background(), []byte(bad)); err != nil {

@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -41,8 +42,14 @@ type AlarmHistoryFilter struct {
 	AreaID    int64
 	DeviceID  string
 	EventType string
-	Page      int // 从 1 开始
-	PageSize  int
+	// Keyword 告警内容关键词; 空表示不参与检索.
+	// 与 ES 侧的语义差异是有意为之: MySQL 降级路径只能做子串匹配(LIKE '%kw%'),
+	// 而 ES 走分词后的 match —— 同一关键词在两条路径上召回范围可能不同(ES 更宽)。
+	// 之所以不"ES 不可用就忽略关键词": 忽略会静默返回未过滤的全量,
+	// 用户以为搜过了, 实际什么都没过滤 —— 比召回略窄更难发现。
+	Keyword  string
+	Page     int // 从 1 开始
+	PageSize int
 }
 
 // AlarmModel 告警数据访问层, 封装 alarm_db.alarm 的读写.
@@ -269,7 +276,20 @@ func historyScope(tx *gorm.DB, f AlarmHistoryFilter) *gorm.DB {
 	if f.EventType != "" {
 		tx = tx.Where("event_type = ?", f.EventType)
 	}
+	if kw := strings.TrimSpace(f.Keyword); kw != "" {
+		// 全模糊匹配无法走索引, 仅用于 ES 不可用时的降级路径;
+		// 通配符与 % 需转义, 否则用户输入的 % 会变成"匹配一切"。
+		tx = tx.Where("content LIKE ? ESCAPE '\\'", "%"+escapeLike(kw)+"%")
+	}
 	return tx
+}
+
+// escapeLike 转义 LIKE 的通配符与转义符本身, 防止用户输入的 %/_ 改变匹配语义.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
 }
 
 // normalizePage 修正非法分页参数: 页码从 1 开始, 页大小默认 10 且上限 100.

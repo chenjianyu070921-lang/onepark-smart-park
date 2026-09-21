@@ -107,7 +107,7 @@ func newNotifier(c config.Config) notify.Notifier {
 // 未配置地址返回 nil(检索降级 MySQL); 已配置但建索引失败只记 WARN ——
 // ES 是检索副本而非事实来源, 让它把服务启动挡住是本末倒置.
 func newSearcher(c config.Config) search.Searcher {
-	es := search.NewESClient(c.ES.Addresses, c.ES.Username, c.ES.Password, c.ES.Index)
+	es := search.NewESClient(c.ES.Addresses, c.ES.Username, c.ES.Password, c.ES.Index, c.ES.Analyzer)
 	if es == nil {
 		log.Printf("[info] alarm-service es not configured, history search falls back to mysql")
 		return nil

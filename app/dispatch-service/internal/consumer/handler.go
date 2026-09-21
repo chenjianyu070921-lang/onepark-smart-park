@@ -16,13 +16,17 @@ import (
 type AlarmHandler struct {
 	logx.Logger
 	db *gormx.DB
+	// defaultTenantID 告警消息体**不携带**租户信息, 自动建单只能落到这个兜底园区。
+	// 与 M2 workorder-service / M4 billing-service 同一约定(均取 config.DefaultTenantId)。
+	defaultTenantID int64
 }
 
 // NewAlarmHandler 构造告警建单处理器。
-func NewAlarmHandler(db *gormx.DB) *AlarmHandler {
+func NewAlarmHandler(db *gormx.DB, defaultTenantID int64) *AlarmHandler {
 	return &AlarmHandler{
-		Logger: logx.WithContext(context.Background()),
-		db:     db,
+		Logger:          logx.WithContext(context.Background()),
+		db:              db,
+		defaultTenantID: defaultTenantID,
 	}
 }
 
@@ -46,7 +50,11 @@ func (h *AlarmHandler) Handle(ctx context.Context, value []byte) error {
 
 	draft := BuildTaskDraft(evt)
 	task := &model.DispatchTask{
-		TaskNo:        model.NewTaskNo(),
+		TaskNo: model.NewTaskNo(),
+		// 必须写租户: 列表/详情/状态流转都按 ctx 的租户过滤, 不写就恒为 0 ——
+		// 网关注入非 0 租户时, 自动建的工单会**建出来就查不到**。
+		// 告警消息没有租户来源, 只能落配置里的兜底园区。
+		TenantID:      h.defaultTenantID,
 		Title:         draft.Title,
 		Source:        model.SourceAlarm,
 		AlarmId:       &draft.AlarmID,

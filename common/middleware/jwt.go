@@ -69,21 +69,23 @@ func JWT(secret string) func(http.HandlerFunc) http.HandlerFunc {
 			}
 
 			ctx := r.Context()
-			if v, ok := claims[ctxdata.CtxUserId].(string); ok {
+			// JWT payload 的 JSON key 是 user_id/tenant_id/role_ids（见 common/jwt.Claims），
+			// 与 ctxdata 中 HTTP header 常量 x-user-id 不同，这里必须用 payload key。
+			if v, ok := claims["user_id"].(float64); ok {
+				ctx = ctxdata.SetUserId(ctx, int64(v))
+			} else if v, ok := claims["user_id"].(string); ok {
 				if uid, err := strconv.ParseInt(v, 10, 64); err == nil {
 					ctx = ctxdata.SetUserId(ctx, uid)
 				}
-			} else if v, ok := claims[ctxdata.CtxUserId].(float64); ok {
-				ctx = ctxdata.SetUserId(ctx, int64(v))
 			}
-			if v, ok := claims[ctxdata.CtxTenantId].(string); ok {
+			if v, ok := claims["tenant_id"].(float64); ok {
+				ctx = ctxdata.SetTenantId(ctx, int64(v))
+			} else if v, ok := claims["tenant_id"].(string); ok {
 				if tid, err := strconv.ParseInt(v, 10, 64); err == nil {
 					ctx = ctxdata.SetTenantId(ctx, tid)
 				}
-			} else if v, ok := claims[ctxdata.CtxTenantId].(float64); ok {
-				ctx = ctxdata.SetTenantId(ctx, int64(v))
 			}
-			if v, ok := claims[ctxdata.CtxRoleIds].(string); ok {
+			if v, ok := claims["role_ids"].(string); ok {
 				ctx = ctxdata.SetRoleIds(ctx, v)
 			}
 
