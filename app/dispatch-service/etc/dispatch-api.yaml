@@ -28,6 +28,11 @@ Kafka:
   Topic: "alarm-event"
   Group: "m5-dispatch-dev-hjy"
   Enabled: false
+  # 兜底园区: 告警消息体**不携带**租户信息, 自动建单只能落到这个园区
+  # (与 M2/M4 同一约定; 默认 1 对齐 l2_tenant_id_migration.sql 的"默认园区"口径)。
+  # ⚠️ 必须与网关注入的 x-tenant-id 一致 —— 工单的列表/详情/状态流转都按 ctx 的租户过滤,
+  #    若两者不同, 自动建的工单会**建出来就在列表里看不到**。
+  DefaultTenantId: 1
 
 # ===== 指派超时重派 =====
 # 工单指派后若在 5 分钟内没人接单(model.AssignExpireWindow), 由 cron 改派他人;

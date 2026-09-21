@@ -9,6 +9,7 @@ import (
 	"onepark/app/leasing-service/internal/model"
 	"onepark/app/leasing-service/internal/svc"
 	"onepark/app/leasing-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -67,9 +68,9 @@ COALESCE(SUM(amount), 0)                                          AS total_amoun
 	if req.Period != "" {
 		db = db.Where("billing_period = ?", req.Period)
 	}
-	if req.TenantId != 0 {
-		db = db.Where("tenant_id = ?", req.TenantId)
-	}
+	// 租户只从 ctx 取(网关注入, 不可伪造), 且**始终过滤** —— 理由同 billlistlogic:
+	// 用请求体里的 tenant_id 会让客户端看到别人园区、甚至全部园区的汇总金额。
+	db = db.Where("tenant_id = ?", ctxdata.GetTenantId(l.ctx))
 
 	var row billSummaryRow
 	if err := db.Select(agg).Scan(&row).Error; err != nil {
