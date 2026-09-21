@@ -41,8 +41,12 @@ type Query struct {
 	AreaID    int64
 	DeviceID  string
 	EventType string
-	Page      int // 从 1 开始
-	PageSize  int
+	// Keyword 告警内容关键词全文检索; 空表示不参与检索(与新增该字段前行为一致).
+	// 走 bool.filter 里的 match: 排序固定为 等级降序 + 时间降序, 不按相关性打分,
+	// 因此 match 放 filter 上下文即可, 不影响既有排序口径.
+	Keyword  string
+	Page     int // 从 1 开始
+	PageSize int
 }
 
 // LevelCount 按告警等级聚合的计数(与 model.LevelCount 同构, 但本包不反向依赖 model).

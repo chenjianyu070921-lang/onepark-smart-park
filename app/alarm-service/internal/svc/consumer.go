@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"onepark/app/alarm-service/internal/model"
+	"onepark/app/alarm-service/internal/notify"
 	"onepark/app/alarm-service/internal/rule"
 	"onepark/app/alarm-service/internal/search"
 	"onepark/app/alarm-service/internal/ws"
@@ -49,33 +50,42 @@ var retryBackoff = []time.Duration{100 * time.Millisecond, 500 * time.Millisecon
 // 事件时间取 occurred_at(Unix 秒), 区域取 zone_id(能源区域编码).
 // AreaID/Timestamp 为契约定稿前的旧字段, 仅用于兼容历史消息, 新生产端不会发送.
 // 字段缺失时的降级策略见 IdempotentID / MatchIntrusionRule 注释.
+//
+// ⚠️ 入站兼容(M1 实际报文与本结构的差异, 2026-09-20 联调取证):
+// event-dispatcher 投递的 Message 用 `occurred_at` 承载事件时间, 且不带 tenant_id / area_id;
+// 本结构原本只读 `timestamp`, 直接按 M1 报文解析会得到 Timestamp=0。
+// 详见 EventTime 与 parseDeviceEvent 的注释 —— 这不是洁癖, Timestamp=0 会让
+// request_id 缺失时的指纹降级把"不同时刻的同类事件"算成同一条, 从而静默丢告警。
 type DeviceEvent struct {
-	RequestID  string          `json:"request_id"`
-	TenantID   int64           `json:"tenant_id"`
-	DeviceID   string          `json:"device_id"`
+	RequestID string `json:"request_id"`
+	TenantID  int64  `json:"tenant_id"`
+	DeviceID  string `json:"device_id"`
+	// DeviceType 设备类型; M1 侧为 optional, 缺失时规则引擎按"不限设备类型"处理.
 	DeviceType string          `json:"device_type"`
 	EventType  string          `json:"event_type"`
 	ZoneID     string          `json:"zone_id"`     // 能源区域编码, 空表示未分区
 	OccurredAt int64           `json:"occurred_at"` // 事件时间(Unix 秒)
 	Payload    json.RawMessage `json:"payload"`
-	AreaID   int64 `json:"area_id"`   // 旧契约字段(历史消息兼容)
-	Timestamp int64 `json:"timestamp"` // 旧契约字段, 毫秒(历史消息兼容)
+	Timestamp  int64           `json:"timestamp"`   // 事件时间(毫秒), device-service HTTP 降级通道的写法
+	OccurredAt int64           `json:"occurred_at"` // 事件时间(毫秒), event-dispatcher(MQTT 通道)的写法
 }
 
-// EventTime 返回事件时间的 Unix 秒.
-// 优先统一契约的 occurred_at; 历史消息仅有 timestamp(毫秒) 时换算; 均缺失返回 0.
+// EventTime 返回归一化后的事件时间(毫秒).
+//
+// 为什么必须两个字段都认: 同一条链路上有两个生产者 —— device-service 的 HTTP 降级通道
+// 写 `timestamp`, event-dispatcher 的 MQTT 通道写 `occurred_at`(见各自的消息结构体)。
+// 只认其中一个时, 另一个通道的消息解析出来时间恒为 0, 而 IdempotentID 的指纹降级
+// 把时间算进哈希 —— 恒为 0 意味着"同一设备同一类型"的所有事件指纹相同,
+// 第二条起就被 L1 幂等判为已处理直接丢弃。现象不是报错, 是告警**静默变少**。
 func (e DeviceEvent) EventTime() int64 {
-	if e.OccurredAt > 0 {
-		return e.OccurredAt
+	if e.Timestamp != 0 {
+		return e.Timestamp
 	}
-	if e.Timestamp > 0 {
-		return e.Timestamp / 1000
-	}
-	return 0
+	return e.OccurredAt
 }
 
 // IdempotentID 返回写入 alarm.request_id 的幂等键.
-// 优先使用消息自带 request_id; 缺失时按 sha1(deviceId|eventType|EventTime) 生成指纹降级,
+// 优先使用消息自带 request_id; 缺失时按 sha1(deviceId|eventType|eventTime) 生成指纹降级,
 // 并打 WARN 计数, 以推动 M1 补齐 request_id (P0-2).
 // 禁止用 partition-offset 作幂等键: 重放时 offset 变化会导致重复处理.
 func (e DeviceEvent) IdempotentID() string {
@@ -89,7 +99,10 @@ func (e DeviceEvent) IdempotentID() string {
 
 // MatchIntrusionRule 硬编码告警规则: 门禁设备上报非法闯入.
 // device_type 缺失时按 event_type 兜底匹配(D1): intrusion 为门禁专属事件, 不会误命中其他设备类型.
-// P2 动态规则引擎上线后本函数由 rule.Evaluate 替换.
+//
+// 该规则已在 alarm_rule 表内有等价配置(种子规则①: device_type=access_control + event_type=intrusion),
+// 本函数仅作为「表内零启用规则」时的应急回退保留 —— 引擎有启用规则时不会走到这里。
+// 语义与 rule.Rule.AppliesTo 的设备类型维度保持一致(事件未上报 device_type 时放行)。
 func (e DeviceEvent) MatchIntrusionRule() bool {
 	if e.EventType != EventTypeIntrusion {
 		return false
@@ -200,6 +213,16 @@ func (s *ServiceContext) HandleDeviceEvent(ctx context.Context, msg kafkago.Mess
 		// logx 无 Warn 级别, Slowf 即 WARN.
 		log.Slowf("alarm device event missing request_id, fallback to fingerprint device_id=%s", ev.DeviceID)
 	}
+	if ev.TenantID == 0 {
+		// M1 的两条上报通道(event-dispatcher / device-service)目前都不带 tenant_id,
+		// 告警会以 tenant_id=0 落库: 后台列表与大屏按租户查不到它, WS 广播也会因
+		// "宁可不推也不推错园区"而跳过(见 broadcastAlarmCreated)。
+		// 本服务不维护设备主数据, **无法反查租户, 也不允许臆造** —— 所以这里只能留痕:
+		// 这条日志是"告警产生了却没人看得到"的唯一线索, 静默吞掉等于安防主链路黑盒化。
+		// 彻底解决依赖 P0-13(M1 明确 DeviceEvent v1 必填 tenant_id)。
+		log.Slowf("alarm device event missing tenant_id, alarm will be invisible to tenant-scoped queries device_id=%s event_type=%s",
+			ev.DeviceID, ev.EventType)
+	}
 
 	// L1 消息级幂等: Redis 不可用必须返回 error, 由消费端重投, 不降级放行.
 	seen, err := s.Dedup.Seen(ctx, keyDedup+id)
@@ -242,8 +265,42 @@ func (s *ServiceContext) HandleDeviceEvent(ctx context.Context, msg kafkago.Mess
 			a.AlarmNo, a.DeviceID, a.EventType, a.Level, a.RuleID)
 		s.broadcastAlarmCreated(ev, a)
 		s.indexAlarmDoc(ctx, a)
+		s.notifyAlarmCreated(ctx, a, now)
 	}
 	return nil
+}
+
+// notifyAlarmCreated 告警落库后向 M5 投递"告警产生"事件(#40 的上半段).
+//
+// **失败只记日志, 既不回滚告警也不阻塞位移** —— 与 resolve 路径(返回错误码让调用方补偿)
+// 刻意不同, 原因是这条路径重投没有意义:
+//   告警已落库 → 消费端重投 → L1 幂等键命中(或 L3 唯一索引命中)→ 本函数根本不会再被执行,
+//   通知永远补不上, 却让整条消息反复重试直至进死信。相比之下"告警在库里、M5 少收一条事件"
+//   是可接受的损失, 且落库成功日志已给出 alarm_no, 可人工补发。
+//
+// 与广播/ES 双写同一取舍: 告警已落 MySQL(唯一事实来源), 旁路失败不应当阻塞主链路。
+func (s *ServiceContext) notifyAlarmCreated(ctx context.Context, a *model.Alarm, at time.Time) {
+	if s.Notifier == nil {
+		// 未配置 Kafka: 部署时的选择, 启动日志已打印, 此处再逐条刷日志没有意义.
+		return
+	}
+	nEv := notify.AlarmEvent{
+		AlarmID:   a.AlarmNo,
+		Action:    notify.ActionCreated,
+		AlarmType: a.EventType,
+		DeviceID:  a.DeviceID,
+		TenantID:  a.TenantID,
+		AreaID:    a.AreaID,
+		Severity:  a.Level,
+		Status:    a.Status,
+		Content:   a.Content,
+		Timestamp: at.UnixMilli(),
+	}
+	if err := s.Notifier.AlarmCreated(ctx, nEv); err != nil {
+		logx.WithContext(ctx).Errorf(
+			"notify m5 alarm created failed alarm_no=%s request_id=%s device_id=%s err=%v",
+			a.AlarmNo, a.RequestID, a.DeviceID, err)
+	}
 }
 
 // indexAlarmDoc 将告警写入 ES 检索副本(#44 双写).
@@ -414,17 +471,23 @@ func (s *ServiceContext) evaluateRules(ctx context.Context, ev *DeviceEvent, ide
 			ev.DeviceID, ev.DeviceType, ev.EventType)
 		return nil, nil
 	}
-	if ev.MatchIntrusionRule() {
-		return []*rule.Draft{{
-			RuleID:    hardcodedRuleID,
-			RuleName:  "硬编码门禁闯入规则",
-			Level:     model.AlarmLevelMinor,
-			EventType: ev.EventType,
-			DeviceID:  ev.DeviceID,
-			AreaID:    ev.AreaID,
-		}}, nil
+	if !ev.MatchIntrusionRule() {
+		return nil, nil
 	}
-	return nil, nil
+	// 回退本身必须留痕: 它意味着"规则表里没有任何启用规则", 通常不是正常状态
+	// (种子规则①即为门禁闯入规则)。不打日志时, 告警照常产生, 没人会知道它绕过了规则中心 ——
+	// 现象与"规则配好了"完全一致, 事后无法区分。
+	logx.WithContext(ctx).Slowf(
+		"alarm legacy hardcoded intrusion rule in use, alarm_rule has no enabled rule device_id=%s device_type=%s event_type=%s",
+		ev.DeviceID, ev.DeviceType, ev.EventType)
+	return []*rule.Draft{{
+		RuleID:    hardcodedRuleID,
+		RuleName:  "硬编码门禁闯入规则",
+		Level:     model.AlarmLevelMinor,
+		EventType: ev.EventType,
+		DeviceID:  ev.DeviceID,
+		AreaID:    ev.AreaID,
+	}}, nil
 }
 
 // cooldownKey 生成 L2 冷却键: alarm:cooldown:{deviceID}:{eventType}:{ruleID}.

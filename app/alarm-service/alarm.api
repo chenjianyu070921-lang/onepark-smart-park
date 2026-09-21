@@ -97,8 +97,10 @@ type UpdateAlarmStatusResp {
 }
 
 // CreateRuleReq 创建告警规则请求(docs/m3/04 #34)
+// DeviceType + EventType 即「按设备类型 + 事件类型映射告警等级」的配置面, 均可留空(表示不限)
 type CreateRuleReq {
 	Name          string `json:"name"`                    // 规则名称
+	DeviceType    string `json:"device_type,optional"`    // 设备类型(access_control/camera/sensor...), 为空表示不限
 	DeviceId      string `json:"device_id,optional"`      // 设备ID, 为空表示按 event_type 全局生效
 	AreaId        int64  `json:"area_id,optional"`        // 区域ID, 0表示不限
 	EventType     string `json:"event_type"`              // 事件类型
@@ -119,6 +121,7 @@ type CreateRuleResp {
 type UpdateRuleReq {
 	Id            int64  `path:"id"`                      // 规则ID(路径参数)
 	Name          string `json:"name,optional"`           // 规则名称
+	DeviceType    string `json:"device_type,optional"`    // 设备类型, 为空表示不限
 	DeviceId      string `json:"device_id,optional"`      // 设备ID
 	AreaId        int64  `json:"area_id,optional"`        // 区域ID
 	EventType     string `json:"event_type,optional"`     // 事件类型
@@ -138,6 +141,7 @@ type UpdateRuleResp {
 type RuleItem {
 	Id            int64  `json:"id"`
 	Name          string `json:"name"`
+	DeviceType    string `json:"device_type"`             // 设备类型, 空表示不限
 	DeviceId      string `json:"device_id"`
 	AreaId        int64  `json:"area_id"`
 	EventType     string `json:"event_type"`
@@ -157,11 +161,12 @@ type RuleDetailResp {
 
 // ListRulesReq 规则分页列表请求(#37)
 type ListRulesReq {
-	DeviceId  string `form:"device_id,optional"`  // 设备ID筛选
-	EventType string `form:"event_type,optional"` // 事件类型筛选
-	Status    int8   `form:"status,optional"`     // 状态筛选: -1或不传表示全部
-	Page      int64  `form:"page"`
-	PageSize  int64  `form:"page_size"`
+	DeviceType string `form:"device_type,optional"` // 设备类型筛选
+	DeviceId   string `form:"device_id,optional"`   // 设备ID筛选
+	EventType  string `form:"event_type,optional"`  // 事件类型筛选
+	Status     int8   `form:"status,optional"`      // 状态筛选: -1或不传表示全部
+	Page       int64  `form:"page"`
+	PageSize   int64  `form:"page_size"`
 }
 
 // ListRulesResp 规则分页列表响应

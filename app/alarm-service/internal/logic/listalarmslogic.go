@@ -63,6 +63,7 @@ func (l *ListAlarmsLogic) ListAlarms(req *types.ListAlarmsReq) (*types.AlarmList
 			AreaID:    req.AreaId,
 			DeviceID:  req.DeviceId,
 			EventType: req.EventType,
+			Keyword:   req.Keyword,
 			Page:      int(page),
 			PageSize:  int(size),
 		})
@@ -84,6 +85,7 @@ func (l *ListAlarmsLogic) ListAlarms(req *types.ListAlarmsReq) (*types.AlarmList
 		AreaID:    req.AreaId,
 		DeviceID:  req.DeviceId,
 		EventType: req.EventType,
+		Keyword:   req.Keyword,
 		Page:      int(page),
 		PageSize:  int(size),
 	})

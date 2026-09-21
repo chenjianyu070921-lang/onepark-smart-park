@@ -10,6 +10,7 @@ import (
 	"onepark/app/leasing-service/internal/model"
 	"onepark/app/leasing-service/internal/svc"
 	"onepark/app/leasing-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -66,8 +67,14 @@ func (l *BillStatusLogic) BillStatus(req *types.BillStatusReq) (*types.BillStatu
 		return nil, errorx.NewError(errorx.ErrBadRequest, "不支持的操作, 仅支持 pay/unpay")
 	}
 
+	// 租户只从 ctx 取(网关注入, 不可伪造): 否则可以跨园区给别人账单缴费/撤销缴费。
+	// 账单不存在与"不属于本租户"返回同一个 NotFound, 不泄露"该账单存在"这件事。
+	tenantID := ctxdata.GetTenantId(l.ctx)
+
 	var bill model.LeaseBill
-	err := l.svcCtx.DB.WithContext(l.ctx).First(&bill, req.Id).Error
+	err := l.svcCtx.DB.WithContext(l.ctx).
+		Where("id = ? AND tenant_id = ?", req.Id, tenantID).
+		First(&bill).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, errorx.NewError(errorx.ErrNotFound, "账单不存在")
 	}
@@ -82,7 +89,8 @@ func (l *BillStatusLogic) BillStatus(req *types.BillStatusReq) (*types.BillStatu
 	}
 
 	res := l.svcCtx.DB.WithContext(l.ctx).Model(&model.LeaseBill{}).
-		Where("id = ? AND status = ?", bill.Id, bill.Status). // 条件更新: 状态没被并发改过才生效
+		// 条件更新: 状态没被并发改过才生效; 租户条件一并带上, 防跨园区操作
+		Where("id = ? AND status = ? AND tenant_id = ?", bill.Id, bill.Status, tenantID).
 		Update("status", target)
 	if res.Error != nil {
 		l.Errorf("[lease] update bill status failed: %v", res.Error)
@@ -91,7 +99,9 @@ func (l *BillStatusLogic) BillStatus(req *types.BillStatusReq) (*types.BillStatu
 	if res.RowsAffected == 0 {
 		// 期间被别的请求改了: 重新读一次, 把最新状态如实返回, 而不是谎报成功
 		var latest model.LeaseBill
-		if err := l.svcCtx.DB.WithContext(l.ctx).First(&latest, req.Id).Error; err != nil {
+		if err := l.svcCtx.DB.WithContext(l.ctx).
+			Where("id = ? AND tenant_id = ?", req.Id, tenantID).
+			First(&latest).Error; err != nil {
 			l.Errorf("[lease] reload bill failed: %v", err)
 			return nil, errorx.NewError(errorx.ErrInternal, "读取账单最新状态失败")
 		}

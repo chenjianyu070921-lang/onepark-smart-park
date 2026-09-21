@@ -35,11 +35,13 @@ func NewUpdateAlarmStatusLogic(ctx context.Context, svcCtx *svc.ServiceContext) 
 func (l *UpdateAlarmStatusLogic) UpdateAlarmStatus(req *types.UpdateAlarmStatusReq) (*types.UpdateAlarmStatusResp, error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 	if tenantID == 0 {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
+		// KI-2: 参数校验类必须用 M3-W-1001 才会返回 400; 原先误用 ErrBadRequest(M6-E-0001)
+		// 会返回 500, 把"调用方没传 header"表达成服务端故障, 与本服务其它接口也不一致.
+		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "缺少租户信息(x-tenant-id)")
 	}
 	operatorID := ctxdata.GetUserId(l.ctx)
 	if operatorID == 0 {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少操作人信息(x-user-id)")
+		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "缺少操作人信息(x-user-id)")
 	}
 	// 参数校验必须早于存储就绪检查, 否则非法参数会被 500(M6-E-0006) 掩盖成依赖故障.
 	target, ok := actionTarget(req.Action)

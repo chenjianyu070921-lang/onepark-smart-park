@@ -9,6 +9,7 @@ import (
 	"onepark/app/leasing-service/internal/model"
 	"onepark/app/leasing-service/internal/svc"
 	"onepark/app/leasing-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -60,9 +61,10 @@ func (l *BillListLogic) BillList(req *types.BillListReq) (*types.BillListResp, e
 		if req.Status != 0 {
 			db = db.Where("status = ?", req.Status)
 		}
-		if req.TenantId != 0 {
-			db = db.Where("tenant_id = ?", req.TenantId)
-		}
+		// 租户只从 ctx 取(网关注入, 不可伪造), 且**始终过滤**。
+		// ⚠️ 不能用请求体里的 tenant_id: 否则客户端传别人园区 id 就能看别人的账单,
+		// 传 0 更会直接看到全部园区。与 contractlistlogic 的口径保持一致。
+		db = db.Where("tenant_id = ?", ctxdata.GetTenantId(l.ctx))
 		return db
 	}
 
