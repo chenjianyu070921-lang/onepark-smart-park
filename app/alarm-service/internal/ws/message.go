@@ -29,8 +29,10 @@ type Envelope struct {
 }
 
 // AlarmEvent 告警事件载荷(docs/m3/09 §5).
+// AlarmID 为业务编号 alarm_no(string), 与 notify.AlarmEvent 对齐:
+// WebSocket 推送与 Kafka 通知必须使用相同的告警标识, 否则前端与 M5 收到不同的值.
 type AlarmEvent struct {
-	AlarmID   int64  `json:"alarm_id"`
+	AlarmID   string `json:"alarm_id"`
 	DeviceID  string `json:"device_id"`
 	EventType string `json:"event_type"`
 	Level     int8   `json:"level"`

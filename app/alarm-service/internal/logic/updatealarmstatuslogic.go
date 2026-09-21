@@ -114,9 +114,15 @@ func (l *UpdateAlarmStatusLogic) notifyResolved(tenantID, alarmID int64, at time
 const notifyFailMsg = "告警已解决, 但通知 M5 失败(状态已落库, 需补偿)"
 
 // broadcast 状态流转后广播(#42). 推送失败不影响接口返回: 状态已落库, 前端重连可拉列表补偿.
+// AlarmID 使用业务编号 alarm_no, 与 Kafka 通知(notify.AlarmEvent)保持一致.
 func (l *UpdateAlarmStatusLogic) broadcast(alarmID, tenantID int64, typ string, status int8) {
+	a, err := l.svcCtx.Alarms.FindByID(l.ctx, tenantID, alarmID)
+	if err != nil {
+		l.Errorf("load alarm for broadcast failed alarm_id=%d err=%v", alarmID, err)
+		return
+	}
 	l.svcCtx.Hub.Push(tenantID, ws.NewEnvelope(typ, ws.AlarmEvent{
-		AlarmID: alarmID,
+		AlarmID: a.AlarmNo,
 		Status:  status,
 	}, ""))
 }
