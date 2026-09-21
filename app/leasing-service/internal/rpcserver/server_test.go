@@ -158,8 +158,16 @@ func TestGetContract_EndToEnd(t *testing.T) {
 	callCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	// 1) 不带租户: 正常返回
-	resp, err := cli.GetContract(callCtx, &leasingpb.GetContractReq{Id: contract.Id})
+	// 1) 带**本合同的租户**: 正常返回, 逐字段核对
+	//
+	// ⚠️ 2026-09-20 变更: 原用例是"不带租户也正常返回", 现在改为必须声明租户 ——
+	// 平台侧补上行级隔离后, 下层 ContractDetail 按 ctx 的租户过滤(Where tenant_id = ?),
+	// 而 gRPC 唯一的租户渠道是 req.TenantId。不带租户(=0) 落到下层就是按 0 过滤,
+	// 查不到任何非 0 租户的合同 —— 这是刻意的 **fail-closed**:
+	// 「没声明租户」不等于「可以看所有租户」。对应地, 上面"不带租户"的旧期望已作废。
+	resp, err := cli.GetContract(callCtx, &leasingpb.GetContractReq{
+		Id: contract.Id, TenantId: contract.TenantId,
+	})
 	if err != nil {
 		t.Fatalf("GetContract 失败: %v", err)
 	}
@@ -211,6 +219,11 @@ func TestGetContract_EndToEnd(t *testing.T) {
 		Id: contract.Id, TenantId: contract.TenantId + 1,
 	}); err == nil {
 		t.Error("跨租户查询应被拒绝")
+	}
+
+	// 4) 完全不带租户: 同样查不到(fail-closed) —— 不能因为"没声明"就看到别人园区的合同
+	if _, err := cli.GetContract(callCtx, &leasingpb.GetContractReq{Id: contract.Id}); err == nil {
+		t.Error("不带租户应 fail-closed 查不到, 而不是放行")
 	}
 }
 

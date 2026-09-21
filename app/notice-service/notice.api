@@ -63,6 +63,18 @@ type MarkNoticeReadResp {
 	Updated int64 `json:"updated"` // 实际回填条数(0=无未读记录或已读)
 }
 
+// RecallNoticeReq 公告撤回请求(P2): 路径 id + 可选撤回原因; 仅已发布(2)可撤回.
+type RecallNoticeReq {
+	Id     int64  `path:"id"`           // 公告ID(路径参数)
+	Reason string `json:"reason,optional"` // 撤回原因(可选)
+}
+
+// RecallNoticeResp 公告撤回响应
+type RecallNoticeResp {
+	Id     int64 `json:"id"`     // 公告ID
+	Status int8  `json:"status"` // 撤回后状态(3已撤回)
+}
+
 service notice-api {
 	@handler CreateNotice
 	post /api/notice (CreateNoticeReq) returns (NoticeResp)
@@ -81,5 +93,9 @@ service notice-api {
 	// 公告已读回填(路径参数版别名, 与上面 body 版同语义同逻辑, 评审 P1 要求的 RESTful 风格)
 	@handler MarkNoticeReadById
 	post /api/notice/:id/read returns (MarkNoticeReadResp)
+
+	// 公告撤回(P2): 仅已发布可撤回, 置已撤回 + 补偿事件
+	@handler RecallNotice
+	post /api/notice/:id/recall (RecallNoticeReq) returns (RecallNoticeResp)
 }
 

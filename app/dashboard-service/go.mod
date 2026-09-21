@@ -1,6 +1,6 @@
 module onepark/app/dashboard-service
 
-go 1.25.2
+go 1.26.0
 
 // 本地模块重定向: 使本模块脱离 go.work(如 GOWORK=off / IDE 未启用 workspace)时仍可独立编译.
 require (

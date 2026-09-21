@@ -1,0 +1,9 @@
+# M5 leasing-service（gRPC 入口）—— **容器内**配置
+#
+# 与 HTTP 入口是两个独立进程（清单 #66 起的服务间聚合接口）。
+# 容器内地址一律用服务名，理由同 leasing-api.yaml。
+Name: leasing.rpc
+ListenOn: 0.0.0.0:9051
+
+MySQL:
+  DataSource: "${LEASING_MYSQL_DSN}"

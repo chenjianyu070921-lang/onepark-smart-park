@@ -22,8 +22,10 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	// conf.UseEnv() 必填: go-zero 默认不做 ${VAR} 环境变量展开,
-	// 不启用则 etc/dispatch-api.yaml 里的 ${DISPATCH_MYSQL_DSN}/${REDIS_ADDR}/... 会以字面量生效.
+	// conf.UseEnv() 必填: go-zero 的 ${VAR} 环境变量展开默认是关闭的, 不启用则占位符是死字符串。
+	// etc/dispatch-api.yaml 的注释写着"部署环境请改回 ${DISPATCH_MYSQL_DSN} 形式", 不启用这句话就是假的 ——
+	// 届时 DSN 会带着未展开的 ${...} 去连库, 只报出一句难懂的 invalid DSN。
+	// 容器部署(deploy/m5)依赖它注入连接目标, 故必须启用。
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
 
 	server := rest.MustNewServer(c.RestConf)

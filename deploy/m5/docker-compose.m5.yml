@@ -1,0 +1,175 @@
+# ============================================================================
+# M5（运营招商 + 指挥调度）服务片段 —— override 形式
+#
+# ⚠️ 这不是独立 compose，**必须**与 deploy/docker-compose.yml 一起用，
+#    因为 M5 依赖其中的 mysql / redis 容器与 onepark 网络：
+#
+#   docker compose -f deploy/docker-compose.yml -f deploy/m5/docker-compose.m5.yml \
+#                  --env-file deploy/.env up -d --build \
+#                  leasing-service leasing-grpc dashboard-service dispatch-service
+#
+# 为什么用 override 片段，而不直接改 deploy/docker-compose.yml：
+#   deploy/ 是**全平台共用**目录，「一键启动全平台」需要各模块的片段合并后由平台负责人收口；
+#   M5 只出自己的 4 个进程，避免多人同时改同一文件产生冲突。
+#
+# ⚠️ 路径基准（compose 的既有行为，很容易踩）：
+#   本文件里的相对路径**以基础文件 deploy/docker-compose.yml 所在目录为基准**，
+#   **不是**以本文件所在的 deploy/m5/ 为基准。
+#   所以下面写的是 `context: ..`（→ 仓库根）与 `./m5/etc/*.yaml`（→ deploy/m5/etc/*.yaml）。
+#   若按直觉写成 `../..` 和 `./etc/...`，会被解析到仓库的**上一级**，构建与挂载直接失败。
+#   （已用 `docker compose config` 实测确认过解析结果。）
+#
+# ⚠️ 边界声明（读数）：本文件只负责 M5。
+#   M1/M2/M3/M4/M6 的服务与 gateway-service 均不在内，且全仓目前只有本目录一个 Dockerfile
+#   —— 也就是说**「一键启动全平台」尚未达成**，它需要各模块都出自己的片段后再合并。
+#   本文件是把 M5 这一块先交出来，不替代那件事。
+# ============================================================================
+name: onepark
+
+# 四个进程的公共部分：重启策略、接入同一网络、
+# 以及访问宿主机上直跑的 M1~M4 所需的 host-gateway 映射
+# （Windows / macOS 的 Docker Desktop 自带 host.docker.internal；Linux 需要这条）。
+x-m5-common: &m5-common
+  restart: unless-stopped
+  networks: [onepark]
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  # ---------- 招商租赁 ----------
+  # HTTP(8051) 与 gRPC(9051) 是**两个独立进程**：
+  #   HTTP 面向前端/网关；gRPC 面向服务间聚合。
+  #   只有 HTTP 侧启动合同到期/自动续约/月度出账定时任务 —— 定时任务只能有一个执行方
+  #   （见 app/leasing-service/grpcserver/main.go 的说明）。
+  leasing-service:
+    <<: *m5-common
+    container_name: onepark-leasing-api
+    image: onepark/leasing-service:local
+    build:
+      context: ..
+      dockerfile: deploy/m5/Dockerfile
+      args: { SERVICE: leasing-service }
+    command: ["-f", "/app/etc/leasing-api.yaml"]
+    ports:
+      - "${M5_LEASING_HTTP_PORT:-8051}:8051"
+    volumes:
+      - ./m5/etc/leasing-api.yaml:/app/etc/leasing-api.yaml:ro
+    environment:
+      LEASING_MYSQL_DSN: "root:${MYSQL_ROOT_PASSWORD:-onepark123}@tcp(mysql:3306)/leasing_db?charset=utf8mb4&parseTime=True&loc=Local"
+      # ⚠️ 刻意**不用** deploy/.env 里的 REDIS_ADDR —— 那个值是给"服务跑在宿主机"用的
+      #   （REDIS_ADDR=127.0.0.1:6380，因为宿主机 6379 被本地 redis 占用）。
+      #   容器内必须用服务名 redis:6379。${VAR:-默认} 的默认值只在变量**未设置**时生效，
+      #   而 .env 里它是设了的 —— 直接写 ${REDIS_ADDR} 会让容器连 127.0.0.1 并启动失败。
+      #   故这里用 M5 专属变量名，默认值即容器正确值。
+      REDIS_ADDR: "${M5_REDIS_ADDR:-redis:6379}"
+      REDIS_PASS: "${M5_REDIS_PASS:-onepark123}"
+      JWT_SECRET: "${M5_JWT_SECRET:-}"
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      # ⚠️ 服务尚无 /healthz（A7，待 M6 的 common/checks），只能做 TCP 连通性探测。
+      #    等 healthz 接上后应换成 HTTP 探测（TCP 通不代表业务可用）。
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8051 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  leasing-grpc:
+    <<: *m5-common
+    container_name: onepark-leasing-grpc
+    # ⚠️ 这里**必须**是独立镜像: gRPC 的 main 包在子目录 app/leasing-service/grpcserver/。
+    #   若照搬 SERVICE=leasing-service, 编出来的是 leasing.go(HTTP 入口),
+    #   拿它去读 gRPC 配置会报 `field "Port" is not set`(rest.RestConf 要 Port, RpcServerConf 不要) 并无限重启。
+    image: onepark/leasing-grpc:local
+    build:
+      context: ..
+      dockerfile: deploy/m5/Dockerfile
+      args: { SERVICE: leasing-service/grpcserver }
+    command: ["-f", "/app/etc/leasing-grpc.yaml"]
+    ports:
+      - "${M5_LEASING_GRPC_PORT:-9051}:9051"
+    volumes:
+      - ./m5/etc/leasing-grpc.yaml:/app/etc/leasing-grpc.yaml:ro
+    environment:
+      LEASING_MYSQL_DSN: "root:${MYSQL_ROOT_PASSWORD:-onepark123}@tcp(mysql:3306)/leasing_db?charset=utf8mb4&parseTime=True&loc=Local"
+    depends_on:
+      mysql: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9051 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # ---------- 大屏聚合 + WebSocket 推送 ----------
+  dashboard-service:
+    <<: *m5-common
+    container_name: onepark-dashboard-api
+    image: onepark/dashboard-service:local
+    build:
+      context: ..
+      dockerfile: deploy/m5/Dockerfile
+      args: { SERVICE: dashboard-service }
+    command: ["-f", "/app/etc/dashboard-api.yaml"]
+    ports:
+      - "${M5_DASHBOARD_HTTP_PORT:-8052}:8052"
+    volumes:
+      - ./m5/etc/dashboard-api.yaml:/app/etc/dashboard-api.yaml:ro
+    environment:
+      DASHBOARD_MYSQL_DSN: "root:${MYSQL_ROOT_PASSWORD:-onepark123}@tcp(mysql:3306)/dashboard_db?charset=utf8mb4&parseTime=True&loc=Local"
+      # 见 leasing-service 处的说明: 刻意不用 .env 的 REDIS_ADDR(那是宿主机语义)
+      REDIS_ADDR: "${M5_REDIS_ADDR:-redis:6379}"
+      REDIS_PASS: "${M5_REDIS_PASS:-onepark123}"
+      # ⚠️ M1~M4 目前也在宿主机直跑（未容器化），故走宿主机出口。
+      #    等它们进入同一 compose 网络后，这里要改成对应的**服务名**。
+      #    NonBlock=true 保证上游不可达时本服务照样启动，大屏逐源降级而不是整块黑屏。
+      M1_DEVICE_GRPC: "${M1_DEVICE_GRPC:-host.docker.internal:9001}"
+      M2_WORKORDER_GRPC: "${M2_WORKORDER_GRPC:-host.docker.internal:9091}"
+      M3_ALARM_GRPC: "${M3_ALARM_GRPC:-host.docker.internal:9009}"
+      M4_ENERGY_GRPC: "${M4_ENERGY_GRPC:-host.docker.internal:9061}"
+      DASHBOARD_KAFKA_BROKERS: "${M5_KAFKA_BROKERS:-}"
+      DASHBOARD_KAFKA_GROUP: "${M5_DASHBOARD_KAFKA_GROUP:-m5-dashboard-container}"
+      JWT_SECRET: "${M5_JWT_SECRET:-}"
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8052 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # ---------- 指挥调度 ----------
+  dispatch-service:
+    <<: *m5-common
+    container_name: onepark-dispatch-api
+    image: onepark/dispatch-service:local
+    build:
+      context: ..
+      dockerfile: deploy/m5/Dockerfile
+      args: { SERVICE: dispatch-service }
+    command: ["-f", "/app/etc/dispatch-api.yaml"]
+    ports:
+      - "${M5_DISPATCH_HTTP_PORT:-8053}:8053"
+    volumes:
+      - ./m5/etc/dispatch-api.yaml:/app/etc/dispatch-api.yaml:ro
+    environment:
+      DISPATCH_MYSQL_DSN: "root:${MYSQL_ROOT_PASSWORD:-onepark123}@tcp(mysql:3306)/dispatch_db?charset=utf8mb4&parseTime=True&loc=Local"
+      # 见 leasing-service 处的说明: 刻意不用 .env 的 REDIS_ADDR(那是宿主机语义)
+      REDIS_ADDR: "${M5_REDIS_ADDR:-redis:6379}"
+      REDIS_PASS: "${M5_REDIS_PASS:-onepark123}"
+      DISPATCH_KAFKA_BROKERS: "${M5_KAFKA_BROKERS:-}"
+      DISPATCH_KAFKA_GROUP: "${M5_DISPATCH_KAFKA_GROUP:-m5-dispatch-container}"
+      JWT_SECRET: "${M5_JWT_SECRET:-}"
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8053 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
