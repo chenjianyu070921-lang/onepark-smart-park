@@ -21,7 +21,7 @@ import (
 func mkExpiredTask(t *testing.T, ctx context.Context, no string, status int8,
 	assigneeId int64, reassignCount int64) *model.DispatchTask {
 	t.Helper()
-	db, _ := openTestDeps(t)
+	db, rdb := openTestDeps(t)
 
 	past := time.Now().Add(-10 * time.Minute)
 	task := &model.DispatchTask{
@@ -37,6 +37,10 @@ func mkExpiredTask(t *testing.T, ctx context.Context, no string, status int8,
 		bg := context.Background()
 		db.WithContext(bg).Where("task_id = ?", task.Id).Delete(&model.DispatchTaskLog{})
 		db.WithContext(bg).Delete(&model.DispatchTask{}, task.Id)
+		// ⚠️ 必须释放重派锁: RunReassignOnce 加锁后**不自己解锁**(靠 TTL 过期),
+		//    每个调用方都要收尾。漏掉这句, 后续用例的扫描会被锁挡在门外 ——
+		//    表现为 Reassigned=0, 极难定位(第一次写本文件时就踩了这个)。
+		_ = rdb.Del(bg, reassignLockKey).Err()
 	})
 	return task
 }
@@ -127,6 +131,8 @@ func TestRunReassignOnce_ProcessingUntouched(t *testing.T) {
 // TestStart_CompensatesAndStops 启动入口: 能起(含启动补偿)、能停, 不泄漏 goroutine.
 func TestStart_CompensatesAndStops(t *testing.T) {
 	db, rdb := openTestDeps(t)
+	// 启动补偿同样会加重派锁, 用例收尾必须解锁(见 mkExpiredTask 的说明)
+	t.Cleanup(func() { _ = rdb.Del(context.Background(), reassignLockKey).Err() })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// intervalSec 给个大值: 只验证"启动补偿 + 可停止", 不等周期性扫描
