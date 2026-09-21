@@ -10,7 +10,7 @@ type Config struct {
 	rest.RestConf
 	JwtSecret  string `json:",optional"` // JWT 签名密钥, 必须来自环境变量 JWT_SECRET, 禁止硬编码
 	JwtExpire  int64  `json:",optional"` // access token 有效期(秒), 默认 7200
-	JwtRefresh int64  `json:",optional"` // refresh token 有效期(秒), 默认 86400
+	JwtRefresh int64  `json:",optional"` // refresh token 有效期(秒), 默认 604800(7d)
 	// Redis 用于令牌注销黑名单(主动吊销). 未配置时注销降级为无操作.
 	Redis redisx.RedisConf `json:",optional"`
 	// MySQL 指向用户中心库(sys_db), 身份校验改为查询 sys_user + sys_user_role.

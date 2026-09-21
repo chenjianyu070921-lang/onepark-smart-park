@@ -37,11 +37,16 @@ func main() {
 	// 落实"JWT 校验/租户注入收口到网关", 下游业务服务仅透传身份 Header.
 	authEnabled := c.Auth.Enabled || !isLocalMode(c.Mode)
 	if authEnabled {
-		if c.Auth.Secret == "" {
-			log.Fatalf("gateway: 鉴权已启用但 Auth.Secret 为空 (set AUTH_SECRET or Auth.Secret)")
+		if ctx.AuthClient == nil {
+			log.Fatalf("gateway: 鉴权已启用但 Auth.GrpcAddress 为空 (set AUTH_GRPC_ADDR or Auth.GrpcAddress)")
 		}
-		// 全接口强制 JWT: 仅鉴权引导端点(login/refresh/verify)公开, 见 middleware.Auth.
-		final = middleware.Auth(c.Auth.Secret, ctx.Redis)(final)
+		// 全接口强制校验: 委托 auth-service gRPC Verify, 仅鉴权引导端点(login/refresh/verify/logout)公开, 见 middleware.Auth.
+		final = middleware.Auth(ctx.AuthClient)(final)
+		// 统一 RBAC: 鉴权后、转发前对受保护写操作做权限校验(委托 user-manage gRPC CheckPermission, Redis 缓存).
+		// 仅当配置了 user-manage gRPC 地址时生效; 未配置则全部放行(渐进覆盖, 不破坏可用性).
+		if ctx.UserClient != nil {
+			final = middleware.Permission(ctx.UserClient, ctx.Redis)(final)
+		}
 	}
 	// 全局令牌桶限流(单 IP): 需配置 Redis 且 Capacity>0; 否则优雅降级放行, 不影响可用性.
 	rateLimited := false
@@ -55,8 +60,11 @@ func main() {
 	defer server.Stop()
 
 	// 健康检查端点: 网关无本地 DB, 仅探测 Redis; 供 K8s/Docker 探针与运维使用.
+	// /health 兼容旧探针; /api/healthz 存活(不探依赖), /api/readyz 就绪(探 Redis).
 	server.AddRoutes([]rest.Route{
 		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(nil, ctx.Redis)},
+		{Method: http.MethodGet, Path: "/api/healthz", Handler: health.Liveness()},
+		{Method: http.MethodGet, Path: "/api/readyz", Handler: health.Readiness(nil, ctx.Redis)},
 	})
 
 	fmt.Printf("Starting gateway at %s:%d (auth=%v ratelimit=%v)...\n", c.Host, c.Port, authEnabled, rateLimited)

@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 
 	"onepark/app/user-manage/internal/config"
 	"onepark/app/user-manage/internal/handler"
 	grpcserver "onepark/app/user-manage/internal/server"
 	"onepark/app/user-manage/internal/svc"
+	"onepark/common/health"
 	"onepark/common/middleware"
 	"onepark/common/response"
 
@@ -40,6 +42,12 @@ func main() {
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+
+	// 健康检查: /api/healthz 存活(不探依赖), /api/readyz 就绪(探 MySQL; user-manage 无 Redis).
+	server.AddRoutes([]rest.Route{
+		{Method: http.MethodGet, Path: "/api/healthz", Handler: health.Liveness()},
+		{Method: http.MethodGet, Path: "/api/readyz", Handler: health.Readiness(ctx.DB, nil)},
+	})
 
 	// 双模: 未配置 Grpc.ListenOn 时保持纯 HTTP(网关行为不变); 配置后同进程额外起 gRPC server.
 	if c.Grpc.ListenOn == "" {

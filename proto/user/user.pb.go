@@ -410,6 +410,104 @@ func (x *UserDetailReq) GetId() uint64 {
 	return 0
 }
 
+// CheckPermissionReq 权限校验请求: 由网关传入已鉴权的 user_id 与目标 permission.
+type CheckPermissionReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // 网关注入的已鉴权用户ID(调用方为网关, 可信)
+	Permission    string                 `protobuf:"bytes,2,opt,name=permission,proto3" json:"permission,omitempty"`        // 目标权限串, 形如 user:write / role:read(见部署脚本 sys_menu.permission)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckPermissionReq) Reset() {
+	*x = CheckPermissionReq{}
+	mi := &file_user_user_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckPermissionReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckPermissionReq) ProtoMessage() {}
+
+func (x *CheckPermissionReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckPermissionReq.ProtoReflect.Descriptor instead.
+func (*CheckPermissionReq) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *CheckPermissionReq) GetUserId() uint64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *CheckPermissionReq) GetPermission() string {
+	if x != nil {
+		return x.Permission
+	}
+	return ""
+}
+
+// CheckPermissionResp 权限校验响应.
+type CheckPermissionResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"` // true=允许, false=无权限
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckPermissionResp) Reset() {
+	*x = CheckPermissionResp{}
+	mi := &file_user_user_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckPermissionResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckPermissionResp) ProtoMessage() {}
+
+func (x *CheckPermissionResp) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckPermissionResp.ProtoReflect.Descriptor instead.
+func (*CheckPermissionResp) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *CheckPermissionResp) GetAllowed() bool {
+	if x != nil {
+		return x.Allowed
+	}
+	return false
+}
+
 var File_user_user_proto protoreflect.FileDescriptor
 
 const file_user_user_proto_rawDesc = "" +
@@ -439,7 +537,14 @@ const file_user_user_proto_rawDesc = "" +
 	"\rUserDeleteReq\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\"\x1f\n" +
 	"\rUserDetailReq\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x04R\x02id2\x91\x03\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\"M\n" +
+	"\x12CheckPermissionReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x1e\n" +
+	"\n" +
+	"permission\x18\x02 \x01(\tR\n" +
+	"permission\"/\n" +
+	"\x13CheckPermissionResp\x12\x18\n" +
+	"\aallowed\x18\x01 \x01(\bR\aallowed2\xe9\x03\n" +
 	"\n" +
 	"UserManage\x124\n" +
 	"\x04Ping\x12\x15.onepark.common.Empty\x1a\x15.onepark.common.Empty\x12G\n" +
@@ -451,7 +556,8 @@ const file_user_user_proto_rawDesc = "" +
 	"UserDelete\x12\x1b.onepark.user.UserDeleteReq\x1a\x15.onepark.common.Empty\x12A\n" +
 	"\n" +
 	"UserDetail\x12\x1b.onepark.user.UserDetailReq\x1a\x16.onepark.user.UserInfo\x12=\n" +
-	"\bUserList\x12\x15.onepark.common.Empty\x1a\x1a.onepark.user.UserListRespB\x1bZ\x19onepark/proto/user;userpbb\x06proto3"
+	"\bUserList\x12\x15.onepark.common.Empty\x1a\x1a.onepark.user.UserListResp\x12V\n" +
+	"\x0fCheckPermission\x12 .onepark.user.CheckPermissionReq\x1a!.onepark.user.CheckPermissionRespB\x1bZ\x19onepark/proto/user;userpbb\x06proto3"
 
 var (
 	file_user_user_proto_rawDescOnce sync.Once
@@ -465,33 +571,37 @@ func file_user_user_proto_rawDescGZIP() []byte {
 	return file_user_user_proto_rawDescData
 }
 
-var file_user_user_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_user_user_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_user_user_proto_goTypes = []any{
-	(*UserInfo)(nil),       // 0: onepark.user.UserInfo
-	(*UserListResp)(nil),   // 1: onepark.user.UserListResp
-	(*CreateUserReq)(nil),  // 2: onepark.user.CreateUserReq
-	(*CreateUserResp)(nil), // 3: onepark.user.CreateUserResp
-	(*UpdateUserReq)(nil),  // 4: onepark.user.UpdateUserReq
-	(*UserDeleteReq)(nil),  // 5: onepark.user.UserDeleteReq
-	(*UserDetailReq)(nil),  // 6: onepark.user.UserDetailReq
-	(*common.Empty)(nil),   // 7: onepark.common.Empty
+	(*UserInfo)(nil),            // 0: onepark.user.UserInfo
+	(*UserListResp)(nil),        // 1: onepark.user.UserListResp
+	(*CreateUserReq)(nil),       // 2: onepark.user.CreateUserReq
+	(*CreateUserResp)(nil),      // 3: onepark.user.CreateUserResp
+	(*UpdateUserReq)(nil),       // 4: onepark.user.UpdateUserReq
+	(*UserDeleteReq)(nil),       // 5: onepark.user.UserDeleteReq
+	(*UserDetailReq)(nil),       // 6: onepark.user.UserDetailReq
+	(*CheckPermissionReq)(nil),  // 7: onepark.user.CheckPermissionReq
+	(*CheckPermissionResp)(nil), // 8: onepark.user.CheckPermissionResp
+	(*common.Empty)(nil),        // 9: onepark.common.Empty
 }
 var file_user_user_proto_depIdxs = []int32{
 	0, // 0: onepark.user.UserListResp.list:type_name -> onepark.user.UserInfo
-	7, // 1: onepark.user.UserManage.Ping:input_type -> onepark.common.Empty
+	9, // 1: onepark.user.UserManage.Ping:input_type -> onepark.common.Empty
 	2, // 2: onepark.user.UserManage.UserCreate:input_type -> onepark.user.CreateUserReq
 	4, // 3: onepark.user.UserManage.UserUpdate:input_type -> onepark.user.UpdateUserReq
 	5, // 4: onepark.user.UserManage.UserDelete:input_type -> onepark.user.UserDeleteReq
 	6, // 5: onepark.user.UserManage.UserDetail:input_type -> onepark.user.UserDetailReq
-	7, // 6: onepark.user.UserManage.UserList:input_type -> onepark.common.Empty
-	7, // 7: onepark.user.UserManage.Ping:output_type -> onepark.common.Empty
-	3, // 8: onepark.user.UserManage.UserCreate:output_type -> onepark.user.CreateUserResp
-	7, // 9: onepark.user.UserManage.UserUpdate:output_type -> onepark.common.Empty
-	7, // 10: onepark.user.UserManage.UserDelete:output_type -> onepark.common.Empty
-	0, // 11: onepark.user.UserManage.UserDetail:output_type -> onepark.user.UserInfo
-	1, // 12: onepark.user.UserManage.UserList:output_type -> onepark.user.UserListResp
-	7, // [7:13] is the sub-list for method output_type
-	1, // [1:7] is the sub-list for method input_type
+	9, // 6: onepark.user.UserManage.UserList:input_type -> onepark.common.Empty
+	7, // 7: onepark.user.UserManage.CheckPermission:input_type -> onepark.user.CheckPermissionReq
+	9, // 8: onepark.user.UserManage.Ping:output_type -> onepark.common.Empty
+	3, // 9: onepark.user.UserManage.UserCreate:output_type -> onepark.user.CreateUserResp
+	9, // 10: onepark.user.UserManage.UserUpdate:output_type -> onepark.common.Empty
+	9, // 11: onepark.user.UserManage.UserDelete:output_type -> onepark.common.Empty
+	0, // 12: onepark.user.UserManage.UserDetail:output_type -> onepark.user.UserInfo
+	1, // 13: onepark.user.UserManage.UserList:output_type -> onepark.user.UserListResp
+	8, // 14: onepark.user.UserManage.CheckPermission:output_type -> onepark.user.CheckPermissionResp
+	8, // [8:15] is the sub-list for method output_type
+	1, // [1:8] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -508,7 +618,7 @@ func file_user_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_user_proto_rawDesc), len(file_user_user_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

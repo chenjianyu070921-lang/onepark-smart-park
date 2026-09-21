@@ -236,6 +236,17 @@ services:
       # HTTP 事件降级通道(/device/event)直投 Kafka, 不注入时 config 默认 localhost:9092,
       # 容器内必然连不上 broker, 表现为事件上报静默失败.
       KAFKA_BROKERS: ${KAFKA_BROKERS}
+      # EMQX/MQTT 指令下行通道(Broker 为空时 device 降级为仅落库, 不阻断启动);
+      # EMQX 默认匿名(USERNAME/PASSWORD 留空), 见 device-api.yaml 的 MQTT 段.
+      EMQX_BROKER: ${EMQX_BROKER:-tcp://emqx:1883}
+      EMQX_CLIENT: ${EMQX_CLIENT:-onepark-device}
+      EMQX_USERNAME: ${EMQX_USERNAME:-}
+      EMQX_PASSWORD: ${EMQX_PASSWORD:-}
+      # 遥测时序落库(taosAdapter REST); Endpoint 为空时跳过. Token 留空即无鉴权.
+      TDENGINE_REST: ${TDENGINE_REST:-http://tdengine:6041}
+      TDENGINE_TOKEN: ${TDENGINE_TOKEN:-}
+      # HTTP 接口鉴权密钥; 为空时放行(M6 认证服务就绪前保持可联调).
+      JWT_SECRET: ${JWT_SECRET}
     ports:
       - "${DEVICE_SERVICE_PORT:-8001}:8001"
     networks: [onepark]
@@ -268,8 +279,11 @@ services:
       MYSQL_PORT: 3306
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-sys_db}
+      # 双模 gRPC 监听地址: 配置后同进程起 gRPC server, 供网关 RBAC 调用 CheckPermission.
+      USER_GRPC_ADDR: ${USER_GRPC_ADDR:-user-manage:18089}
     ports:
       - "${USER_MANAGE_PORT:-8086}:8086"
+      - "${USER_MANAGE_GRPC_PORT:-18089}:18089"
     networks: [onepark]
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8086 && exit 0 || exit 1"]
@@ -326,6 +340,10 @@ services:
       AUTH_SECRET: ${JWT_SECRET}
       # 网关运行模式: pre/prod 强制开启鉴权(dev/test 关闭便于联调); 见 apigateway-api.yaml 的 ${GATEWAY_MODE}.
       GATEWAY_MODE: ${GATEWAY_MODE:-pre}
+      # 网关委托 auth-service gRPC Verify 的地址(鉴权校验入口); 容器网络用服务名 auth-service:18088.
+      AUTH_GRPC_ADDR: ${AUTH_GRPC_ADDR:-auth-service:18088}
+      # 网关委托 user-manage gRPC CheckPermission 的地址(RBAC 入口); 容器网络用服务名 user-manage:18089.
+      USER_GRPC_ADDR: ${USER_GRPC_ADDR:-user-manage:18089}
       # 限流 + Token 注销黑名单 Redis: 对应 apigateway-api.yaml 的 ${REDIS_ADDR}/${REDIS_PASS};
       # 与 redis 容器 requirepass(REDIS_PASSWORD) 一致. 此前漏注入, 部署态 Redis 无密码连不上,
       # 导致限流与黑名单 IsRevoked 全部静默降级放行(Token 失效机制在 prod 被击穿).
@@ -365,8 +383,11 @@ services:
       # 与 redis 容器 requirepass(REDIS_PASSWORD) 一致. 留空则注销降级为无操作.
       AUTH_REDIS_ADDR: ${AUTH_REDIS_ADDR}
       AUTH_REDIS_PASS: ${AUTH_REDIS_PASS}
+      # gRPC 双模入口(Verify 校验), 供网关调用; 对应 auth-api.yaml 的 ${AUTH_GRPC_LISTEN}.
+      AUTH_GRPC_LISTEN: ${AUTH_GRPC_LISTEN:-0.0.0.0:18088}
     ports:
       - "${AUTH_SERVICE_PORT:-8088}:8088"
+      - "${AUTH_GRPC_PORT:-18088}:18088"
     networks: [onepark]
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8088 && exit 0 || exit 1"]
@@ -399,6 +420,12 @@ services:
       REDIS_ADDR: ${REDIS_ADDR}
       REDIS_PASS: ${REDIS_PASS}
       KAFKA_BROKERS: ${KAFKA_BROKERS}
+      # 工单附件 MinIO 对象存储(Endpoint 为空时上传接口返回"对象存储未配置");
+      # 凭据复用 MinIO 根账号, 见 workorder-api.yaml 的 MinIO 段.
+      WORKORDER_MINIO_ENDPOINT: ${WORKORDER_MINIO_ENDPOINT:-http://minio:9000}
+      WORKORDER_MINIO_ACCESS_KEY: ${WORKORDER_MINIO_ACCESS_KEY:-admin}
+      WORKORDER_MINIO_SECRET_KEY: ${WORKORDER_MINIO_SECRET_KEY:-onepark123}
+      WORKORDER_MINIO_PUBLIC_URL: ${WORKORDER_MINIO_PUBLIC_URL:-http://127.0.0.1:9000}
     ports:
       - "${WORKORDER_SERVICE_PORT:-8082}:8082"
     networks: [onepark]

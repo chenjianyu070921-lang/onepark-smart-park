@@ -165,3 +165,6 @@ func TestLoginLogicIntegration(t *testing.T) {
 		t.Fatalf("期望 %s, 实际 %v", errorx.ErrUnauthorized, err)
 	}
 }
+
+// TestVerifyLogicRespectsBlacklist 已迁至 logic_session_test.go:
+// 改用 miniredis 作为内存 Redis, 使"吊销闭环"用例不再依赖外部 Redis、必跑(见下).
