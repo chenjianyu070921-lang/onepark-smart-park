@@ -2,6 +2,7 @@ package logic
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,6 +15,10 @@ import (
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
+
+// maxDeviceTypeLen 设备类型列宽(alarm_rule.device_type VARCHAR(32)).
+// 入库前校验: 超长会让 MySQL 在严格模式下直接报错, 而错误文案不会指出是哪个字段.
+const maxDeviceTypeLen = 32
 
 // CreateRuleLogic 创建告警规则(#34).
 type CreateRuleLogic struct {
@@ -59,9 +64,16 @@ func (l *CreateRuleLogic) CreateRule(req *types.CreateRuleReq) (*types.CreateRul
 		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "window_seconds 不能为负数")
 	}
 
+	deviceType := strings.TrimSpace(req.DeviceType)
+	if len(deviceType) > maxDeviceTypeLen {
+		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid,
+			fmt.Sprintf("device_type 长度不能超过 %d", maxDeviceTypeLen))
+	}
+
 	now := time.Now()
 	r := &model.AlarmRule{
 		Name:          name,
+		DeviceType:    deviceType,
 		DeviceID:      strings.TrimSpace(req.DeviceId),
 		AreaID:        req.AreaId,
 		EventType:     strings.TrimSpace(req.EventType),
@@ -136,6 +148,15 @@ func (l *UpdateRuleLogic) UpdateRule(req *types.UpdateRuleReq) (*types.UpdateRul
 	updates := map[string]interface{}{}
 	if name := strings.TrimSpace(req.Name); name != "" {
 		updates["name"] = name
+	}
+	if deviceType := strings.TrimSpace(req.DeviceType); deviceType != "" {
+		if len(deviceType) > maxDeviceTypeLen {
+			return nil, errorx.NewError(errorx.ErrAlarmParamInvalid,
+				fmt.Sprintf("device_type 长度不能超过 %d", maxDeviceTypeLen))
+		}
+		// 传空串表示"清空限定(不限设备类型)"? 不: 空串与"未传"在 string 上无法区分,
+		// 与 device_id 保持一致 —— 置空请改用显式约定值, 避免误清空把规则放大到全部设备.
+		updates["device_type"] = deviceType
 	}
 	if deviceID := strings.TrimSpace(req.DeviceId); deviceID != "" {
 		updates["device_id"] = deviceID
@@ -245,11 +266,12 @@ func (l *ListRulesLogic) ListRules(req *types.ListRulesReq) (*types.ListRulesRes
 	}
 
 	f := model.AlarmRuleListFilter{
-		TenantID:  tenantID,
-		DeviceID:  strings.TrimSpace(req.DeviceId),
-		EventType: strings.TrimSpace(req.EventType),
-		Page:      int(req.Page),
-		PageSize:  int(req.PageSize),
+		TenantID:   tenantID,
+		DeviceType: strings.TrimSpace(req.DeviceType),
+		DeviceID:   strings.TrimSpace(req.DeviceId),
+		EventType:  strings.TrimSpace(req.EventType),
+		Page:       int(req.Page),
+		PageSize:   int(req.PageSize),
 	}
 	// status 不传时 int8 零值与"禁用"同义, 约定: 负数表示不筛选.
 	if req.Status == model.RuleStatusDisabled || req.Status == model.RuleStatusEnabled {
@@ -285,6 +307,7 @@ func toRuleItem(r *model.AlarmRule) types.RuleItem {
 	return types.RuleItem{
 		Id:            r.ID,
 		Name:          r.Name,
+		DeviceType:    r.DeviceType,
 		DeviceId:      r.DeviceID,
 		AreaId:        r.AreaID,
 		EventType:     r.EventType,

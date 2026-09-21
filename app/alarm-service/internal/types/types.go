@@ -34,6 +34,16 @@ type UpdateAlarmStatusReq struct {
 	Remark string `json:"remark,optional"` // 处理备注(如"已派安保现场核实")
 }
 
+// AlarmActionReq #39/#40 契约路径(确认/解决)专用入参: 动作由路径决定, 请求体只需备注。
+//
+// 刻意不与 UpdateAlarmStatusReq 共用 —— 后者的 action 是 json 必填字段(没有 ,optional),
+// 而按 #39/#40 契约调用时 body 里本就不该出现 action(动作写在路径上), 复用会让这类请求
+// 在参数校验阶段就被拒成 M3-W-1001「请求参数解析失败」。曾实测踩到, 勿合并回一个结构体。
+type AlarmActionReq struct {
+	Id     int64  `path:"id"`              // 告警ID(路径参数)
+	Remark string `json:"remark,optional"` // 处理备注(如"已派安保现场核实")
+}
+
 type IdReq struct {
 	Id int64 `path:"id"` // 告警主键ID(路径参数)
 }
@@ -93,8 +103,10 @@ type UpdateAlarmStatusResp struct {
 }
 
 // CreateRuleReq 创建告警规则请求(docs/m3/04 #34)
+// DeviceType + EventType 构成「按设备类型 + 事件类型映射告警等级」的配置面, 均可留空(表示不限).
 type CreateRuleReq struct {
 	Name          string `json:"name"`
+	DeviceType    string `json:"device_type,optional"`
 	DeviceId      string `json:"device_id,optional"`
 	AreaId        int64  `json:"area_id,optional"`
 	EventType     string `json:"event_type"`
@@ -114,6 +126,7 @@ type CreateRuleResp struct {
 type UpdateRuleReq struct {
 	Id            int64  `path:"id"`
 	Name          string `json:"name,optional"`
+	DeviceType    string `json:"device_type,optional"`
 	DeviceId      string `json:"device_id,optional"`
 	AreaId        int64  `json:"area_id,optional"`
 	EventType     string `json:"event_type,optional"`
@@ -131,6 +144,7 @@ type UpdateRuleResp struct {
 type RuleItem struct {
 	Id            int64  `json:"id"`
 	Name          string `json:"name"`
+	DeviceType    string `json:"device_type"`
 	DeviceId      string `json:"device_id"`
 	AreaId        int64  `json:"area_id"`
 	EventType     string `json:"event_type"`
@@ -150,11 +164,12 @@ type RuleDetailResp struct {
 
 // ListRulesReq 规则分页列表请求(#37)
 type ListRulesReq struct {
-	DeviceId  string `form:"device_id,optional"`
-	EventType string `form:"event_type,optional"`
-	Status    int8   `form:"status,optional"`
-	Page      int64  `form:"page"`
-	PageSize  int64  `form:"page_size"`
+	DeviceType string `form:"device_type,optional"`
+	DeviceId   string `form:"device_id,optional"`
+	EventType  string `form:"event_type,optional"`
+	Status     int8   `form:"status,optional"`
+	Page       int64  `form:"page"`
+	PageSize   int64  `form:"page_size"`
 }
 
 type ListRulesResp struct {

@@ -52,6 +52,18 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/alarm/:id/status",
 				Handler: UpdateAlarmStatusHandler(serverCtx),
 			},
+			// #39/#40 契约路径(docs/m3/04): 动作改由路径决定, 与上面的 /status 等价且共用同一 logic.
+			// 保留 /status 供既有调用方, 新增两条不影响任何一方; 手写原因同下方死信注释(KI-13: goctl 未安装).
+			{
+				Method:  http.MethodPut,
+				Path:    "/api/alarm/:id/ack",
+				Handler: AckAlarmHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/api/alarm/:id/resolve",
+				Handler: ResolveAlarmHandler(serverCtx),
+			},
 			// 死信台账(docs/m3/06 §5.4): 可查 + 可重放.
 			// goctl 未安装(KI-13), 以下两条按 goctl 产物格式手写补齐.
 			{

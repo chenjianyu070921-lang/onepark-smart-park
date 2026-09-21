@@ -47,16 +47,19 @@ CREATE TABLE `alarm` (
 
 -- ############################################################
 -- 2. alarm_rule 告警规则表
--- 2026-09-17 同步: 动态规则引擎已上线, 消费链路从本表读取启用规则
---   (model/alarm_rule_model.go#ListEnabled -> internal/rule/engine.go),
---   硬编码门禁闯入规则降级为可选回退, 由配置 Rule.DisableLegacyFallback 控制(默认保留).
---   本表是规则的唯一事实来源: 表内无启用规则且关闭回退时, 事件将被丢弃并打 WARN.
+-- 2026-09-20 同步: 本表是告警规则的唯一事实来源, 消费链路只从本表读取启用规则
+--   (model/alarm_rule_model.go#ListEnabled -> internal/rule/engine.go#Evaluate).
+--   规则按「设备类型 + 事件类型」二维范围匹配, 命中后按本表 level 生成告警等级:
+--     门禁 intrusion 即其中一条普通配置(device_type='access_control' + event_type='intrusion'),
+--     改等级 / 禁用都不需要改代码。
+--   硬编码门禁闯入规则仅保留为「表内零启用规则」时的应急回退, 由 Rule.DisableLegacyFallback 控制。
 -- ############################################################
 DROP TABLE IF EXISTS `alarm_rule`;
 CREATE TABLE `alarm_rule` (
   `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
   `tenant_id`      BIGINT       NOT NULL DEFAULT 0  COMMENT '园区ID, RBAC 数据隔离维度',
   `name`           VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '规则名称',
+  `device_type`    VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '设备类型(access_control/camera/sensor...), 为空表示不限设备类型',
   `device_id`      VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '设备ID, 为空表示按 event_type 全局生效',
   `area_id`        BIGINT       NOT NULL DEFAULT 0  COMMENT '区域ID',
   `event_type`     VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '事件类型',
@@ -69,6 +72,7 @@ CREATE TABLE `alarm_rule` (
   `updated_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   KEY `idx_tenant` (`tenant_id`),
+  KEY `idx_device_type` (`device_type`),
   KEY `idx_event_type` (`event_type`),
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='告警规则表';
@@ -128,24 +132,26 @@ CREATE TABLE `alarm_operate_log` (
 --   * 固定主键 + INSERT IGNORE: 重复执行不会产生重复规则(补数据时只跑本段也保持幂等).
 --   * 规则①与规则③都匹配 intrusion, 一次闯入可能命中两条(③需窗口内累计到阈值才触发);
 --     若不希望默认双报, 把规则③的 status 置 0 即可, 保留它作为时间窗口规则的可用样例.
+--   * device_type 是「按设备类型 + 事件类型映射告警等级」的设备类型维度, 为空表示不限;
+--     ①③ 限定 access_control, 使"摄像头上报 intrusion"不再被当成门禁闯入(原硬编码规则的语义).
 --   * JSON 写法与 internal/rule/rule.go#ParseSpec 的两种兼容格式对齐:
 --     ① 用文档 04 的扁平单条件写法, ②③ 用文档 07 的 conditions/match 嵌套写法.
 -- ############################################################
 INSERT IGNORE INTO `alarm_rule`
-  (`id`, `tenant_id`, `name`, `device_id`, `area_id`, `event_type`,
+  (`id`, `tenant_id`, `name`, `device_type`, `device_id`, `area_id`, `event_type`,
    `rule_type`, `conditions`, `window_seconds`, `level`, `status`)
 VALUES
-  -- ① 门禁非法闯入(周一 P0 主链路; 规则表内的显式版本, 与硬编码回退规则语义等价)
-  (1, 0, '门禁非法闯入告警', '', 0, 'intrusion', 'threshold',
+  -- ① 门禁非法闯入(P0 主链路在规则表内的正式版本: 门禁设备 + intrusion -> 等级 2)
+  (1, 0, '门禁非法闯入告警', 'access_control', '', 0, 'intrusion', 'threshold',
    '{"type":"threshold","field":"event_type","op":"eq","value":"intrusion"}',
    0, 2, 1),
 
-  -- ② 温度超限(周二 P2 的「温度超过80℃触发告警」示例)
-  (2, 0, '温度超过80℃告警', '', 0, 'temperature', 'threshold',
+  -- ② 温度超限(周二 P2 的「温度超过80℃触发告警」示例; 不限设备类型, 由 payload 条件收敛)
+  (2, 0, '温度超过80℃告警', '', '', 0, 'temperature', 'threshold',
    '{"type":"threshold","conditions":[{"field":"payload.temperature","op":"gt","value":80}]}',
    0, 3, 1),
 
   -- ③ 短时反复闯入(周四 P3 / 周六的时间窗口规则: 5 分钟内 ≥3 次)
-  (3, 0, '短时反复闯入告警(5分钟≥3次)', '', 0, 'intrusion', 'time_window',
+  (3, 0, '短时反复闯入告警(5分钟≥3次)', 'access_control', '', 0, 'intrusion', 'time_window',
    '{"type":"time_window","window_sec":300,"threshold":3,"match":{"field":"event_type","op":"eq","value":"intrusion"}}',
    300, 3, 1);

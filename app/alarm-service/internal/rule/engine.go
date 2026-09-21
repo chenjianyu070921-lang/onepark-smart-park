@@ -9,14 +9,18 @@ import (
 )
 
 // Rule 引擎使用的规则视图(由 model.AlarmRule 转换而来).
+//
+// 适用范围由 DeviceType / DeviceID / AreaID / EventType 四个维度共同决定,
+// 空值表示该维度不限 —— 「设备类型 + 事件类型 → 告警等级」就是靠前两项配置出来的.
 type Rule struct {
-	ID        int64
-	Name      string
-	DeviceID  string // 空或 "*" 表示不限设备
-	AreaID    int64  // 0 表示不限区域
-	EventType string // 空表示不限事件类型
-	Level     int8
-	Spec      *NormalizedSpec
+	ID         int64
+	Name       string
+	DeviceType string // 空表示不限设备类型
+	DeviceID   string // 空或 "*" 表示不限设备
+	AreaID     int64  // 0 表示不限区域
+	EventType  string // 空表示不限事件类型
+	Level      int8
+	Spec       *NormalizedSpec
 }
 
 // Store 引擎获取启用规则的来源(由 model 层实现, 便于单测替换为内存实现).
@@ -163,9 +167,23 @@ func newDraft(r Rule, f Fields, hits int64) *Draft {
 	}
 }
 
-// AppliesTo 判定规则适用范围: 事件类型/设备/区域三维度, 空值表示该维度不限.
+// AppliesTo 判定规则适用范围: 事件类型/设备类型/设备/区域四维度, 空值表示该维度不限.
+//
+// 设备类型维度对"事件未上报 device_type"的处理是**放行**而非拦截, 与引擎其它地方
+// "字段缺失视为未命中"的一般约定不同, 是刻意的例外:
+//   - M1 的 device_type 是 optional 字段(DeviceEventReq.DeviceType 标了 optional),
+//     硬编码门禁规则时期就按"intrusion 是门禁专属事件"兜底(P0 D1);
+//   - 若改成严格匹配, M1 少填一个可选字段就会让门禁闯入**整条链路漏报**,
+//     代价远大于"一条不带设备类型的事件被归入设备类型规则";
+//   - 真正的收敛靠配置: 事件带了 device_type 时严格比对 —— 摄像头上报的 intrusion
+//     不会再命中 device_type=access_control 的门禁规则。
+//
+// 待 P0-13(M1 明确 device_type 必填)闭环后, 可去掉这段兜底改为严格匹配.
 func (r Rule) AppliesTo(f Fields) bool {
 	if r.EventType != "" && r.EventType != f.EventType {
+		return false
+	}
+	if r.DeviceType != "" && f.DeviceType != "" && r.DeviceType != f.DeviceType {
 		return false
 	}
 	if r.DeviceID != "" && r.DeviceID != "*" && r.DeviceID != f.DeviceID {
