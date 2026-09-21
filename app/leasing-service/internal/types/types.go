@@ -3,6 +3,18 @@
 
 package types
 
+type Bill struct {
+	Id            int64  `json:"id"`
+	BillNo        string `json:"bill_no"`
+	ContractId    int64  `json:"contract_id"`
+	TenantId      int64  `json:"tenant_id"`
+	BillingPeriod string `json:"billing_period"` // 账期 yyyy-MM
+	Amount        string `json:"amount"`         // 定长 2 位小数字符串
+	Status        int32  `json:"status"`         // 1 未缴 2 已缴
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
 type BillAutoReq struct {
 	Period string `json:"period,optional"` // yyyy-MM, 为空取上一自然月
 }
@@ -10,7 +22,47 @@ type BillAutoReq struct {
 type BillAutoResp struct {
 	Period  string `json:"period"`
 	Created int64  `json:"created"` // 新生成账单数
-	Skipped int64  `json:"skipped"` // 幂等跳过数
+	Skipped int64  `json:"skipped"` // 幂等跳过数(该账期账单已存在)
+	Failed  int64  `json:"failed"`  // 落库失败数(非重复错误, 需人工介入)
+}
+
+type BillListReq struct {
+	ContractId int64  `form:"contract_id,default=0"` // 0 表示不限
+	Period     string `form:"period,optional"`       // yyyy-MM, 空表示不限
+	Status     int32  `form:"status,default=0"`      // 0 表示不限
+	TenantId   int64  `form:"tenant_id,default=0"`   // 0 表示不限
+	Page       int64  `form:"page,default=1"`
+	PageSize   int64  `form:"page_size,default=10"`
+}
+
+type BillListResp struct {
+	Total int64  `json:"total"`
+	List  []Bill `json:"list"`
+}
+
+type BillStatusReq struct {
+	Id     int64  `path:"id"`
+	Action string `json:"action"` // pay 标记已缴 | unpay 撤销缴费
+}
+
+type BillStatusResp struct {
+	Id     int64 `json:"id"`
+	Status int32 `json:"status"`
+}
+
+type BillSummaryReq struct {
+	Period   string `form:"period,optional"`     // yyyy-MM, 空表示全部账期
+	TenantId int64  `form:"tenant_id,default=0"` // 0 表示不限
+}
+
+type BillSummaryResp struct {
+	Period       string `json:"period"`
+	BillCount    int64  `json:"bill_count"`
+	UnpaidCount  int64  `json:"unpaid_count"`
+	UnpaidAmount string `json:"unpaid_amount"` // 欠费金额(decimal 字符串)
+	PaidCount    int64  `json:"paid_count"`
+	PaidAmount   string `json:"paid_amount"`  // 已收金额
+	TotalAmount  string `json:"total_amount"` // 应收总额
 }
 
 type Contract struct {
@@ -118,4 +170,34 @@ type OccupancyResp struct {
 	TotalAreaSqm  float64 `json:"total_area_sqm"`
 	LeasedAreaSqm float64 `json:"leased_area_sqm"`
 	OccupancyRate float64 `json:"occupancy_rate"` // 入驻率, 取值 0~1
+}
+
+type Zone struct {
+	Id           int64   `json:"id"`
+	ZoneCode     string  `json:"zone_code"`
+	ZoneName     string  `json:"zone_name"`
+	TotalAreaSqm float64 `json:"total_area_sqm"`
+	CreatedAt    int64   `json:"created_at"`
+	UpdatedAt    int64   `json:"updated_at"`
+}
+
+type ZoneListReq struct {
+	Page     int64 `form:"page,default=1"`
+	PageSize int64 `form:"page_size,default=10"`
+}
+
+type ZoneListResp struct {
+	Total int64  `json:"total"`
+	List  []Zone `json:"list"`
+}
+
+type ZoneUpsertReq struct {
+	ZoneCode     string  `json:"zone_code"` // 区域/楼层编码, 业务唯一键
+	ZoneName     string  `json:"zone_name,optional"`
+	TotalAreaSqm float64 `json:"total_area_sqm"` // 可租总面积(平方米), 必须大于 0
+}
+
+type ZoneUpsertResp struct {
+	Id       int64  `json:"id"`
+	ZoneCode string `json:"zone_code"`
 }

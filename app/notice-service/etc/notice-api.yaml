@@ -1,6 +1,6 @@
 Name: notice-api
 Host: 0.0.0.0
-Port: 8094
+Port: 8085
 
 # MySQL 连接配置 (DSN 由环境变量注入)
 MySQL:
@@ -22,4 +22,18 @@ Kafka:
   Brokers: ${KAFKA_BROKERS}
   Topic: workorder-event
   Group: m2-notice-dev-liu
+  Enabled: true
+
+# 定时发布调度(P1): 到达 publish_at 的草稿公告自动发布并投递 notice-event.
+# 与 Kafka 消费一致的共享环境纪律: Enabled 默认 false, 部署时显式开启.
+PublishCron:
+  Enabled: true
+  Spec: "*/1 * * * *"
+
+# 公告推送消费配置: 消费 notice-event → Redis PubSub 推送在线用户(公告实时触达).
+# ⚠️ Group 严禁与其它项目/环境重名; Enabled 默认 false, 部署时确认后显式开启.
+NoticeEvent:
+  Brokers: ${KAFKA_BROKERS}
+  Topic: notice-event
+  Group: m2-notice-push-dev-liu
   Enabled: true

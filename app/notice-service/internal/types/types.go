@@ -37,6 +37,21 @@ type NoticeListResp struct {
 	List  []NoticeItem `json:"list"`  // 当前页数据
 }
 
+// NoticeUnreadCountResp 未读计数响应(站内信送达未读数, 来源于 notice_read).
+type NoticeUnreadCountResp struct {
+	UnreadCount int64 `json:"unread_count"` // 当前用户送达未读的站内信条数
+}
+
+// MarkNoticeReadReq 公告已读回填请求(当前登录用户对指定公告回填已读时间).
+type MarkNoticeReadReq struct {
+	NoticeId int64 `json:"notice_id"` // 公告ID
+}
+
+// MarkNoticeReadResp 公告已读回填响应.
+type MarkNoticeReadResp struct {
+	Updated int64 `json:"updated"` // 实际回填条数(0=无未读记录或已读)
+}
+
 // NoticeResp 发布公告响应.
 type NoticeResp struct {
 	Id        int64  `json:"id"`                  // 公告ID
@@ -45,4 +60,17 @@ type NoticeResp struct {
 	Status    int8   `json:"status"`              // 1草稿 2已发布 3已撤回
 	Top       bool   `json:"top"`                 // 是否置顶
 	PublishAt int64  `json:"publish_at,optional"` // 发布时间(秒级时间戳)
+}
+
+// RecallNoticeReq 公告撤回请求(P2): 路径 id + 可选撤回原因.
+// 仅已发布(2)公告可撤回, 草稿/已撤回不可重复撤回.
+type RecallNoticeReq struct {
+	Id     int64  `path:"id"`              // 公告ID(路径参数)
+	Reason string `json:"reason,optional"` // 撤回原因(可选)
+}
+
+// RecallNoticeResp 公告撤回响应.
+type RecallNoticeResp struct {
+	Id     int64 `json:"id"`     // 公告ID
+	Status int8  `json:"status"` // 撤回后状态(3已撤回)
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"onepark/app/user-manage/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -12,10 +13,21 @@ import (
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
+			{Method: http.MethodPost, Path: "/api/users", Handler: UserCreateHandler(serverCtx)},
+			{Method: http.MethodPut, Path: "/api/users", Handler: UserUpdateHandler(serverCtx)},
+			{Method: http.MethodDelete, Path: "/api/users/:id", Handler: UserDeleteHandler(serverCtx)},
+			{Method: http.MethodGet, Path: "/api/users/:id", Handler: UserDetailHandler(serverCtx)},
+			{Method: http.MethodGet, Path: "/api/users", Handler: UserListHandler(serverCtx)},
+			{Method: http.MethodPost, Path: "/api/roles", Handler: RoleCreateHandler(serverCtx)},
+			{Method: http.MethodGet, Path: "/api/roles", Handler: RoleListHandler(serverCtx)},
+			{Method: http.MethodPost, Path: "/api/users/roles", Handler: RoleAssignHandler(serverCtx)},
+			{Method: http.MethodPost, Path: "/api/menus", Handler: MenuCreateHandler(serverCtx)},
+			{Method: http.MethodPost, Path: "/api/roles/menus", Handler: RoleMenuAssignHandler(serverCtx)},
+			{Method: http.MethodPost, Path: "/api/permissions/check", Handler: PermissionCheckHandler(serverCtx)},
 			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: UsermanageHandler(serverCtx),
+				Path:    "/health",
+				Handler: health.Handler(serverCtx.DB, nil),
 			},
 		},
 	)

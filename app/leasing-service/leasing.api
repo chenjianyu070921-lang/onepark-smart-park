@@ -120,6 +120,82 @@ type (
 		Created int64  `json:"created"` // 新生成账单数
 		Skipped int64  `json:"skipped"` // 幂等跳过数
 	}
+	// ==================== 租金账单查询 ====================
+	// Bill 账单对外契约; 金额用字符串承载 decimal, 与合同口径一致
+	Bill {
+		Id            int64  `json:"id"`
+		BillNo        string `json:"bill_no"`
+		ContractId    int64  `json:"contract_id"`
+		TenantId      int64  `json:"tenant_id"`
+		BillingPeriod string `json:"billing_period"` // 账期 yyyy-MM
+		Amount        string `json:"amount"` // 定长 2 位小数字符串
+		Status        int32  `json:"status"` // 1 未缴 2 已缴
+		CreatedAt     int64  `json:"created_at"`
+		UpdatedAt     int64  `json:"updated_at"`
+	}
+	BillListReq {
+		ContractId int64  `form:"contract_id,default=0"` // 0 表示不限
+		Period     string `form:"period,optional"` // yyyy-MM, 空表示不限
+		Status     int32  `form:"status,default=0"` // 0 表示不限
+		TenantId   int64  `form:"tenant_id,default=0"` // 0 表示不限
+		Page       int64  `form:"page,default=1"`
+		PageSize   int64  `form:"page_size,default=10"`
+	}
+	BillListResp {
+		Total int64  `json:"total"`
+		List  []Bill `json:"list"`
+	}
+	// ==================== 租金账单汇总: 应收 / 已收 / 欠费 ====================
+	BillSummaryReq {
+		Period   string `form:"period,optional"` // yyyy-MM, 空表示全部账期
+		TenantId int64  `form:"tenant_id,default=0"` // 0 表示不限
+	}
+	BillSummaryResp {
+		Period       string `json:"period"`
+		BillCount    int64  `json:"bill_count"`
+		UnpaidCount  int64  `json:"unpaid_count"`
+		UnpaidAmount string `json:"unpaid_amount"` // 欠费金额(decimal 字符串)
+		PaidCount    int64  `json:"paid_count"`
+		PaidAmount   string `json:"paid_amount"` // 已收金额
+		TotalAmount  string `json:"total_amount"` // 应收总额
+	}
+	// ==================== 租金账单缴费状态 ====================
+	BillStatusReq {
+		Id     int64  `path:"id"`
+		Action string `json:"action"` // pay 标记已缴 | unpay 撤销缴费
+	}
+	BillStatusResp {
+		Id     int64 `json:"id"`
+		Status int32 `json:"status"`
+	}
+	// ==================== 园区可租区域维护(入驻率的分母) ====================
+	// 入驻率 = 生效中合同面积 / lease_zone 的可租总面积。
+	// 此前 lease_zone 只能手工插库, 导致园区可租面积这个招商基础数据进不了系统。
+	ZoneUpsertReq {
+		ZoneCode     string  `json:"zone_code"` // 区域/楼层编码, 业务唯一键
+		ZoneName     string  `json:"zone_name,optional"`
+		TotalAreaSqm float64 `json:"total_area_sqm"` // 可租总面积(平方米), 必须大于 0
+	}
+	ZoneUpsertResp {
+		Id       int64  `json:"id"`
+		ZoneCode string `json:"zone_code"`
+	}
+	Zone {
+		Id           int64   `json:"id"`
+		ZoneCode     string  `json:"zone_code"`
+		ZoneName     string  `json:"zone_name"`
+		TotalAreaSqm float64 `json:"total_area_sqm"`
+		CreatedAt    int64   `json:"created_at"`
+		UpdatedAt    int64   `json:"updated_at"`
+	}
+	ZoneListReq {
+		Page     int64 `form:"page,default=1"`
+		PageSize int64 `form:"page_size,default=10"`
+	}
+	ZoneListResp {
+		Total int64  `json:"total"`
+		List  []Zone `json:"list"`
+	}
 )
 
 @server (
@@ -147,5 +223,20 @@ service leasing-api {
 
 	@handler BillAuto
 	post /bill/auto (BillAutoReq) returns (BillAutoResp)
+
+	@handler BillList
+	get /bills (BillListReq) returns (BillListResp)
+
+	@handler BillSummary
+	get /bills/summary (BillSummaryReq) returns (BillSummaryResp)
+
+	@handler BillStatus
+	put /bill/:id/status (BillStatusReq) returns (BillStatusResp)
+
+	@handler ZoneUpsert
+	post /zone (ZoneUpsertReq) returns (ZoneUpsertResp)
+
+	@handler ZoneList
+	get /zones (ZoneListReq) returns (ZoneListResp)
 }
 

@@ -11,18 +11,26 @@ type VisitorInviteReq {
 	VisitTime    int64  `json:"visit_time"` // 预期到访时间(秒级时间戳)
 	ExpireTime   int64  `json:"expire_time"` // 二维码过期时间(秒级时间戳)
 	Reason       string `json:"reason,optional"` // 来访原因
+	IdNo         string `json:"id_no,optional"` // 身份证号(核验方式=3, 加密存储)
+	FaceToken    string `json:"face_token,optional"` // 人脸特征令牌(核验方式=4)
+	BadgeNo      string `json:"badge_no,optional"` // 工牌号(核验方式=5)
+	VerifyChannel int8 `json:"verify_channel,optional"` // 核验方式 1二维码(默认) 2手机号 3身份证 4人脸 5工牌
 }
 
-// VisitorInviteResp 邀请响应(返回加密二维码内容)
+// VisitorInviteResp 邀请响应(返回加密二维码内容 + go-qrcode 渲染的二维码图片)
 type VisitorInviteResp {
 	Id       int64  `json:"id"`
-	QRCode   string `json:"qr_code"` // 加密二维码内容(含签名+有效期)
-	ExpireAt int64  `json:"expire_at"` // 过期时间(秒级时间戳)
+	QRCode   string `json:"qr_code"`            // 加密二维码内容(含签名+有效期)
+	QrImage  string `json:"qr_image,optional"`  // 二维码图片(base64 PNG, go-qrcode 渲染; 渲染失败为空, 前端可自行用 qr_code 渲染)
+	ExpireAt int64  `json:"expire_at"`          // 过期时间(秒级时间戳)
 }
 
-// VisitorCheckinReq 访客扫码签入请求(带二维码内容)
+// VisitorCheckinReq 访客签入请求(多方式核验).
+// VerifyChannel=1(默认) 用 QRCode; 其余方式(2手机号/3身份证/4人脸/5工牌) 用 Credential 传对应维度凭证值.
 type VisitorCheckinReq {
-	QRCode string `json:"qr_code"`
+	QRCode       string `json:"qr_code,optional"` // 加密二维码内容(核验方式=1)
+	VerifyChannel int8  `json:"verify_channel,optional"` // 核验方式 1二维码(默认) 2手机号 3身份证 4人脸 5工牌
+	Credential   string `json:"credential,optional"` // 非二维码方式的凭证值(手机号/身份证/人脸令牌/工牌号)
 }
 
 // VisitorCheckinResp 签入响应
@@ -31,6 +39,7 @@ type VisitorCheckinResp {
 	Status    int8   `json:"status"` // 1待使用 2已签入 3已签出 4已过期
 	CheckinAt int64  `json:"checkin_at"` // 签入时间(秒级时间戳)
 	DeviceID  string `json:"device_id,optional"` // 开门设备ID(M1 开门成功回填)
+	OpenMsg   string `json:"open_msg,optional"` // 开门结果提示(M1 降级时提示"请联系前台人工开门", 不阻断签入)
 }
 
 // VisitorCheckoutReq 访客签出请求(按Id或二维码)
@@ -71,6 +80,34 @@ type VisitorListResp {
 	List  []VisitorItem `json:"list"`
 }
 
+// VisitorIdReq 访客详情路径参数
+type VisitorIdReq {
+	Id int64 `path:"id"` // 访客记录ID
+}
+
+// VisitorTrackItem 访客进出轨迹项(门禁动作留痕, 来源于 visitor_record 的动作字段)
+type VisitorTrackItem {
+	Action   string `json:"action"`            // invite(邀请生成码)/checkin_open_door(签入+门禁开门)/checkout(签出)/expired(过期失效)
+	Time     int64  `json:"time"`              // 动作时间(秒级时间戳)
+	DeviceId string `json:"device_id,optional"` // 开门设备ID(仅签入且 M1 开门成功时有值)
+	Remark   string `json:"remark,optional"`    // 动作说明
+}
+
+// VisitorDetailResp 访客详情响应(含门禁进出轨迹, 供详情页展示与轨迹追溯)
+type VisitorDetailResp {
+	Id           int64              `json:"id"`
+	InviterId    int64              `json:"inviter_id"`    // 邀请人ID
+	VisitorName  string             `json:"visitor_name"`
+	VisitorPhone string             `json:"visitor_phone"`
+	Status       int8               `json:"status"`        // 1待使用 2已签入 3已签出 4已过期
+	VisitTime    int64              `json:"visit_time"`    // 预期到访时间(秒级)
+	ExpireTime   int64              `json:"expire_time"`   // 二维码过期时间(秒级, 0表示未设置)
+	CheckinAt    int64              `json:"checkin_at"`    // 签入时间(秒级, 0未签入)
+	CheckoutAt   int64              `json:"checkout_at"`   // 签出时间(秒级, 0未签出)
+	DeviceId     string             `json:"device_id,optional"` // 签入开门设备ID
+	Track        []VisitorTrackItem `json:"track"`         // 进出轨迹(按时间正序)
+}
+
 service visitor-api {
 	@handler VisitorInvite
 	post /api/visitor/invite (VisitorInviteReq) returns (VisitorInviteResp)
@@ -83,5 +120,17 @@ service visitor-api {
 
 	@handler ListVisitors
 	get /api/visitors (ListVisitorReq) returns (VisitorListResp)
+
+	// 访客详情+门禁进出轨迹(P2: 访客签入时产生的门禁动作留痕与访客记录关联, 详情页/轨迹追溯)
+	@handler GetVisitorDetail
+	get /api/visitor/:id (VisitorIdReq) returns (VisitorDetailResp)
+
+	// 访客黑名单新增/更新(P2: 按手机号或身份证去重, 实时拦截用)
+	@handler AddVisitorBlocklist
+	post /api/visitor/blocklist (AddVisitorBlocklistReq) returns (AddVisitorBlocklistResp)
+
+	// 访客黑名单解除(P2)
+	@handler UnblockVisitorBlocklist
+	post /api/visitor/blocklist/:id/unblock (UnblockVisitorBlocklistReq) returns (UnblockVisitorBlocklistResp)
 }
 

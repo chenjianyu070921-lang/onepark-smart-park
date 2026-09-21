@@ -9,6 +9,8 @@ import (
 	"onepark/app/dispatch-service/internal/model"
 	"onepark/app/dispatch-service/internal/svc"
 	"onepark/app/dispatch-service/internal/types"
+	"onepark/app/dispatch-service/internal/ecode"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -41,8 +43,11 @@ func (l *TaskListLogic) TaskList(req *types.TaskListReq) (*types.TaskListResp, e
 	}
 
 	// 闭包构造条件, 避免 Count 与 Find 共用被 GORM 改写的 Statement.
+	// 租户为 RBAC 隔离维度, 强制过滤(与 workorder 列表口径一致).
+	tenantID := ctxdata.GetTenantId(l.ctx)
 	scope := func() *gorm.DB {
-		db := l.svcCtx.DB.WithContext(l.ctx).Model(&model.DispatchTask{})
+		db := l.svcCtx.DB.WithContext(l.ctx).Model(&model.DispatchTask{}).
+			Where("tenant_id = ?", tenantID)
 		if req.Status != 0 {
 			db = db.Where("status = ?", req.Status)
 		}
@@ -55,7 +60,7 @@ func (l *TaskListLogic) TaskList(req *types.TaskListReq) (*types.TaskListResp, e
 	var total int64
 	if err := scope().Count(&total).Error; err != nil {
 		l.Errorf("[dispatch] count tasks failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "查询调度工单列表失败")
+		return nil, errorx.NewError(ecode.ErrTaskListFailed, "查询调度工单列表失败")
 	}
 
 	// 紧急优先: 先按 priority 升序(1 紧急), 再按创建时间倒序.
@@ -66,7 +71,7 @@ func (l *TaskListLogic) TaskList(req *types.TaskListReq) (*types.TaskListResp, e
 		Limit(int(req.PageSize)).
 		Find(&records).Error; err != nil {
 		l.Errorf("[dispatch] page tasks failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "查询调度工单列表失败")
+		return nil, errorx.NewError(ecode.ErrTaskListFailed, "查询调度工单列表失败")
 	}
 
 	items := make([]types.DispatchTask, 0, len(records))

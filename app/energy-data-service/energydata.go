@@ -10,6 +10,7 @@ import (
 	"onepark/app/energy-data-service/internal/server"
 	"onepark/app/energy-data-service/internal/svc"
 	energypb "onepark/proto/energy"
+	"onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
@@ -30,6 +31,7 @@ func main() {
 
 	// HTTP 服务: 接口52/53, 给页面和 ApiPost 调用
 	httpServer := rest.MustNewServer(c.RestConf)
+	httpServer.Use(middleware.IdentityFromHeader)
 	defer httpServer.Stop()
 	handler.RegisterHandlers(httpServer, ctx)
 

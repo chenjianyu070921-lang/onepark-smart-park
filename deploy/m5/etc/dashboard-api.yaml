@@ -1,0 +1,58 @@
+# M5 dashboard-service（大屏聚合 + WebSocket 推送）—— **容器内**配置
+#
+# 与本地开发版的差异：连接目标全部走环境变量（容器内不能用 127.0.0.1）。
+Name: dashboard-api
+Host: 0.0.0.0
+Port: 8052
+
+MySQL:
+  DataSource: "${DASHBOARD_MYSQL_DSN}"
+
+Redis:
+  Addr: "${REDIS_ADDR}"
+  Pass: "${REDIS_PASS}"
+  DB: 0
+
+# ===== 上游 gRPC 依赖（四路聚合数据源）=====
+# ⚠️ M1~M4 目前也**没有容器化**（全仓只有本目录一个 Dockerfile），所以容器内访问它们
+#    走的是宿主机出口 host.docker.internal（compose 里已加 host-gateway 映射）。
+#    等 M1~M4 也进入同一 compose 网络后，这里应改成它们的**服务名**。
+#
+# NonBlock=true: 上游未启动时不阻塞本服务启动，调用失败由聚合层逐源降级为 null ——
+# 这也是容器编排里本服务能先于上游起来的原因。
+Device:
+  Endpoints:
+    - "${M1_DEVICE_GRPC}"
+  NonBlock: true
+  Timeout: 600
+
+Workorder:
+  Endpoints:
+    - "${M2_WORKORDER_GRPC}"
+  NonBlock: true
+  Timeout: 600
+
+Alarm:
+  Endpoints:
+    - "${M3_ALARM_GRPC}"
+  NonBlock: true
+  Timeout: 600
+
+Energy:
+  Endpoints:
+    - "${M4_ENERGY_GRPC}"
+  NonBlock: true
+  Timeout: 600
+
+# ===== Kafka 大屏事件增量推送 =====
+# 默认关闭。开启前必须确认：topic 存在且属 onepark 体系、消费组不与生产方重名、broker 未开
+# auto.create.topics.enable（否则消费不存在的 topic 会隐式创建，属向共享设施写入）。
+Kafka:
+  Brokers: "${DASHBOARD_KAFKA_BROKERS}"
+  Topics:
+    - alarm-event
+    - workorder-event
+  Group: "${DASHBOARD_KAFKA_GROUP}"
+  Enabled: false
+
+JwtSecret: "${JWT_SECRET}"

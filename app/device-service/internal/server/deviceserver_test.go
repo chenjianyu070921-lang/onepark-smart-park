@@ -17,9 +17,14 @@ import (
 type fakeDeviceModel struct {
 	model.DeviceModel
 	counts map[int8]int64
+
+	gotProductKey string
+	gotType       int8
 }
 
-func (f *fakeDeviceModel) CountGroupByStatus(_ context.Context, _ string) (map[int8]int64, error) {
+func (f *fakeDeviceModel) CountGroupByStatus(_ context.Context, productKey string, deviceType int8) (map[int8]int64, error) {
+	f.gotProductKey = productKey
+	f.gotType = deviceType
 	return f.counts, nil
 }
 
@@ -85,13 +90,31 @@ func TestGetDeviceStatUnknownStatus(t *testing.T) {
 	}
 }
 
-// TestGetDeviceStatTypeRejected device 表无 type 列, 非 0 类型过滤必须显式拒绝.
-func TestGetDeviceStatTypeRejected(t *testing.T) {
+// TestGetDeviceStatTypeFilter type 过滤条件必须透传到模型层, 且不返回错误.
+func TestGetDeviceStatTypeFilter(t *testing.T) {
+	fake := &fakeDeviceModel{counts: map[int8]int64{model.DeviceStatusOnline: 8}}
+	s := &DeviceServer{svcCtx: &svc.ServiceContext{DeviceModel: fake}}
+
+	resp, err := s.GetDeviceStat(context.Background(),
+		&devicepb.GetDeviceStatReq{ProductKey: "pk_geo", Type: 1})
+	if err != nil {
+		t.Fatalf("type=1 不应再返回错误: %v", err)
+	}
+	if fake.gotType != 1 || fake.gotProductKey != "pk_geo" {
+		t.Fatalf("过滤条件未透传: productKey=%q, type=%d", fake.gotProductKey, fake.gotType)
+	}
+	if resp.Online != 8 || resp.Total != 8 {
+		t.Fatalf("类型分组统计错误: %+v", resp)
+	}
+}
+
+// TestGetDeviceStatNegativeType 负数类型非法, 必须返回 InvalidArgument(防 int8 截断).
+func TestGetDeviceStatNegativeType(t *testing.T) {
 	s := newStatServer(nil)
 
-	_, err := s.GetDeviceStat(context.Background(), &devicepb.GetDeviceStatReq{Type: 1})
+	_, err := s.GetDeviceStat(context.Background(), &devicepb.GetDeviceStatReq{Type: -1})
 	if err == nil {
-		t.Fatal("type=1 应返回错误, 不能静默忽略过滤条件")
+		t.Fatal("type=-1 应返回错误")
 	}
 	st, ok := status.FromError(err)
 	if !ok || st.Code() != codes.InvalidArgument {

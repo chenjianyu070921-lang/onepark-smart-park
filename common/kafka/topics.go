@@ -16,6 +16,11 @@ const (
 	TopicAlarmEvent = "onepark.alarm.event"
 	TopicNotice     = "notice-event"    // 公告发布事件(通知类消费)
 	TopicWorkorder  = "workorder-event" // 工单状态事件(workorder-service 发布, M5/通知类消费)
+	TopicVisitor    = "visitor-event"   // 访客事件(visitor-service 发布 invite/checkin/checkout, 大屏等消费方)
+
+	// TopicDispatcherDLQ event-dispatcher 死信 topic: 坏消息/未知设备/投递重试耗尽的消息信封,
+	// 供排查与重放, 不再静默丢弃.
+	TopicDispatcherDLQ = "event-dispatcher-dlq"
 )
 
 // 消费者组常量(同一服务多实例共享消费位移).

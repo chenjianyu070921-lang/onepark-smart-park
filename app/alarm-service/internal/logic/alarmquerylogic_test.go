@@ -15,6 +15,7 @@ import (
 	"onepark/app/alarm-service/internal/search"
 	"onepark/app/alarm-service/internal/svc"
 	"onepark/app/alarm-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -479,4 +480,10 @@ func TestNormalizePaging(t *testing.T) {
 				c.page, c.size, page, size, c.wantPage, c.wantSize)
 		}
 	}
+}
+
+// tenantCtx 构造带租户信息的 context, 供 ListAlarms/ListActiveAlarms 等 Logic 读取。
+// 该辅助本应随 logic 包测试文件入库, 但被 .gitignore 的 **/*_test.go 规则漏掉, 这里补齐。
+func tenantCtx(tenantID int64) context.Context {
+	return ctxdata.SetTenantId(context.Background(), tenantID)
 }

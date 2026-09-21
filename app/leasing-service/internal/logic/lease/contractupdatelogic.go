@@ -20,6 +20,11 @@ import (
 // ContractUpdateLogic 更新合同: 续签(renew) / 终止(terminate) / 变更(update).
 //
 // 所有状态变更必须先过 state.Next 校验合法转移, 禁止在业务代码里散写 if status == xxx.
+
+// actionUpdate 合同信息变更动作(不改变状态).
+//
+// 刻意不放进 state 包: 它不是一条状态转移边, 合法性由"是否终态"决定而非转移表。
+const actionUpdate = "update"
 type ContractUpdateLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -104,7 +109,7 @@ func (l *ContractUpdateLogic) ContractUpdate(req *types.ContractUpdateReq) (*typ
 		updates["status"] = to
 		nextStatus = to
 
-	case "update":
+	case actionUpdate:
 		// 信息变更不改变状态, 但终态合同不允许再改.
 		if state.IsTerminal(contract.Status) {
 			return nil, errorx.NewError(errorx.ErrBadRequest, "已终止的合同不可修改")
@@ -154,8 +159,13 @@ func (l *ContractUpdateLogic) ContractUpdate(req *types.ContractUpdateReq) (*typ
 		return nil, errorx.NewError(errorx.ErrBadRequest, "合同已被他人修改, 请刷新后重试")
 	}
 
-	// 状态发生变化时补审计流水.
-	if nextStatus != contract.Status {
+	// 审计条件: 状态发生变化 **或** 合同条款发生实质变更。
+	//
+	// 为什么不能只看"状态是否变化": 续签是「生效中 → 生效中」(改了租期与租金, 但不改状态),
+	// 若按状态变化判断, 人工续签将**完全不留下痕迹**。而同一件事由定时任务自动续约时
+	// 是写审计的(internal/cron/daily.go 显式写 from=2 to=2) —— 两条路径两套标准。
+	// update 同理: 改租金/续约条款不该改完就查无此事。
+	if nextStatus != contract.Status || req.Action == state.ActionRenew || req.Action == actionUpdate {
 		if err := l.svcCtx.DB.WithContext(l.ctx).Create(&model.LeaseContractStatusLog{
 			ContractId: contract.Id,
 			FromStatus: contract.Status,

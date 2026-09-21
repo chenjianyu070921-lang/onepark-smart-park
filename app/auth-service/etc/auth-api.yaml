@@ -1,3 +1,21 @@
 Name: auth-api
 Host: 0.0.0.0
-Port: 8888
+Port: 8088
+
+# JWT 签名密钥: 必须来自环境变量, 禁止硬编码 (为空启动即 panic).
+JwtSecret: ${JWT_SECRET}
+# access / refresh 令牌有效期(秒)
+JwtExpire: 7200
+JwtRefresh: 86400
+
+# 用户中心库(sys_db)连接, 身份校验查询 sys_user + sys_user_role.
+# DSN 格式: user:pass@tcp(host:port)/sys_db?charset=utf8mb4&parseTime=True&loc=Local
+MySQL:
+  DataSource: ${AUTH_MYSQL_DSN}
+  MaxOpenConns: 20
+  MaxIdleConns: 10
+
+# 令牌注销黑名单 Redis(可选). 不配 Addr 时注销降级为无操作, 不影响登录/刷新.
+Redis:
+  Addr: ${AUTH_REDIS_ADDR}
+  Pass: ${AUTH_REDIS_PASS}

@@ -8,7 +8,9 @@ import (
 
 	"onepark/app/leasing-service/internal/model"
 	"onepark/app/leasing-service/internal/svc"
+	"onepark/app/leasing-service/internal/ecode"
 	"onepark/app/leasing-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 )
 
@@ -40,23 +42,20 @@ func (l *OccupancyLogic) Occupancy(req *types.OccupancyReq) (*types.OccupancyRes
 		Select("COALESCE(SUM(total_area_sqm), 0)").
 		Scan(&totalArea).Error; err != nil {
 		l.Errorf("[lease] sum zone area failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "统计入驻率失败")
+		return nil, errorx.NewError(ecode.ErrOccupancyStatFailed, "统计入驻率失败")
 	}
 
-	// 已租面积只统计「生效中」的合同.
+	// 已租面积只统计「生效中」的合同, 且按网关注入租户隔离.
+	tenantID := ctxdata.GetTenantId(l.ctx)
 	scope := func() *gorm.DB {
-		db := l.svcCtx.DB.WithContext(l.ctx).Model(&model.LeaseContract{}).
-			Where("status = ?", model.StatusActive)
-		if req.TenantId != 0 {
-			db = db.Where("tenant_id = ?", req.TenantId)
-		}
-		return db
+		return l.svcCtx.DB.WithContext(l.ctx).Model(&model.LeaseContract{}).
+			Where("status = ? AND tenant_id = ?", model.StatusActive, tenantID)
 	}
 
 	var leasedArea float64
 	if err := scope().Select("COALESCE(SUM(area_sqm), 0)").Scan(&leasedArea).Error; err != nil {
 		l.Errorf("[lease] sum leased area failed: %v", err)
-		return nil, errorx.NewError(errorx.ErrInternal, "统计入驻率失败")
+		return nil, errorx.NewError(ecode.ErrOccupancyStatFailed, "统计入驻率失败")
 	}
 
 	// 总面积为 0 时返回 0 而非 NaN, 避免前端显示异常.

@@ -46,7 +46,9 @@ var ErrMalformedEvent = errors.New("alarm: malformed device event")
 // 远小于 Consumer.Group.Rebalance.Timeout(60s), 不会触发不必要的重平衡.
 var retryBackoff = []time.Duration{100 * time.Millisecond, 500 * time.Millisecond, 2 * time.Second}
 
-// DeviceEvent M1 设备遥测事件, 与 M1 约定的 DeviceEvent v1 结构.
+// DeviceEvent M1 设备遥测事件, 按 common/kafka.DeviceTelemetry 统一契约(2026-09-18 定稿)解析:
+// 事件时间取 occurred_at(Unix 秒), 区域取 zone_id(能源区域编码).
+// AreaID/Timestamp 为契约定稿前的旧字段, 仅用于兼容历史消息, 新生产端不会发送.
 // 字段缺失时的降级策略见 IdempotentID / MatchIntrusionRule 注释.
 //
 // ⚠️ 入站兼容(M1 实际报文与本结构的差异, 2026-09-20 联调取证):
@@ -61,7 +63,8 @@ type DeviceEvent struct {
 	// DeviceType 设备类型; M1 侧为 optional, 缺失时规则引擎按"不限设备类型"处理.
 	DeviceType string          `json:"device_type"`
 	EventType  string          `json:"event_type"`
-	AreaID     int64           `json:"area_id"`
+	ZoneID     string          `json:"zone_id"`     // 能源区域编码, 空表示未分区
+	OccurredAt int64           `json:"occurred_at"` // 事件时间(Unix 秒)
 	Payload    json.RawMessage `json:"payload"`
 	Timestamp  int64           `json:"timestamp"`   // 事件时间(毫秒), device-service HTTP 降级通道的写法
 	OccurredAt int64           `json:"occurred_at"` // 事件时间(毫秒), event-dispatcher(MQTT 通道)的写法
@@ -119,6 +122,7 @@ func (e DeviceEvent) RuleFields() rule.Fields {
 		DeviceID:   e.DeviceID,
 		DeviceType: e.DeviceType,
 		AreaID:     e.AreaID,
+		ZoneID:     e.ZoneID,
 		TenantID:   e.TenantID,
 		Payload:    payload,
 	}

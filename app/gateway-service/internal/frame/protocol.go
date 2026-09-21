@@ -4,8 +4,9 @@ package frame
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
+
+	"onepark/common/kafka"
 )
 
 // 帧类型
@@ -42,26 +43,8 @@ type Response struct {
 	Error string `json:"error,omitempty"`
 }
 
-// Message 投递 Kafka 的消息体, 与 event-dispatcher 及 device-service 消费端保持一致.
-type Message struct {
-	RequestID  string          `json:"request_id"`
-	DeviceID   string          `json:"device_id"`
-	DeviceType string          `json:"device_type"`
-	EventType  string          `json:"event_type"`
-	OccurredAt int64           `json:"occurred_at"`
-	Payload    json.RawMessage `json:"payload"`
-	Source     string          `json:"source"`
-}
-
-// alarmEventTypes 需额外投递告警 topic 的事件类型, 与 event-dispatcher 保持一致.
-var alarmEventTypes = map[string]struct{}{
-	"intrusion":     {},
-	"fire":          {},
-	"smoke":         {},
-	"fault":         {},
-	"door_force":    {},
-	"offline_alert": {},
-}
+// Message 统一契约别名: 与 event-dispatcher/device-service 共用 common/kafka 权威定义.
+type Message = kafka.DeviceTelemetry
 
 // Read 读取一帧, 返回不含换行符的字节切片.
 func Read(r *bufio.Reader, maxBytes int) ([]byte, error) {

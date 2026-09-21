@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"onepark/app/alarm-service/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -75,6 +76,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodPost,
 				Path:    "/api/alarm/dlq/:id/replay",
 				Handler: ReplayDeadLetterHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/health",
+				Handler: health.Handler(serverCtx.DB, serverCtx.Redis),
 			},
 		},
 	)

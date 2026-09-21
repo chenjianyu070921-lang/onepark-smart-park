@@ -2,13 +2,14 @@ module onepark/app/video-service
 
 go 1.25.2
 
+// 本地模块重定向: 使本模块脱离 go.work(如 GOWORK=off / IDE 未启用 workspace)时仍可独立编译.
+require onepark/common v0.0.0
+
 require (
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/segmentio/kafka-go v0.4.51
 	github.com/zeromicro/go-zero v1.10.3
-	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
-	onepark/common v0.0.0
 )
 
 require (
@@ -62,6 +63,7 @@ require (
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gorm.io/driver/mysql v1.5.7 // indirect
 )
 
 replace onepark/common => ../../common

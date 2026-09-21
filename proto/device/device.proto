@@ -25,9 +25,7 @@ service DeviceService {
 // GetDeviceStatReq 设备统计查询条件
 message GetDeviceStatReq {
   string product_key = 1; // 产品Key, 空表示全部产品
-  // 设备类型(1地磁 2门禁 3摄像头...), 0 表示全部类型.
-  // 注意: device 表当前没有 type 列, 传非 0 会返回 InvalidArgument,
-  // 待 device 表补 type 列后再启用该过滤(与 GetDeviceResp.type 的 TODO 同批).
+  // 设备类型(1地磁 2门禁 3摄像头...), 0 表示全部类型; 负数返回 InvalidArgument.
   int32 type = 2;
 }
 

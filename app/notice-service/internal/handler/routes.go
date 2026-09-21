@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"onepark/app/notice-service/internal/svc"
+	"onepark/common/health"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -29,6 +30,31 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/notices",
 				Handler: ListNoticesHandler(serverCtx),
 			},
+			{
+				// 站内信未读计数(P2: notice_read 当前用户送达未读条数)
+				Method:  http.MethodGet,
+				Path:    "/api/notices/unread-count",
+				Handler: NoticeUnreadCountHandler(serverCtx),
+			},
+			{
+				// 公告已读回填(P2: 与未读计数配套)
+				Method:  http.MethodPost,
+				Path:    "/api/notices/read",
+				Handler: MarkNoticeReadHandler(serverCtx),
+			},
+			{
+				// 公告已读回填(路径参数版别名, 评审 P1 要求的 RESTful 风格)
+				Method:  http.MethodPost,
+				Path:    "/api/notice/:id/read",
+				Handler: MarkNoticeReadByIdHandler(serverCtx),
+			},
+			{
+				// 公告撤回(P2): 仅已发布可撤回, 置已撤回 + 补偿事件
+				Method:  http.MethodPost,
+				Path:    "/api/notice/:id/recall",
+				Handler: RecallNoticeHandler(serverCtx),
+			},
+			{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
 		},
 	)
 }
