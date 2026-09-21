@@ -123,7 +123,7 @@ func (e DeviceEvent) ToAlarmFromDraft(d *rule.Draft, idempotentID string, at tim
 		AlarmNo:   NewAlarmNo(idempotentID+"#"+strconv.FormatInt(d.RuleID, 10), at),
 		RuleID:    d.RuleID,
 		DeviceID:  e.DeviceID,
-		AreaID:    e.AreaID,
+		AreaID:    d.AreaID,
 		EventType: e.EventType,
 		Level:     d.Level,
 		Status:    model.AlarmStatusPending,
@@ -280,7 +280,7 @@ func (s *ServiceContext) broadcastAlarmCreated(ev *DeviceEvent, a *model.Alarm) 
 		return
 	}
 	s.Hub.Push(a.TenantID, ws.NewEnvelope(ws.TypeAlarmCreated, ws.AlarmEvent{
-		AlarmID:   a.ID,
+		AlarmID:   a.AlarmNo,
 		DeviceID:  a.DeviceID,
 		EventType: a.EventType,
 		Level:     a.Level,
