@@ -20,6 +20,13 @@ const DefaultTopic = "onepark.alarm.event"
 // 两者幂等键同为 alarm_id, 消费方若不加区分就无法判断该建单还是该关单.
 const ActionResolved = "resolve"
 
+// ActionCreated 告警"产生"动作(新告警落库的那一刻).
+//
+// 为什么必须补: 上面那段注释从设计之初就写了"要能区分产生与解决", 但长期只发了 resolve ——
+// 结果是 M5 只能看到告警的终点、看不到起点, "告警产生了"这件事在 M3 之外不可见。
+// 补齐后同一 alarm_id 上会形成 create → resolve 的一对事件, 消费方据此开关自己的单据状态。
+const ActionCreated = "create"
+
 // AlarmEvent 告警事件载荷(JSON, snake_case 与 proto/common 字段命名保持一致).
 //
 // ⚠️ severity 口径待与 M5 书面确认: 本服务沿用 docs/m3/04 §5.1 的
@@ -34,7 +41,7 @@ type AlarmEvent struct {
 	TenantID  int64  `json:"tenant_id"`
 	AreaID    int64  `json:"area_id"`  // M3 只有区域ID; M5 提案要的 zone_code 需等区域编码映射就绪(不臆造)
 	Severity  int8   `json:"severity"` // 1提示~4紧急(见上方口径提示)
-	Status    int8   `json:"status"`   // 流转后的状态, 当前恒为 2(已解决)
+	Status    int8   `json:"status"`   // 告警当前状态: create 事件恒为 0(未处理), resolve 事件恒为 2(已解决)
 	Content   string `json:"content"`
 	Timestamp int64  `json:"timestamp"` // 毫秒: 事件发生(解决)时间
 }
@@ -49,6 +56,12 @@ type Publisher interface {
 type Notifier interface {
 	// AlarmResolved 通知 M5 "该告警已解决"; 返回错误表示事件尚未送达, 需要补偿.
 	AlarmResolved(ctx context.Context, ev AlarmEvent) error
+	// AlarmCreated 通知 M5 "产生了新告警"; 返回错误表示事件尚未送达.
+	//
+	// 与 AlarmResolved 的错误处理**刻意不同**: 产生事件由 Kafka 消费链路发出,
+	// 告警已落库后返回 error 只会让消费端重投, 而重投会被 L1/L3 幂等拦下(通知永远补不上);
+	// 因此调用方只记日志、不回滚也不阻塞位移。见 svc/consumer.go 的调用点注释。
+	AlarmCreated(ctx context.Context, ev AlarmEvent) error
 }
 
 // retryBackoff 发布重试退避: 共 3 次尝试, 累计 600ms.
@@ -89,13 +102,24 @@ func NewKafkaNotifier(publisher Publisher, topic string) *KafkaNotifier {
 func (n *KafkaNotifier) Topic() string { return n.topic }
 
 // AlarmResolved 发布"告警已解决"事件.
-// 分区键用 device_id: 与 M1/消费侧"同设备事件保序"的约定一致(docs/m3/06 §1).
 func (n *KafkaNotifier) AlarmResolved(ctx context.Context, ev AlarmEvent) error {
+	return n.publishAlarmEvent(ctx, ev, ActionResolved)
+}
+
+// AlarmCreated 发布"告警产生"事件.
+func (n *KafkaNotifier) AlarmCreated(ctx context.Context, ev AlarmEvent) error {
+	return n.publishAlarmEvent(ctx, ev, ActionCreated)
+}
+
+// publishAlarmEvent 序列化并发布一条告警事件, 补齐 action / timestamp 缺省值后走重试.
+// 分区键用 device_id: 与 M1/消费侧"同设备事件保序"的约定一致(docs/m3/06 §1) ——
+// 同一设备的 create 与后续 resolve 因此落在同一分区, 消费方能按序看到告警的一生.
+func (n *KafkaNotifier) publishAlarmEvent(ctx context.Context, ev AlarmEvent, defaultAction string) error {
 	if n.publisher == nil {
 		return fmt.Errorf("notify publisher not initialized")
 	}
 	if ev.Action == "" {
-		ev.Action = ActionResolved
+		ev.Action = defaultAction
 	}
 	if ev.Timestamp == 0 {
 		ev.Timestamp = time.Now().UnixMilli()
@@ -122,8 +146,8 @@ func (n *KafkaNotifier) AlarmResolved(ctx context.Context, ev AlarmEvent) error 
 		}
 	}
 
-	return fmt.Errorf("notify alarm event to topic %s failed after %d attempts: %w",
-		n.topic, len(n.backoff)+1, lastErr)
+	return fmt.Errorf("notify alarm event action=%s to topic %s failed after %d attempts: %w",
+		ev.Action, n.topic, len(n.backoff)+1, lastErr)
 }
 
 // publishOnce 发一次, 并用 publishTimeout 兜住底层客户端的内部重试, 避免请求被长时间挂住.

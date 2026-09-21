@@ -28,6 +28,10 @@ type Notice struct {
 	// 指针+可空是关键 —— MySQL 唯一索引 uk_source 允许多个 NULL,
 	// 人工发布的公告(source 为 NULL)互不冲突, 而同一事件重复投递只会落一条通知.
 	Source *string `gorm:"column:source;size:64;uniqueIndex:uk_source" json:"source,omitempty"`
+
+	// 撤回审计字段(P2 公告撤回): recalled_at 撤回时间, recall_reason 撤回原因.
+	RecalledAt   *time.Time `gorm:"column:recalled_at" json:"recalled_at"`                       // 撤回时间(NULL=未撤回)
+	RecallReason string     `gorm:"column:recall_reason;type:varchar(512)" json:"recall_reason"` // 撤回原因
 }
 
 // TableName 指定公告表名(对齐 notice_db 库).
@@ -38,7 +42,7 @@ func (Notice) TableName() string { return "notice" }
 // 用户查看后回填 ReadAt; (notice_id, user_id) 唯一, 重复投递靠唯一键幂等.
 type NoticeRead struct {
 	BaseModel
-	NoticeID int64      `gorm:"column:notice_id;not null;uniqueIndex:uk_notice_user,priority:1" json:"notice_id"` // 关联公告
+	NoticeID int64      `gorm:"column:notice_id;not null;uniqueIndex:uk_notice_user,priority:1" json:"notice_id"`   // 关联公告
 	UserID   int64      `gorm:"column:user_id;not null;uniqueIndex:uk_notice_user,priority:2;index" json:"user_id"` // 目标用户
 	ReadAt   *time.Time `gorm:"column:read_at" json:"read_at"`                                                      // 已读时间(NULL=未读)
 }

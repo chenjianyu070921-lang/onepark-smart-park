@@ -10,9 +10,12 @@ type ListVisitorReq struct {
 	PageSize int64 `form:"page_size"`       // 每页大小
 }
 
-// VisitorCheckinReq 访客扫码签入请求.
+// VisitorCheckinReq 访客签入请求(多方式核验).
+// VerifyChannel=1(默认) 用 QRCode; 其余方式(2手机号/3身份证/4人脸/5工牌) 用 Credential 传对应维度凭证值.
 type VisitorCheckinReq struct {
-	QRCode string `json:"qr_code"` // 加密二维码内容(含签名+有效期)
+	QRCode        string `json:"qr_code,optional"`        // 加密二维码内容(核验方式=1)
+	VerifyChannel int8   `json:"verify_channel,optional"` // 核验方式 1二维码(默认) 2手机号 3身份证 4人脸 5工牌
+	Credential    string `json:"credential,optional"`     // 非二维码方式的凭证值(手机号/身份证/人脸令牌/工牌号)
 }
 
 // VisitorCheckinResp 签入响应.
@@ -39,11 +42,15 @@ type VisitorCheckoutResp struct {
 
 // VisitorInviteReq 发起访客邀请请求.
 type VisitorInviteReq struct {
-	VisitorName  string `json:"visitor_name"`    // 访客姓名
-	VisitorPhone string `json:"visitor_phone"`   // 访客手机号
-	VisitTime    int64  `json:"visit_time"`      // 预期到访时间(秒级时间戳)
-	ExpireTime   int64  `json:"expire_time"`     // 二维码过期时间(秒级时间戳)
-	Reason       string `json:"reason,optional"` // 来访原因
+	VisitorName   string `json:"visitor_name"`            // 访客姓名
+	VisitorPhone  string `json:"visitor_phone"`           // 访客手机号
+	VisitTime     int64  `json:"visit_time"`              // 预期到访时间(秒级时间戳)
+	ExpireTime    int64  `json:"expire_time"`             // 二维码过期时间(秒级时间戳)
+	Reason        string `json:"reason,optional"`         // 来访原因
+	IdNo          string `json:"id_no,optional"`          // 身份证号(核验方式=3, 加密存储)
+	FaceToken     string `json:"face_token,optional"`     // 人脸特征令牌(核验方式=4)
+	BadgeNo       string `json:"badge_no,optional"`       // 工牌号(核验方式=5)
+	VerifyChannel int8   `json:"verify_channel,optional"` // 核验方式 1二维码(默认) 2手机号 3身份证 4人脸 5工牌
 }
 
 // VisitorInviteResp 邀请响应(返回加密二维码内容 + go-qrcode 渲染的二维码图片).
@@ -98,4 +105,31 @@ type VisitorDetailResp struct {
 	CheckoutAt   int64              `json:"checkout_at"`        // 签出时间(秒级, 0未签出)
 	DeviceId     string             `json:"device_id,optional"` // 签入开门设备ID
 	Track        []VisitorTrackItem `json:"track"`              // 进出轨迹(按时间正序)
+}
+
+// AddVisitorBlocklistReq 访客黑名单新增/更新请求(P2).
+// 手机号与身份证至少提供一个作为拉黑维度; 同租户下已生效同维度自动刷新而非重复插入.
+type AddVisitorBlocklistReq struct {
+	VisitorName   string `json:"visitor_name,optional"`   // 访客姓名
+	Phone         string `json:"phone,optional"`          // 手机号(拉黑维度之一)
+	IdNo          string `json:"id_no,optional"`          // 身份证号(拉黑维度之一, 加密存储)
+	Reason        string `json:"reason,optional"`         // 拉黑原因
+	EffectiveFrom int64  `json:"effective_from,optional"` // 生效起(秒级时间戳, 0=立即)
+	EffectiveTo   int64  `json:"effective_to,optional"`   // 生效止(秒级时间戳, 0=永久)
+}
+
+// AddVisitorBlocklistResp 访客黑名单新增/更新响应
+type AddVisitorBlocklistResp struct {
+	Id int64 `json:"id"` // 黑名单记录ID
+}
+
+// UnblockVisitorBlocklistReq 访客黑名单解除请求(路径 id)
+type UnblockVisitorBlocklistReq struct {
+	Id int64 `path:"id"` // 黑名单记录ID
+}
+
+// UnblockVisitorBlocklistResp 访客黑名单解除响应
+type UnblockVisitorBlocklistResp struct {
+	Id     int64 `json:"id"`     // 黑名单记录ID
+	Status int8  `json:"status"` // 解除后状态(2)
 }

@@ -28,17 +28,20 @@ const keyDedup = "parking:dedup:"
 // gateway-service tcp-gateway)的 Message 结构保持一致 —— P0-2 兼容性验证结论(2026-09-17):
 // 旧扁平格式(event/plate_no/timestamp 在顶层)对真实链路完全不兼容, 已按标准信封适配.
 type deviceTelemetry struct {
-	RequestID   string          `json:"request_id"`   // 幂等键(M1 侧生成); 缺失时按指纹降级
-	EventType   string          `json:"event_type"`   // 标准信封事件类型(entry/exit)
-	OccurredAt  int64           `json:"occurred_at"`  // 标准信封事件时间(Unix 秒)
-	DeviceID    string          `json:"device_id"`    // 上报设备ID(地磁/门禁)
-	Source      string          `json:"source"`       // 消息来源通道: mqtt / http-fallback / tcp-gateway
-	Payload     json.RawMessage `json:"payload"`      // 标准信封业务载荷(telemetryPayload)
-	TenantID    int64           `json:"tenant_id"`    // 园区ID(RBAC 隔离)
-	PlateNo     string          `json:"plate_no"`     // 车牌号
-	VehicleType int8            `json:"vehicle_type"` // 1月卡 2临时 3VIP 4异常
-	Event       string          `json:"event"`        // 旧字段名, 兜底回退
-	Timestamp   int64           `json:"timestamp"`    // 旧时间字段, 兜底回退
+	// 标准信封(与 common 事实标准一致)
+	RequestID  string          `json:"request_id"`  // 幂等键(M1 侧生成); 缺失时按指纹降级
+	DeviceID   string          `json:"device_id"`   // 地磁/门禁设备ID
+	EventType  string          `json:"event_type"`  // entry 入场 / exit 离场
+	OccurredAt int64           `json:"occurred_at"` // 事件时间(秒级时间戳)
+	Payload    json.RawMessage `json:"payload"`     // 业务载荷, 停车字段约定在其中
+	Source     string          `json:"source"`      // mqtt / http-fallback / tcp-gateway
+
+	// 停车业务字段: 标准链路放在 payload 内; 旧扁平格式(测试直投)在顶层, 解析时合并回退
+	TenantID    int64  `json:"tenant_id"`    // 园区ID(RBAC 隔离)
+	PlateNo     string `json:"plate_no"`     // 车牌号
+	VehicleType int8   `json:"vehicle_type"` // 1月卡 2临时 3VIP 4异常
+	Event       string `json:"event"`        // 旧字段名, 兜底回退
+	Timestamp   int64  `json:"timestamp"`    // 旧时间字段, 兜底回退
 }
 
 // telemetryPayload 标准信封 payload 内的停车业务字段约定(设备侧/联调直投需按此上报).
@@ -160,6 +163,7 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 		return nil
 	}
 
+	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
 	now := time.Now()
 	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
 
@@ -233,7 +237,7 @@ func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry
 		Where("id=? AND tenant_id=? AND status=?", rec.ID, t.TenantID, model.ParkingStatusParking).
 		Updates(map[string]interface{}{
 			"status":        model.ParkingStatusDone,
-			"exit_time":     now,
+			"exit_time":     exitTime,
 			"duration_min":  dur,
 			"fee":           fee,
 			"device_id_out": t.DeviceID,
@@ -248,7 +252,7 @@ func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry
 		return nil
 	}
 	rec.Status = model.ParkingStatusDone
-	rec.ExitTime = &now
+	rec.ExitTime = &exitTime
 	rec.DurationMin = &dur
 	rec.Fee = fee
 

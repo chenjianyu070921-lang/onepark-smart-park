@@ -10,8 +10,13 @@ type ListAlarmsReq struct {
 	AreaId    int64  `form:"area_id,optional"`    // 区域ID筛选, 0表示全部
 	DeviceId  string `form:"device_id,optional"`  // 设备ID筛选, 空表示全部
 	EventType string `form:"event_type,optional"` // 事件类型筛选, 空表示全部
-	Page      int64  `form:"page,optional"`       // 页码(从1开始), 不传默认 1
-	PageSize  int64  `form:"page_size,optional"`  // 每页大小, 不传默认 10, 上限 100
+	// Keyword 告警内容关键词全文检索(docs/m3/04 §7.1: content 建 ik 分词后用 ES match 命中).
+	// 空表示不参与检索, 行为与新增该字段前完全一致.
+	// ES 与 MySQL 两条路径都支持: ES 走 match(分词), MySQL 降级走 LIKE '%kw%'(子串),
+	// 避免"ES 不可用时关键词被静默忽略、返回未过滤的全量"这种比报错更糟的静默错误.
+	Keyword  string `form:"keyword,optional"`   // 告警内容关键词, 空表示不检索
+	Page     int64  `form:"page,optional"`      // 页码(从1开始), 不传默认 1
+	PageSize int64  `form:"page_size,optional"` // 每页大小, 不传默认 10, 上限 100
 }
 
 // ListActiveAlarmsReq 活跃告警列表请求(#38): 固定 status=0, 不接受状态入参.
@@ -26,6 +31,16 @@ type ListActiveAlarmsReq struct {
 type UpdateAlarmStatusReq struct {
 	Id     int64  `path:"id"`              // 告警ID(路径参数)
 	Action string `json:"action"`          // 动作: ack 确认 / resolve 解决
+	Remark string `json:"remark,optional"` // 处理备注(如"已派安保现场核实")
+}
+
+// AlarmActionReq #39/#40 契约路径(确认/解决)专用入参: 动作由路径决定, 请求体只需备注。
+//
+// 刻意不与 UpdateAlarmStatusReq 共用 —— 后者的 action 是 json 必填字段(没有 ,optional),
+// 而按 #39/#40 契约调用时 body 里本就不该出现 action(动作写在路径上), 复用会让这类请求
+// 在参数校验阶段就被拒成 M3-W-1001「请求参数解析失败」。曾实测踩到, 勿合并回一个结构体。
+type AlarmActionReq struct {
+	Id     int64  `path:"id"`              // 告警ID(路径参数)
 	Remark string `json:"remark,optional"` // 处理备注(如"已派安保现场核实")
 }
 
@@ -88,8 +103,10 @@ type UpdateAlarmStatusResp struct {
 }
 
 // CreateRuleReq 创建告警规则请求(docs/m3/04 #34)
+// DeviceType + EventType 构成「按设备类型 + 事件类型映射告警等级」的配置面, 均可留空(表示不限).
 type CreateRuleReq struct {
 	Name          string `json:"name"`
+	DeviceType    string `json:"device_type,optional"`
 	DeviceId      string `json:"device_id,optional"`
 	AreaId        int64  `json:"area_id,optional"`
 	EventType     string `json:"event_type"`
@@ -109,6 +126,7 @@ type CreateRuleResp struct {
 type UpdateRuleReq struct {
 	Id            int64  `path:"id"`
 	Name          string `json:"name,optional"`
+	DeviceType    string `json:"device_type,optional"`
 	DeviceId      string `json:"device_id,optional"`
 	AreaId        int64  `json:"area_id,optional"`
 	EventType     string `json:"event_type,optional"`
@@ -126,6 +144,7 @@ type UpdateRuleResp struct {
 type RuleItem struct {
 	Id            int64  `json:"id"`
 	Name          string `json:"name"`
+	DeviceType    string `json:"device_type"`
 	DeviceId      string `json:"device_id"`
 	AreaId        int64  `json:"area_id"`
 	EventType     string `json:"event_type"`
@@ -145,11 +164,12 @@ type RuleDetailResp struct {
 
 // ListRulesReq 规则分页列表请求(#37)
 type ListRulesReq struct {
-	DeviceId  string `form:"device_id,optional"`
-	EventType string `form:"event_type,optional"`
-	Status    int8   `form:"status,optional"`
-	Page      int64  `form:"page"`
-	PageSize  int64  `form:"page_size"`
+	DeviceType string `form:"device_type,optional"`
+	DeviceId   string `form:"device_id,optional"`
+	EventType  string `form:"event_type,optional"`
+	Status     int8   `form:"status,optional"`
+	Page       int64  `form:"page"`
+	PageSize   int64  `form:"page_size"`
 }
 
 type ListRulesResp struct {

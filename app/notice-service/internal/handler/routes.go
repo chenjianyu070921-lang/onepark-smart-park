@@ -48,7 +48,13 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/notice/:id/read",
 				Handler: MarkNoticeReadByIdHandler(serverCtx),
 			},
-		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
+			{
+				// 公告撤回(P2): 仅已发布可撤回, 置已撤回 + 补偿事件
+				Method:  http.MethodPost,
+				Path:    "/api/notice/:id/recall",
+				Handler: RecallNoticeHandler(serverCtx),
+			},
+			{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
 		},
 	)
 }
