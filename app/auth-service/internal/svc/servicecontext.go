@@ -28,7 +28,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 	refresh := c.JwtRefresh
 	if refresh <= 0 {
-		refresh = 86400
+		refresh = 604800 // 默认 7d(与需求一致: RefreshToken 有效期 7 天)
 	}
 
 	db, err := gormx.NewDB(c.MySQL.DataSource)

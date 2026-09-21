@@ -17,7 +17,10 @@ RemoteOpen:
 # M1 device-service gRPC 客户端 (远程开门下发 open_door 命令)
 DeviceRPC:
   Endpoints:
-    - ${DEVICE_RPC_ENDPOINTS:-127.0.0.1:9001}
+    # 注意: go-zero 的 conf.UseEnv() 不支持 ${VAR:-default} 默认值语法,
+    # 写成 ${VAR:-...} 会把 "VAR:-..." 整体当变量名查询 -> 取到空值。
+    # 默认值请由部署侧提供(compose .env / K8s ConfigMap 均已注入 DEVICE_RPC_ENDPOINTS)。
+    - ${DEVICE_RPC_ENDPOINTS}
   Timeout: 1000 # ms, 略大于 logic 内 800ms 短超时, 避免客户端先于业务超时
 
 # Redis 连接配置 (Day2 预留占位, 门禁权限缓存业务尚未接入)

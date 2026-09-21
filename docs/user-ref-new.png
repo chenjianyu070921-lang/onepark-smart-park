@@ -1,0 +1,66 @@
+OnePark 智慧园区 · 日 Check 阶段进度矩阵
+模块：CoAP 网关接入改造 ｜ 汇报人：徐家祥 ｜ 日期：2026-09-20
+阶段	W1（09/15-09/21）	W2（09/22-09/28）	W3（09/29-10/05）	W4（10/06-10/12）
+设计	
+✓ TCP 帧语义现状盘点
+✓ Session 抽层方案评审
+	
+✓ DTLS 认证策略定稿
+✓ 任务工单 GW-COAP-001 下发
+	
+○ 灰度上线方案设计
+○ 监控指标定义
+	
+○ LwM2M 对象模型预研
+○ 二期需求收集
+
+研发	
+● T1 Session 抽层重构
+○ T2 CoAP 无状态认证
+	
+○ T3 CoAP Server UDP 5683
+○ T4 配置段+compose 端口
+	
+○ T5 DTLS PSK 5684 模式
+○ Source 字段区分 coap-gateway
+	
+○ Observe 下行指令通道
+○ block-wise 大包分片
+
+测试	
+○ Session.HandleFrame 单测
+	
+○ CoAP 集成测试（auth→telemetry→ack）
+○ TCP 回归零影响验证
+	
+○ DTLS 握手测试
+○ 告警双投 alarm-event 校验
+	
+○ Observe 下行端到端测试
+○ 压测（并发 1000 设备）
+
+优化	
+○ 帧解析性能基准
+	
+○ UDP 读缓冲调优
+○ Kafka 投递批量合并
+	
+○ DTLS 会话缓存复用
+○ 单包 1024B 分片优化
+	
+○ NAT 保活短轮询兜底
+○ metrics 统一埋点
+
+部署	
+○ 本地 compose 验证环境
+	
+○ compose 暴露 5683/5684
+	
+○ k8s manifest 补全 19 服务
+○ 防火墙策略评审
+	
+○ 灰度上线 Enabled=true
+○ 回滚演练=关开关
+✓ 已完成 ● 进行中 ○ 未开始
+汇报人：徐家祥
+当前节点：设计 W1 完成 → 研发 T1 进行中（今日目标：Session 抽层编译通过）

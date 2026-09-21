@@ -9,6 +9,7 @@ import (
 	"onepark/app/alarm-service/internal/config"
 	"onepark/app/alarm-service/internal/handler"
 	"onepark/app/alarm-service/internal/svc"
+	"onepark/common/health"
 	"onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
@@ -39,6 +40,9 @@ func main() {
 	// 故用原生 http.HandlerFunc 挂载(docs/m3/09 §3); 注意 Use 中间件不作用于此路由.
 	server.AddRoutes([]rest.Route{
 		{Method: http.MethodGet, Path: "/ws/alarm", Handler: ctx.Hub.Handler()},
+		// 健康检查: /api/healthz 存活(不探依赖), /api/readyz 就绪(探 MySQL + Redis).
+		{Method: http.MethodGet, Path: "/api/healthz", Handler: health.Liveness()},
+		{Method: http.MethodGet, Path: "/api/readyz", Handler: health.Readiness(ctx.DB, ctx.Redis)},
 	})
 	// 启动后台 Kafka 消费者(设备遥测 -> 安防告警), 主服务退出时随进程结束.
 	ctx.StartConsumers(context.Background())

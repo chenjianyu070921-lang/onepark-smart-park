@@ -6,6 +6,7 @@ import (
 	"onepark/app/auth-service/internal/svc"
 	"onepark/app/auth-service/internal/types"
 	"onepark/common/jwt"
+	"onepark/common/tokenblk"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -33,6 +34,11 @@ func (l *VerifyLogic) Verify(req *types.VerifyReq) (resp *types.VerifyResp, err 
 	}
 	claims, perr := jwt.Parse(l.svcCtx.JwtSecret, req.Token)
 	if perr != nil || claims.Type != jwt.TypeAccess {
+		return resp, nil
+	}
+	// 令牌吊销(注销)黑名单: Redis 不可用时降级为放行, 与 logout 的 Revoke 降级一致.
+	// 吊销语义收口到本服务, 网关委托 Verify 后即统一生效(避免网关/服务端两处不一致).
+	if l.svcCtx.Redis != nil && tokenblk.IsRevoked(l.ctx, l.svcCtx.Redis, claims.ID) {
 		return resp, nil
 	}
 	resp.Valid = true

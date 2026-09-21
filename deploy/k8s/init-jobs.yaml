@@ -1,0 +1,136 @@
+# 一次性初始化任务(对应 docker-compose 里的 mysql 入口脚本 / kafka-init / nacos-init 三个容器的职责).
+# 与 compose 的差异: K8s 侧刻意不把建表塞进 MySQL 容器入口 —— 入口脚本只在数据卷为空时执行一次,
+# PVC 复用(换版本/重装)时不会重跑; 用 Job 则每次 apply 都可重放, 且 DDL 全为
+# CREATE ... IF NOT EXISTS, 幂等安全.
+#
+# 前置(命令式创建, 见 README.md / gen.sh 末尾提示):
+#   kubectl -n onepark create configmap onepark-sql            --from-file=deploy/sql
+#   kubectl -n onepark create configmap onepark-kafka-scripts  --from-file=deploy/kafka/init-topics.sh
+#   kubectl -n onepark create configmap onepark-nacos          --from-file=deploy/nacos
+---
+# ---- 1) MySQL 建库建表: 复用 deploy/sql/run-all.sh(该脚本自带"等 MySQL 就绪"重试与逐文件告警不中止) ----
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: onepark-mysql-init
+  namespace: onepark
+spec:
+  backoffLimit: 3
+  # 保留到手动删除: 便于 kubectl logs 回看建表结果(避免 Job 被 GC 后无证据).
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: mysql-init
+          image: mysql:8.0
+          env:
+            # run-all.sh 读 MYSQL_ROOT_PASSWORD(见 deploy/sql/run-all.sh:15)
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: MYSQL_ROOT_PASSWORD
+          command: ["/bin/sh", "-c", "sh /sql-init/run-all.sh"]
+          volumeMounts:
+            - name: sql
+              mountPath: /sql-init
+              readOnly: true
+      volumes:
+        - name: sql
+          configMap:
+            name: onepark-sql
+---
+# ---- 2) Kafka topic 预建: 复用 deploy/kafka/init-topics.sh(9 个业务 topic, --if-not-exists 幂等) ----
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: onepark-kafka-init
+  namespace: onepark
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: kafka-init
+          image: bitnami/kafka:3.7
+          env:
+            - name: KAFKA_BOOTSTRAP
+              value: "kafka:9092"
+            # 单节点 KRaft 只能为 1; 多 broker 集群改为 3
+            - name: KAFKA_REPLICATION_FACTOR
+              value: "1"
+          command: ["/bin/bash", "/scripts/init-topics.sh"]
+          volumeMounts:
+            - name: kafka-scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: kafka-scripts
+          configMap:
+            name: onepark-kafka-scripts
+---
+# ---- 3) Nacos 配置发布: 把网关上游表 gateway-upstreams 推到配置中心(网关据此动态路由) ----
+# 说明: 这是网关"容器内正确路由"的前提 —— 静态 apigateway-api.yaml 的上游是 127.0.0.1(本地联调用),
+# 集群内必须由 Nacos 下发指向 K8s Service 名的上游表(deploy/nacos/gateway-upstreams.json).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: onepark-nacos-init
+  namespace: onepark
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: nacos-init
+          image: curlimages/curl:latest
+          env:
+            - name: NACOS_GROUP
+              valueFrom:
+                configMapKeyRef:
+                  name: onepark-config
+                  key: NACOS_GROUP
+            - name: NACOS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: NACOS_USERNAME
+            - name: NACOS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: onepark-secrets
+                  key: NACOS_PASSWORD
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              NACOS_URL="http://nacos:8848/nacos"
+              creds="${NACOS_USERNAME}:${NACOS_PASSWORD}"
+              group="${NACOS_GROUP}"
+              # 幂等: 已存在则直接成功退出(与 compose 的 nacos-init 行为一致)
+              for i in $(seq 1 30); do
+                code=$(curl -s -o /dev/null -w "%{http_code}" -u "$creds" \
+                  "${NACOS_URL}/v1/cs/configs?dataId=gateway-upstreams&group=${group}")
+                if [ "$code" = "200" ]; then echo "gateway-upstreams already exists"; exit 0; fi
+                if curl -s -u "$creds" -X POST "${NACOS_URL}/v1/cs/configs" \
+                     --data-urlencode "dataId=gateway-upstreams" \
+                     --data-urlencode "group=${group}" \
+                     --data-urlencode "content@/data/gateway-upstreams.json"; then
+                  echo "published gateway-upstreams to nacos"; exit 0
+                fi
+                echo "retry $i publish gateway-upstreams..."; sleep 3
+              done
+              echo "nacos-init failed after retries"; exit 1
+          volumeMounts:
+            - name: nacos-config
+              mountPath: /data
+              readOnly: true
+      volumes:
+        - name: nacos-config
+          configMap:
+            name: onepark-nacos

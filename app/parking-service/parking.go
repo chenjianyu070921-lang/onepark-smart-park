@@ -4,10 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 
 	"onepark/app/parking-service/internal/config"
 	"onepark/app/parking-service/internal/handler"
 	"onepark/app/parking-service/internal/svc"
+	"onepark/common/health"
 	cmw "onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
@@ -32,6 +34,11 @@ func main() {
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+	// 健康检查: /api/healthz 存活(不探依赖), /api/readyz 就绪(探 MySQL + Redis; Kafka 由消费者旁路兜底).
+	server.AddRoutes([]rest.Route{
+		{Method: http.MethodGet, Path: "/api/healthz", Handler: health.Liveness()},
+		{Method: http.MethodGet, Path: "/api/readyz", Handler: health.Readiness(ctx.DB, ctx.Redis)},
+	})
 	// 启动后台 Kafka 消费者(地磁遥测 -> 停车记录), 主服务退出时随进程结束.
 	ctx.StartConsumers(context.Background())
 

@@ -1,0 +1,37 @@
+# 对外唯一入口: 只暴露网关(onepark-gateway:8080), 其余 19 个业务服务与 8 个中间件
+# 全部保持 ClusterIP(集群内可达, 集群外不可见) —— 与 docker-compose 的"仅网关映射端口"口径一致.
+#
+# 注: 依赖集群已装 Ingress Controller(默认按 nginx 写)。若你的集群用其他 controller,
+# 请改 spec.ingressClassName 与 annotations 前缀(traefik 等), 规则本身不变。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: onepark-gateway
+  namespace: onepark
+  labels:
+    app: onepark-gateway
+  annotations:
+    # WebSocket(/ws/alarm, /ws/dashboard)是长连接, 必须放开代理读写超时,
+    # 否则默认 60s 会被 Ingress 掐断 —— compose 路径无此层, 故此前不需要该配置.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # 网关自身响应体为 {code,msg,data} 统一包裹, 不参与 gzip 压缩以避免流式/WS 干扰.
+    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
+spec:
+  ingressClassName: nginx
+  rules:
+    # host 为示例值: 本地集群可在 /etc/hosts 把 onepark.local 指向 Ingress 地址;
+    # 生产请替换为真实域名并补 TLS(tls 段留空示意).
+    - host: onepark.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: onepark-gateway
+                port:
+                  number: 8080
+  # tls:
+  #   - hosts: [onepark.local]
+  #     secretName: onepark-gateway-tls

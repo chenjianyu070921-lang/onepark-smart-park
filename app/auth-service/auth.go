@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 
 	"onepark/app/auth-service/internal/config"
 	"onepark/app/auth-service/internal/handler"
 	grpcserver "onepark/app/auth-service/internal/server"
 	"onepark/app/auth-service/internal/svc"
+	"onepark/common/health"
 	"onepark/common/middleware"
 	"onepark/common/response"
 
@@ -43,6 +45,12 @@ func main() {
 	// 下游只透传: JWT 校验/租户注入已收口到网关, 本服务仅从网关注入的身份 Header 提升 ctxdata.
 	server.Use(middleware.IdentityFromHeader)
 	handler.RegisterHandlers(server, ctx)
+
+	// 健康检查: /api/healthz 存活(不探依赖), /api/readyz 就绪(探 MySQL + Redis 黑名单).
+	server.AddRoutes([]rest.Route{
+		{Method: http.MethodGet, Path: "/api/healthz", Handler: health.Liveness()},
+		{Method: http.MethodGet, Path: "/api/readyz", Handler: health.Readiness(ctx.DB, ctx.Redis)},
+	})
 
 	// 双模: 未配置 Grpc.ListenOn 时保持纯 HTTP(网关行为不变); 配置后同进程额外起 gRPC server.
 	if c.Grpc.ListenOn == "" {

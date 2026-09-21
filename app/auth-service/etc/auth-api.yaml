@@ -4,9 +4,9 @@ Port: 8088
 
 # JWT 签名密钥: 必须来自环境变量, 禁止硬编码 (为空启动即 panic).
 JwtSecret: ${JWT_SECRET}
-# access / refresh 令牌有效期(秒)
+# access / refresh 令牌有效期(秒): access=2h(7200), refresh=7d(604800)
 JwtExpire: 7200
-JwtRefresh: 86400
+JwtRefresh: 604800
 
 # 用户中心库(sys_db)连接, 身份校验查询 sys_user + sys_user_role.
 # DSN 格式: user:pass@tcp(host:port)/sys_db?charset=utf8mb4&parseTime=True&loc=Local
@@ -16,6 +16,12 @@ MySQL:
   MaxIdleConns: 10
 
 # 令牌注销黑名单 Redis(可选). 不配 Addr 时注销降级为无操作, 不影响登录/刷新.
+# 网关委托本服务 Verify 时, 吊销(黑名单)检查也在此处完成, 故生产建议配置.
 Redis:
   Addr: ${AUTH_REDIS_ADDR}
   Pass: ${AUTH_REDIS_PASS}
+
+# gRPC 双模入口(与 REST 同进程): 供网关 ValidateToken(Verify) 校验调用.
+# 留空则不启动 gRPC(纯 HTTP), 网关 Auth.GrpcAddress 需随之留空; 生产/联调建议启用.
+Grpc:
+  ListenOn: ${AUTH_GRPC_LISTEN} # 如 0.0.0.0:18088
