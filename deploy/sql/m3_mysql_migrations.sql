@@ -31,3 +31,15 @@ UPDATE `alarm_rule`
  WHERE `id` IN (1, 3)
    AND `tenant_id` = 0
    AND `device_type` = '';
+
+-- ---------- 2026-09-22 门禁闯入告警等级: 一般(2) -> 严重(3) ----------
+-- 口径: 单次门禁非法闯入即"高"级告警(level=3), 与"短时反复闯入"(规则③, level=3)同档。
+--
+-- 为什么要独立一条 UPDATE: m3_mysql_tables.sql 的种子是 INSERT IGNORE,
+-- 已建库的环境执行建表脚本不会更新存量行, 必须靠本迁移把等级抬上去。
+-- 条件带 `level` = 2 使其**幂等**(第二次执行 0 行), 且不会覆盖运维手工调整过的等级。
+UPDATE `alarm_rule`
+   SET `level` = 3
+ WHERE `id` = 1
+   AND `tenant_id` = 0
+   AND `level` = 2;

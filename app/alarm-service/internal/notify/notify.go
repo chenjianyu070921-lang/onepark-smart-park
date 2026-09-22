@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"onepark/app/alarm-service/internal/dispatch"
 )
 
 // DefaultTopic 默认生产 topic, 与 common/kafka.TopicAlarmEvent 同值.
@@ -35,13 +37,21 @@ const ActionCreated = "create"
 // 在确认前一律按 M3 自身语义发送, 不擅自翻转 —— 翻转会让告警等级在本服务与 M5 之间含义不一致.
 type AlarmEvent struct {
 	AlarmID   string `json:"alarm_id"`   // 业务编号 alarm_no, 与 M5 dispatch_task.uk_alarm_id 对齐
-	Action    string `json:"action"`     // resolve(当前仅终态发事件)
+	Action    string `json:"action"`     // create(产生) / resolve(解决)
 	AlarmType string `json:"alarm_type"` // M3 event_type(intrusion/door_timeout/...), M5 用于技能匹配
 	DeviceID  string `json:"device_id"`
 	TenantID  int64  `json:"tenant_id"`
 	AreaID    int64  `json:"area_id"`  // M3 只有区域ID; M5 提案要的 zone_code 需等区域编码映射就绪(不臆造)
 	Severity  int8   `json:"severity"` // 1提示~4紧急(见上方口径提示)
-	Status    int8   `json:"status"`   // 告警当前状态: create 事件恒为 0(未处理), resolve 事件恒为 2(已解决)
+	// Priority 工单优先级(M5 语义: 1紧急 / 2高 / 3普通), 由 Severity 经 dispatch.Table 换算.
+	//
+	// 为什么不能让 M5 自己去查 Severity 推: severity 的口径(值越大越严重)与 M5 的 priority
+	// (值越小越紧急)方向相反, 且这条口径至今未与 M5 书面确认(见上方注释)。
+	// M3 显式下发 priority 后, 消费方拿到的是**已经翻译好的** M5 语义字段,
+	// 不必再依赖那条未确认的映射关系 —— 即使将来 severity 口径被推翻, 也不影响派单优先级.
+	// 未显式传值时由发布器按 dispatch.Table 补齐, 调用方不需要关心换算细节.
+	Priority  int8   `json:"priority"`
+	Status    int8   `json:"status"` // 告警当前状态: create 事件恒为 0(未处理), resolve 事件恒为 2(已解决)
 	Content   string `json:"content"`
 	Timestamp int64  `json:"timestamp"` // 毫秒: 事件发生(解决)时间
 }
@@ -79,23 +89,42 @@ var _ Notifier = (*KafkaNotifier)(nil)
 
 // KafkaNotifier 基于 Kafka 的告警事件通知实现.
 type KafkaNotifier struct {
-	publisher      Publisher
-	topic          string
+	publisher Publisher
+	topic     string
+	// priorities 告警等级 → 工单优先级映射; nil 时按 dispatch.DefaultTable 换算.
+	// 放在发布器里而不是让两个调用点各自填: 只要接口签名不变, 以后新增的调用点也漏不掉这个字段,
+	// 不会出现"某条路径忘了填 priority, M5 收到 0 值"的静默降级.
+	priorities     dispatch.Table
 	backoff        []time.Duration
 	publishTimeout time.Duration
 }
 
+// Option 通知器的可选配置项.
+type Option func(*KafkaNotifier)
+
+// WithPriorityTable 指定告警等级 → 工单优先级映射(运营可配置, 见 config.DispatchConf).
+func WithPriorityTable(t dispatch.Table) Option {
+	return func(n *KafkaNotifier) { n.priorities = t }
+}
+
 // NewKafkaNotifier 创建通知器; topic 为空时用 DefaultTopic.
-func NewKafkaNotifier(publisher Publisher, topic string) *KafkaNotifier {
+func NewKafkaNotifier(publisher Publisher, topic string, opts ...Option) *KafkaNotifier {
 	if topic == "" {
 		topic = DefaultTopic
 	}
-	return &KafkaNotifier{
+	n := &KafkaNotifier{
 		publisher:      publisher,
 		topic:          topic,
+		priorities:     dispatch.DefaultTable,
 		backoff:        retryBackoff,
 		publishTimeout: publishTimeout,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(n)
+		}
+	}
+	return n
 }
 
 // Topic 返回实际使用的 topic, 供启动日志定位"事件发到哪去了".
@@ -123,6 +152,10 @@ func (n *KafkaNotifier) publishAlarmEvent(ctx context.Context, ev AlarmEvent, de
 	}
 	if ev.Timestamp == 0 {
 		ev.Timestamp = time.Now().UnixMilli()
+	}
+	// priority 兜底: 调用方未显式指定时按等级换算, 保证 M5 侧恒能取到有效优先级(1/2/3 之一).
+	if ev.Priority == 0 {
+		ev.Priority = n.priorities.PriorityOf(ev.Severity)
 	}
 
 	value, err := json.Marshal(ev)

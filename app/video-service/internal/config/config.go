@@ -16,6 +16,7 @@ type Config struct {
 	Stream    StreamConf      `json:",optional"` // 流地址下发配置(#51)
 	Kafka     KafkaConf       `json:",optional"` // 消费 M1 设备遥测(摄像头心跳)
 	Heartbeat HeartbeatConf   `json:",optional"` // 心跳在线状态判定
+	Record    RecordConf      `json:",optional"` // 录像计划与回放下发(#52/#53)
 	ES        ESConf          `json:",optional"`
 	Nacos     NacosConf       `json:",optional"`
 }
@@ -36,6 +37,24 @@ type StreamConf struct {
 	// 行为与签名能力上线前完全一致(向后兼容, 本地联调无需配置密钥).
 	// 一旦配置, 所有下发地址都带 HMAC-SHA256 签名, 校验逻辑见 logic.VerifyStreamSign。
 	SignSecret string `json:",optional"`
+}
+
+// RecordConf 录像计划与回放下发配置.
+//
+// 签名密钥刻意复用 Stream.SignSecret: 拉流与回放是同一套"媒体访问授权",
+// 拆成两个密钥只会增加"某个环境漏配一个"的概率, 而收益为零.
+type RecordConf struct {
+	// PlaybackBaseURL 回放地址基地址, 形如 http://media/record;
+	// 为空时回放接口仍返回时间窗口, 但 playback_url 为空串(不编造不可用的地址).
+	PlaybackBaseURL string `json:",optional"`
+	// ExpiresSeconds 回放地址有效期(秒); <=0 时用 Stream.ExpiresSeconds, 再兜底 3600.
+	ExpiresSeconds int `json:",default=3600"`
+	// DefaultRetentionDays 新建计划未指定保留天数时的默认值; <=0 兜底为 7.
+	DefaultRetentionDays int `json:",default=7"`
+	// MaxRangeHours 单次回放查询允许的最大时间跨度(小时); <=0 兜底 24.
+	// 必须限制: 一次拉几十天的窗口会让"按天遍历 ComputeAvailableWindows"退化成大量无谓计算,
+	// 也让前端一次拿到成千上万段分段, 两端都不堪重负.
+	MaxRangeHours int `json:",default=24"`
 }
 
 // KafkaConf Kafka 消费配置(摄像头心跳).
