@@ -1,6 +1,8 @@
 package config
 
 import (
+	"time"
+
 	"github.com/zeromicro/go-zero/rest"
 	"onepark/common/redisx"
 )
@@ -25,6 +27,10 @@ type Config struct {
 	Redis redisx.RedisConf `json:",optional"`
 	// RateLimit 网关全局令牌桶限流(单 IP 维度); Capacity<=0 关闭.
 	RateLimit RateLimitConf `json:",optional"`
+	// Breaker 全局熔断默认参数(所有上游共享同一套阈值/冷却, 见 internal/proxy/proxy.go);
+	// 阈值<=0 或 冷却=0 时回落到默认 5 / 10s, 防止误配导致熔断失效.
+	BreakerThreshold int           `json:",default=5"`   // 单上游连续失败达该值后断开(默认 5)
+	BreakerCooldown  time.Duration `json:",default=10s"` // 断开后冷却时长, 之后进入半开探测(默认 10s)
 }
 
 // RateLimitConf 网关令牌桶限流配置(单 IP 维度).
@@ -74,4 +80,7 @@ type UpstreamConf struct {
 	CanaryWeight int `json:",optional"`
 	// CanaryHeader 灰度命中 Header 名; 请求携带该 Header(值非 "false")即走灰度(可用于内部验证/定向).
 	CanaryHeader string `json:",optional"`
+	// BreakerThreshold 本路由级熔断阈值(可选); >0 时覆盖全局 BreakerThreshold,
+	// 0/不填回落全局默认(与 NewGateway 的 <=0 收敛同源). 仅阈值可路由级覆盖, 冷却全局共享.
+	BreakerThreshold int `json:",optional"`
 }

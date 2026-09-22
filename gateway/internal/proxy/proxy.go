@@ -44,6 +44,8 @@ type breaker struct {
 	state     int32 // breakerState
 	failCount int32
 	openedAt  int64 // 进入 open 的时间戳(纳秒)
+	threshold int32 // 连续失败断开阈值(来自全局配置, 默认 breakerThreshold)
+	cooldown  int64 // 断开后冷却时长(纳秒, 来自全局配置, 默认 breakerCooldown)
 }
 
 type breakerState int32
@@ -54,8 +56,13 @@ const (
 	stateHalfOpen
 )
 
-func newBreaker() *breaker {
-	return &breaker{state: int32(stateClosed)}
+// newBreaker 创建单上游熔断器. threshold/cooldown 来自全局配置(已由 Gateway 收敛默认值).
+func newBreaker(threshold int, cooldown time.Duration) *breaker {
+	return &breaker{
+		state:     int32(stateClosed),
+		threshold: int32(threshold),
+		cooldown:  cooldown.Nanoseconds(),
+	}
 }
 
 // allow 判断是否放行本次请求. 仅在 open->half-open 的瞬间通过 CAS 放一个探测,
@@ -65,7 +72,7 @@ func (b *breaker) allow(now time.Time) bool {
 	case stateClosed:
 		return true
 	case stateOpen:
-		if now.UnixNano()-atomic.LoadInt64(&b.openedAt) >= breakerCooldown.Nanoseconds() {
+		if now.UnixNano()-atomic.LoadInt64(&b.openedAt) >= b.cooldown {
 			return atomic.CompareAndSwapInt32(&b.state, int32(stateOpen), int32(stateHalfOpen))
 		}
 		return false
@@ -86,7 +93,7 @@ func (b *breaker) record(success bool, now time.Time) {
 		atomic.StoreInt32(&b.state, int32(stateOpen))
 		return
 	}
-	if atomic.AddInt32(&b.failCount, 1) >= breakerThreshold {
+	if atomic.AddInt32(&b.failCount, 1) >= b.threshold {
 		atomic.StoreInt64(&b.openedAt, now.UnixNano())
 		atomic.StoreInt32(&b.state, int32(stateOpen))
 	}
@@ -141,16 +148,29 @@ func (rt route) handle(w http.ResponseWriter, r *http.Request) {
 // Gateway 对外网关(实现 http.Handler).
 // routes 以 atomic 指针持有, 支持 Nacos 配置热更新时原子替换, 无需重启.
 type Gateway struct {
-	routes          atomic.Pointer[[]route] // 按 prefix 长度降序, 保证最长前缀优先
-	defaultTenantID int64
-	defaultUserId   int64
+	routes           atomic.Pointer[[]route] // 按 prefix 长度降序, 保证最长前缀优先
+	defaultTenantID  int64
+	defaultUserId    int64
+	breakerThreshold int          // 全局熔断阈值(已收敛默认值)
+	breakerCooldown  time.Duration // 全局熔断冷却(已收敛默认值)
 }
 
 // NewGateway 依据配置构建网关及其上游反向代理.
 func NewGateway(c config.Config) (*Gateway, error) {
+	// 收敛熔断默认值: 配置<=0(误配/未填)时回落到常量默认, 避免熔断被关掉.
+	threshold := c.BreakerThreshold
+	if threshold <= 0 {
+		threshold = breakerThreshold
+	}
+	cooldown := c.BreakerCooldown
+	if cooldown <= 0 {
+		cooldown = breakerCooldown
+	}
 	g := &Gateway{
-		defaultTenantID: c.DefaultTenantId,
-		defaultUserId:   c.DefaultUserId,
+		defaultTenantID:  c.DefaultTenantId,
+		defaultUserId:    c.DefaultUserId,
+		breakerThreshold: threshold,
+		breakerCooldown:  cooldown,
 	}
 	if err := g.Reload(c.Upstreams); err != nil {
 		return nil, err
@@ -172,10 +192,15 @@ func (g *Gateway) Reload(upstreams []config.UpstreamConf) error {
 			writeJSONError(w, http.StatusBadGateway, "M6-E-0006", "upstream unavailable ["+prefix+"]: "+e.Error())
 		}
 
+		// 熔断阈值: 路由级 BreakerThreshold>0 时覆盖全局默认, 否则回落全局(与 NewGateway 收敛同源).
+		th := g.breakerThreshold
+		if up.BreakerThreshold > 0 {
+			th = up.BreakerThreshold
+		}
 		rt := route{
 			prefix:  prefix,
 			proxy:   rp,
-			breaker: newBreaker(),
+			breaker: newBreaker(th, g.breakerCooldown),
 		}
 
 		// 灰度上游(可选): 与主上游共享同一熔断器, 灰度目标不可用时同样快速失败.
