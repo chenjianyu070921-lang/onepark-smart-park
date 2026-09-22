@@ -39,6 +39,36 @@ CREATE TABLE IF NOT EXISTS `camera` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='摄像头表';
 
 -- ############################################################
+-- record_plan 录像计划(video_service 录像计划 / 回放窗口查询)
+-- 说明: M3 只负责"什么时候录、录多久可以回看"的策略层, 不存媒体本身
+--       (实际录像文件由流媒体网关承载, 见 docs/m3/11 阶段二); 因此本表回答的是
+--       「某个摄像头在 [start,end) 里按计划应当有哪些可用录像」。
+--       回放结果的时间窗口由此表 + retention_days 推导, 不臆造不存在的录像:
+--       计划未覆盖的时段不会出现在回放结果里。
+-- 跨零点计划(start_minute > end_minute, 如 22:00-06:00)暂不支持:
+--       强行支持需要把一段录像拆到两个自然日, 而 utc/本地时区口径未定,
+--       反而会让"到底录没录"变得无法解释 —— 现约定拆成两条计划(22:00-24:00 + 00:00-06:00)。
+-- ############################################################
+CREATE TABLE IF NOT EXISTS `record_plan` (
+  `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+  `tenant_id`      BIGINT       NOT NULL DEFAULT 0     COMMENT '园区ID, RBAC 数据隔离维度',
+  `camera_id`      BIGINT       NOT NULL DEFAULT 0     COMMENT '关联 camera.id',
+  `name`           VARCHAR(64)  NOT NULL DEFAULT ''    COMMENT '计划名称(租户+摄像头内唯一)',
+  `strategy`       VARCHAR(16)  NOT NULL DEFAULT 'always' COMMENT '录像策略: always 全天 / scheduled 定时',
+  `days_of_week`   VARCHAR(32)  NOT NULL DEFAULT ''    COMMENT 'scheduled 生效日: 1=周一..7=周日, 逗号分隔; 空表示每天',
+  `start_minute`   INT          NOT NULL DEFAULT 0     COMMENT 'scheduled 当日起始分钟(0-1439)',
+  `end_minute`     INT          NOT NULL DEFAULT 1440  COMMENT 'scheduled 当日结束分钟(1-1440, 必须大于 start_minute)',
+  `retention_days` INT          NOT NULL DEFAULT 7     COMMENT '录像保留天数: 超出即视为已过期, 不可回放',
+  `status`         TINYINT      NOT NULL DEFAULT 1     COMMENT '1启用/0停用',
+  `created_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_camera_name` (`tenant_id`, `camera_id`, `name`),
+  KEY `idx_camera` (`camera_id`),
+  KEY `idx_tenant_status` (`tenant_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='录像计划表';
+
+-- ############################################################
 -- video_dlq 心跳消费死信台账(docs/m3/06 §5.3 同款范式)
 -- 说明: 摄像头心跳此前遇到坏消息(JSON 解析失败/缺 device_id)只打日志就跳过,
 --       既不重试也不可追溯: 上游一旦改报文格式, 在线状态会静默停更且毫无痕迹.

@@ -17,8 +17,24 @@ type Config struct {
 	WS     WSConf           // WebSocket 广播配置
 	ES     ESConf           // Elasticsearch 配置(历史检索 #41 / 双写 #44)
 	Notify NotifyConf       // 告警事件通知 M5(#40 解决告警后生产 Kafka 事件)
-	Rule   RuleConf         // 规则引擎相关开关
-	Nacos  NacosConf        // 注册/配置中心(可选)
+	// Dispatch 告警等级 → M5 工单优先级的映射配置(运营可按园区调整派单紧急度)
+	Dispatch DispatchConf
+	Rule     RuleConf  // 规则引擎相关开关
+	Nacos    NacosConf // 注册/配置中心(可选)
+}
+
+// DispatchConf M3 → M5 派单衔接配置.
+//
+// 为什么不硬编码: 同一条"严重"告警, 写字楼可能要求当班处理即可, 而危化品仓库要求立即到场。
+// 等级描述的是告警本身的客观严重度, 优先级描述的是处置策略, 二者不应绑死 ——
+// 因此允许按园区/部署在 yaml 里逐等级调整, 缺省使用 dispatch.DefaultTable.
+type DispatchConf struct {
+	// LevelPriority 覆盖默认映射: key 为告警等级("1"提示 / "2"一般 / "3"严重 / "4"紧急),
+	// value 为 M5 工单优先级(1紧急 / 2高 / 3普通)。
+	//
+	// 非法条目(等级越界 / 优先级不在 1~3)不生效, 但会在启动日志打 WARN:
+	// 静默忽略会让"配置写错了"表现为"一直按默认规则派单", 现场无法分辨是没配还是配错了.
+	LevelPriority map[string]int `json:",optional"`
 }
 
 // RuleConf 规则引擎开关.

@@ -15,6 +15,17 @@ Stream:
   ExpiresSeconds: 3600
   SignSecret: ${VIDEO_STREAM_SIGN_SECRET}
 
+# 录像计划 + 回放配置
+# M3 只管"什么时候录、录多久可回看"的策略层与回放授权, 录像文件本身由流媒体网关承载.
+# PlaybackBaseURL 未注入时, 回放接口仍按计划返回可用时间窗口, 但 playback_url 为空串
+#   (没有真正的承载点时不下发编造出来的 URL, 与 #51 FLV 的取舍一致).
+# MaxRangeHours 限制单次回放查询的时间跨度(默认 24 小时), 避免一次拉几十天窗口.
+Record:
+  PlaybackBaseURL: ${VIDEO_PLAYBACK_BASE_URL}
+  ExpiresSeconds: 3600
+  DefaultRetentionDays: 7
+  MaxRangeHours: 24
+
 # Kafka 连接配置 (消费 M1 设备遥测, 驱动摄像头在线状态)
 Kafka:
   Brokers: ${KAFKA_BROKERS}

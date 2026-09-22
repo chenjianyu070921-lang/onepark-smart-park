@@ -141,10 +141,12 @@ INSERT IGNORE INTO `alarm_rule`
   (`id`, `tenant_id`, `name`, `device_type`, `device_id`, `area_id`, `event_type`,
    `rule_type`, `conditions`, `window_seconds`, `level`, `status`)
 VALUES
-  -- ① 门禁非法闯入(P0 主链路在规则表内的正式版本: 门禁设备 + intrusion -> 等级 2)
+  -- ① 门禁非法闯入(P0 主链路在规则表内的正式版本: 门禁设备 + intrusion -> 等级 3 "严重")
+  --    等级口径(2026-09-22 定): 单次闯入即"高"级告警, level=3。
+  --    消费链路的硬编码回退分支同步取 3(见 svc/consumer.go#evaluateRules), 两条路径等级必须一致。
   (1, 0, '门禁非法闯入告警', 'access_control', '', 0, 'intrusion', 'threshold',
    '{"type":"threshold","field":"event_type","op":"eq","value":"intrusion"}',
-   0, 2, 1),
+   0, 3, 1),
 
   -- ② 温度超限(周二 P2 的「温度超过80℃触发告警」示例; 不限设备类型, 由 payload 条件收敛)
   (2, 0, '温度超过80℃告警', '', '', 0, 'temperature', 'threshold',

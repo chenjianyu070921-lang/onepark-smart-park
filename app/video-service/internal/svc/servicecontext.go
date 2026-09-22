@@ -19,6 +19,8 @@ type ServiceContext struct {
 	Redis   *redis.Redis
 	DB      *gormx.DB         // GORM MySQL 连接(video_db)
 	Cameras model.CameraModel // 摄像头数据访问层
+	// RecordPlans 录像计划数据访问层; nil 表示未配置 MySQL, 相关接口退化依赖错误.
+	RecordPlans model.RecordPlanModel
 	// StatusCache 摄像头在线状态缓存(#50); nil 表示未启用/Redis 不可用,
 	// 读取侧会回退到 MySQL 中的 status, 不因缓存缺席而改变接口语义.
 	StatusCache StatusCacheStore
@@ -44,6 +46,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		}
 		svcCtx.DB = db
 		svcCtx.Cameras = model.NewCameraModel(db)
+		svcCtx.RecordPlans = model.NewRecordPlanModel(db)
 		svcCtx.DeadLetters = model.NewHeartbeatDLQModel(db)
 		log.Printf("[info] video-service mysql initialized, db=%s", databaseOf(dsn))
 	} else {
