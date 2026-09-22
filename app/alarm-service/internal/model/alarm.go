@@ -45,10 +45,15 @@ type Alarm struct {
 // TableName 指定告警记录表名.
 func (Alarm) TableName() string { return "alarm" }
 
-// AlarmRule 告警规则表(alarm_db.alarm_rule), P2 动态规则引擎上线后由 Evaluate 读取.
+// AlarmRule 告警规则表(alarm_db.alarm_rule), 由规则引擎 Evaluate 读取.
+//
+// 范围匹配维度: DeviceType / DeviceID / AreaID / EventType, 空值表示该维度不限;
+// 命中后按 Level 生成告警等级 —— 这就是「按设备类型 + 事件类型映射告警等级」的配置面.
 type AlarmRule struct {
 	BaseModel
-	Name          string `gorm:"column:name;type:varchar(64);not null;default:''" json:"name"`
+	Name string `gorm:"column:name;type:varchar(64);not null;default:''" json:"name"`
+	// DeviceType 设备类型(access_control/camera/sensor...); 空表示不限设备类型.
+	DeviceType    string `gorm:"column:device_type;type:varchar(32);not null;default:''" json:"device_type"`
 	DeviceID      string `gorm:"column:device_id;type:varchar(64);not null;default:''" json:"device_id"`
 	AreaID        int64  `gorm:"column:area_id;not null;default:0" json:"area_id"`
 	EventType     string `gorm:"column:event_type;type:varchar(32);not null;default:''" json:"event_type"`

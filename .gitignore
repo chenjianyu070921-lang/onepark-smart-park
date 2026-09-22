@@ -34,3 +34,17 @@ Thumbs.db
 # AI 临时记忆文件
 .ai-memory/
 
+# 运行日志 / 错误输出（服务运行产物, 不入仓）
+*.log
+*.err
+
+# 本会话 E2E 临时目录（启动/测试脚本、本地 DB 备份, 不入仓）
+.tmp_e2e/
+
+# 自动生成的日报 / 巡检 HTML（docs 下脚本产物, 不入仓）
+docs/daily-check-*.html
+docs/ticket-*.html
+
+# Redis 测试实例的快照产物（本机 phpStudy redis 起指定 datadir 时落盘）
+dump.rdb
+

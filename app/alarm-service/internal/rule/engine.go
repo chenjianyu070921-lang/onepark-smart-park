@@ -9,14 +9,18 @@ import (
 )
 
 // Rule 引擎使用的规则视图(由 model.AlarmRule 转换而来).
+//
+// 适用范围由 DeviceType / DeviceID / AreaID / EventType 四个维度共同决定,
+// 空值表示该维度不限 —— 「设备类型 + 事件类型 → 告警等级」就是靠前两项配置出来的.
 type Rule struct {
-	ID        int64
-	Name      string
-	DeviceID  string // 空或 "*" 表示不限设备
-	AreaID    int64  // 0 表示不限区域
-	EventType string // 空表示不限事件类型
-	Level     int8
-	Spec      *NormalizedSpec
+	ID         int64
+	Name       string
+	DeviceType string // 空表示不限设备类型
+	DeviceID   string // 空或 "*" 表示不限设备
+	AreaID     int64  // 0 表示不限区域
+	EventType  string // 空表示不限事件类型
+	Level      int8
+	Spec       *NormalizedSpec
 }
 
 // Store 引擎获取启用规则的来源(由 model 层实现, 便于单测替换为内存实现).
@@ -59,6 +63,26 @@ func NewEngine(store Store, windows WindowCounter, cacheTTL time.Duration) *Engi
 func (e *Engine) HasRules(ctx context.Context) bool {
 	rules, err := e.snapshot(ctx)
 	return err == nil && len(rules) > 0
+}
+
+// Invalidate 主动失效规则快照, 使下一次评估重新从 Store 加载.
+//
+// 为什么必须有: 只等 TTL 自然过期时, 规则变更后最长有 cacheTTL(当前 30s) 的窗口内引擎仍按旧规则判定。
+// 最危险的一条是"运维禁用了误报规则, 它却又报了 30 秒" —— 现象与"规则没配好"完全一样, 无法区分。
+//
+// 为什么是失效而不是立即重载:
+//  1. 连续改 N 条规则会退化成 N 次全表查询, 而失效只需 O(1) 且天然合并;
+//  2. 立即重载要把 DB 错误暴露在"改规则"这条路径上, 一次临时抖动就会导致规则改不动;
+//     懒加载把错误留给评估路径, 那边已有成熟处理(上抛 -> 消费端重投), 且不丢事件。
+//
+// 注意: 失效后若加载失败, snapshot 不再有"旧快照"可保, 将返回空规则集并上抛错误,
+// 由调用方按 DisableLegacyFallback 决定丢弃或回退 —— 不拿陈旧规则继续判定。
+func (e *Engine) Invalidate() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.cached = nil
+	e.cacheLoad = false
+	e.cachedAt = time.Time{}
 }
 
 // Evaluate 评估事件, 返回命中的告警草稿列表(可能为空).
@@ -143,9 +167,23 @@ func newDraft(r Rule, f Fields, hits int64) *Draft {
 	}
 }
 
-// AppliesTo 判定规则适用范围: 事件类型/设备/区域三维度, 空值表示该维度不限.
+// AppliesTo 判定规则适用范围: 事件类型/设备类型/设备/区域四维度, 空值表示该维度不限.
+//
+// 设备类型维度对"事件未上报 device_type"的处理是**放行**而非拦截, 与引擎其它地方
+// "字段缺失视为未命中"的一般约定不同, 是刻意的例外:
+//   - M1 的 device_type 是 optional 字段(DeviceEventReq.DeviceType 标了 optional),
+//     硬编码门禁规则时期就按"intrusion 是门禁专属事件"兜底(P0 D1);
+//   - 若改成严格匹配, M1 少填一个可选字段就会让门禁闯入**整条链路漏报**,
+//     代价远大于"一条不带设备类型的事件被归入设备类型规则";
+//   - 真正的收敛靠配置: 事件带了 device_type 时严格比对 —— 摄像头上报的 intrusion
+//     不会再命中 device_type=access_control 的门禁规则。
+//
+// 待 P0-13(M1 明确 device_type 必填)闭环后, 可去掉这段兜底改为严格匹配.
 func (r Rule) AppliesTo(f Fields) bool {
 	if r.EventType != "" && r.EventType != f.EventType {
+		return false
+	}
+	if r.DeviceType != "" && f.DeviceType != "" && r.DeviceType != f.DeviceType {
 		return false
 	}
 	if r.DeviceID != "" && r.DeviceID != "*" && r.DeviceID != f.DeviceID {

@@ -37,9 +37,10 @@ func NewRunner(c config.Config, db *gormx.DB) *Runner {
 	return &Runner{
 		Logger:   logx.WithContext(context.Background()),
 		consumer: kafka.NewConsumer(c.Kafka.Brokers, c.Kafka.Topic, c.Kafka.Group),
-		handler:  NewAlarmHandler(db),
-		topic:    c.Kafka.Topic,
-		group:    c.Kafka.Group,
+		// 兜底园区一并注入: 告警消息不含租户, 自动建单要落到 Kafka.DefaultTenantId
+		handler: NewAlarmHandler(db, c.Kafka.DefaultTenantId),
+		topic:   c.Kafka.Topic,
+		group:   c.Kafka.Group,
 	}
 }
 

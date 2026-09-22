@@ -20,12 +20,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	UserManage_Ping_FullMethodName       = "/onepark.user.UserManage/Ping"
-	UserManage_UserCreate_FullMethodName = "/onepark.user.UserManage/UserCreate"
-	UserManage_UserUpdate_FullMethodName = "/onepark.user.UserManage/UserUpdate"
-	UserManage_UserDelete_FullMethodName = "/onepark.user.UserManage/UserDelete"
-	UserManage_UserDetail_FullMethodName = "/onepark.user.UserManage/UserDetail"
-	UserManage_UserList_FullMethodName   = "/onepark.user.UserManage/UserList"
+	UserManage_Ping_FullMethodName            = "/onepark.user.UserManage/Ping"
+	UserManage_UserCreate_FullMethodName      = "/onepark.user.UserManage/UserCreate"
+	UserManage_UserUpdate_FullMethodName      = "/onepark.user.UserManage/UserUpdate"
+	UserManage_UserDelete_FullMethodName      = "/onepark.user.UserManage/UserDelete"
+	UserManage_UserDetail_FullMethodName      = "/onepark.user.UserManage/UserDetail"
+	UserManage_UserList_FullMethodName        = "/onepark.user.UserManage/UserList"
+	UserManage_CheckPermission_FullMethodName = "/onepark.user.UserManage/CheckPermission"
 )
 
 // UserManageClient is the client API for UserManage service.
@@ -44,6 +45,9 @@ type UserManageClient interface {
 	UserDetail(ctx context.Context, in *UserDetailReq, opts ...grpc.CallOption) (*UserInfo, error)
 	// UserList 分页列出用户
 	UserList(ctx context.Context, in *common.Empty, opts ...grpc.CallOption) (*UserListResp, error)
+	// CheckPermission 校验用户是否拥有某 permission(用户->角色->菜单权限汇总).
+	// 由网关在写操作前统一调用; 以网关注入的已鉴权 user_id 为准(调用方为网关, 可信).
+	CheckPermission(ctx context.Context, in *CheckPermissionReq, opts ...grpc.CallOption) (*CheckPermissionResp, error)
 }
 
 type userManageClient struct {
@@ -114,6 +118,16 @@ func (c *userManageClient) UserList(ctx context.Context, in *common.Empty, opts 
 	return out, nil
 }
 
+func (c *userManageClient) CheckPermission(ctx context.Context, in *CheckPermissionReq, opts ...grpc.CallOption) (*CheckPermissionResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckPermissionResp)
+	err := c.cc.Invoke(ctx, UserManage_CheckPermission_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserManageServer is the server API for UserManage service.
 // All implementations must embed UnimplementedUserManageServer
 // for forward compatibility.
@@ -130,6 +144,9 @@ type UserManageServer interface {
 	UserDetail(context.Context, *UserDetailReq) (*UserInfo, error)
 	// UserList 分页列出用户
 	UserList(context.Context, *common.Empty) (*UserListResp, error)
+	// CheckPermission 校验用户是否拥有某 permission(用户->角色->菜单权限汇总).
+	// 由网关在写操作前统一调用; 以网关注入的已鉴权 user_id 为准(调用方为网关, 可信).
+	CheckPermission(context.Context, *CheckPermissionReq) (*CheckPermissionResp, error)
 	mustEmbedUnimplementedUserManageServer()
 }
 
@@ -157,6 +174,9 @@ func (UnimplementedUserManageServer) UserDetail(context.Context, *UserDetailReq)
 }
 func (UnimplementedUserManageServer) UserList(context.Context, *common.Empty) (*UserListResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method UserList not implemented")
+}
+func (UnimplementedUserManageServer) CheckPermission(context.Context, *CheckPermissionReq) (*CheckPermissionResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method CheckPermission not implemented")
 }
 func (UnimplementedUserManageServer) mustEmbedUnimplementedUserManageServer() {}
 func (UnimplementedUserManageServer) testEmbeddedByValue()                    {}
@@ -287,6 +307,24 @@ func _UserManage_UserList_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserManage_CheckPermission_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckPermissionReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserManageServer).CheckPermission(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserManage_CheckPermission_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserManageServer).CheckPermission(ctx, req.(*CheckPermissionReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserManage_ServiceDesc is the grpc.ServiceDesc for UserManage service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -317,6 +355,10 @@ var UserManage_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UserList",
 			Handler:    _UserManage_UserList_Handler,
+		},
+		{
+			MethodName: "CheckPermission",
+			Handler:    _UserManage_CheckPermission_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

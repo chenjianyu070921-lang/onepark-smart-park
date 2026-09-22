@@ -24,6 +24,10 @@ service UserManage {
 
   // UserList 分页列出用户
   rpc UserList(onepark.common.Empty) returns (UserListResp);
+
+  // CheckPermission 校验用户是否拥有某 permission(用户->角色->菜单权限汇总).
+  // 由网关在写操作前统一调用; 以网关注入的已鉴权 user_id 为准(调用方为网关, 可信).
+  rpc CheckPermission(CheckPermissionReq) returns (CheckPermissionResp);
 }
 
 message UserInfo {
@@ -62,4 +66,15 @@ message UserDeleteReq {
 
 message UserDetailReq {
   uint64 id = 1;
+}
+
+// CheckPermissionReq 权限校验请求: 由网关传入已鉴权的 user_id 与目标 permission.
+message CheckPermissionReq {
+  uint64 user_id = 1;   // 网关注入的已鉴权用户ID(调用方为网关, 可信)
+  string permission = 2; // 目标权限串, 形如 user:write / role:read(见部署脚本 sys_menu.permission)
+}
+
+// CheckPermissionResp 权限校验响应.
+message CheckPermissionResp {
+  bool allowed = 1; // true=允许, false=无权限
 }

@@ -34,6 +34,15 @@ func (l *LogoutLogic) Logout(req *types.LogoutReq) error {
 		// 已过期或非法令牌, 无需吊销
 		return nil
 	}
+	// 注销 refresh 令牌: 从 refresh 登记表吊销, 使其立即失效(真正结束会话).
+	if claims.Type == jwt.TypeRefresh {
+		if err := tokenblk.RevokeRefresh(l.ctx, l.svcCtx.Redis, claims.ID); err != nil {
+			l.Errorf("注销 refresh 令牌失败: %v", err)
+			return errorx.NewError(errorx.ErrInternal, "注销失败")
+		}
+		return nil
+	}
+	// 注销 access 令牌: 加入黑名单(原逻辑), TTL 为令牌剩余有效期.
 	if claims.ExpiresAt == nil {
 		return nil
 	}

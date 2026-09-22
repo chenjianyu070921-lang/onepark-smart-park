@@ -4,12 +4,14 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"time"
 
 	"onepark/app/auth-service/internal/model"
 	"onepark/app/auth-service/internal/svc"
 	"onepark/app/auth-service/internal/types"
 	"onepark/common/errorx"
 	"onepark/common/jwt"
+	"onepark/common/tokenblk"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"golang.org/x/crypto/bcrypt"
@@ -50,13 +52,17 @@ func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err erro
 	}
 	roleStr := joinRoleIDs(roleIds)
 
-	access, gerr := jwt.Generate(l.svcCtx.JwtSecret, int64(user.ID), roleStr, 0, jwt.TypeAccess, l.svcCtx.JwtExpire)
+	access, gerr := jwt.Generate(l.svcCtx.JwtSecret, int64(user.ID), roleStr, user.TenantId, jwt.TypeAccess, l.svcCtx.JwtExpire)
 	if gerr != nil {
 		return nil, errorx.NewError(errorx.ErrInternal, gerr.Error())
 	}
-	refresh, gerr := jwt.Generate(l.svcCtx.JwtSecret, int64(user.ID), roleStr, 0, jwt.TypeRefresh, l.svcCtx.JwtRefresh)
+	refresh, gerr := jwt.Generate(l.svcCtx.JwtSecret, int64(user.ID), roleStr, user.TenantId, jwt.TypeRefresh, l.svcCtx.JwtRefresh)
 	if gerr != nil {
 		return nil, errorx.NewError(errorx.ErrInternal, gerr.Error())
+	}
+	// refresh 令牌登记入 Redis(TTL=有效期 7d): 供刷新时校验有效性/吊销; Redis 不可用时降级为无操作.
+	if rc, perr := jwt.Parse(l.svcCtx.JwtSecret, refresh); perr == nil {
+		_ = tokenblk.StoreRefresh(l.ctx, l.svcCtx.Redis, rc.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second)
 	}
 
 	return &types.LoginResp{
@@ -65,7 +71,7 @@ func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err erro
 		Expire:       l.svcCtx.JwtExpire,
 		UserId:       int64(user.ID),
 		RoleIds:      roleStr,
-		TenantId:     0, // 平台级用户: sys_user 无租户维度, 待用户-租户映射落地后回填
+		TenantId:     user.TenantId, // 回填用户真实所属园区(tenant_id 已由 M6 多租户试点迁移加入 sys_user 并回填)
 	}, nil
 }
 

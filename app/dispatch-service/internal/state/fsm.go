@@ -17,7 +17,13 @@ const (
 	ActionStart   = "start"  // 开始处理: 已指派 -> 处理中
 	ActionFinish  = "finish" // 完成: 处理中 -> 已完成
 	ActionClose   = "close"  // 关闭: 任意非终态 -> 已关闭
-	ActionExpire  = "expire" // 超时退回: 已指派 -> 待指派(assign_expire_at 超时自动重派)
+	// ⚠️ 这里**刻意没有**独立的"超时退回"动作。
+	//   工单的超时回收走 ActionRelease(已指派 -> 待指派), 由 cron/reassign.go 承担
+	//   (改派他人; 无人可派或达上限时释放回池)。若再加一个语义相同的动作,
+	//   转移表就会出现**两条通往同一状态的边**, 后人无从判断该用哪条。
+	//
+	//   (2026-09-21 删除: 原先这里有一个 ActionExpire + 一个从未被实例化的 ExpireScanner,
+	//    职责与本条完全重合且绕过状态机直接 UPDATE status, 已一并移除。)
 )
 
 // transitions 合法状态转移表: from -> action -> to.

@@ -21,12 +21,13 @@ const (
 
 // AlarmRuleListFilter 规则列表筛选条件, 零值字段表示不参与筛选.
 type AlarmRuleListFilter struct {
-	TenantID  int64
-	DeviceID  string // 空表示全部设备
-	EventType string // 空表示全部事件类型
-	Status    *int8  // nil 表示全部状态
-	Page      int    // 从 1 开始
-	PageSize  int
+	TenantID   int64
+	DeviceType string // 空表示全部设备类型
+	DeviceID   string // 空表示全部设备
+	EventType  string // 空表示全部事件类型
+	Status     *int8  // nil 表示全部状态
+	Page       int    // 从 1 开始
+	PageSize   int
 }
 
 // AlarmRuleModel 告警规则数据访问层, 同时作为规则引擎的规则来源(rule.Store).
@@ -90,6 +91,9 @@ func (m *alarmRuleModel) FindByID(ctx context.Context, tenantID, id int64) (*Ala
 
 func (m *alarmRuleModel) List(ctx context.Context, f AlarmRuleListFilter) ([]*AlarmRule, int64, error) {
 	tx := m.db.WithContext(ctx).Model(&AlarmRule{}).Where("tenant_id = ?", f.TenantID)
+	if f.DeviceType != "" {
+		tx = tx.Where("device_type = ?", f.DeviceType)
+	}
 	if f.DeviceID != "" {
 		tx = tx.Where("device_id = ?", f.DeviceID)
 	}
@@ -130,13 +134,14 @@ func (m *alarmRuleModel) ListEnabled(ctx context.Context) ([]rule.Rule, error) {
 			continue
 		}
 		rules = append(rules, rule.Rule{
-			ID:        r.ID,
-			Name:      r.Name,
-			DeviceID:  r.DeviceID,
-			AreaID:    r.AreaID,
-			EventType: r.EventType,
-			Level:     r.Level,
-			Spec:      spec,
+			ID:         r.ID,
+			Name:       r.Name,
+			DeviceType: r.DeviceType,
+			DeviceID:   r.DeviceID,
+			AreaID:     r.AreaID,
+			EventType:  r.EventType,
+			Level:      r.Level,
+			Spec:       spec,
 		})
 	}
 	return rules, nil

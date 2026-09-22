@@ -7,14 +7,15 @@ import (
 )
 
 // SysUser 系统用户表(对应 sys_db.sys_user). 仅保留鉴权所需字段.
-// 说明: sys_user 为平台级用户中心, 表中不含 tenant_id(租户维度在业务表, 如合同/账单),
-// 故鉴权产出 JWT 的 TenantId 暂置 0, 待用户-租户映射维度落地后回填.
+// 说明: sys_user 已随 M6 多租户试点迁移(deploy/sql/m6_usermanage_tenant_pilot.sql / l2_tenant_id_migration.sql)
+// 加入 tenant_id 列并回填默认园区(DefaultTenantId=1), 故鉴权产出 JWT 的 TenantId 取用户真实所属园区.
 type SysUser struct {
 	ID       uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
 	Username string `gorm:"column:username" json:"username"`
 	Password string `gorm:"column:password" json:"-"`
 	Nickname string `gorm:"column:nickname" json:"nickname"`
 	Status   int8   `gorm:"column:status" json:"status"`
+	TenantId int64  `gorm:"column:tenant_id" json:"tenantId"` // 所属园区/租户ID, RBAC 数据隔离维度
 }
 
 func (SysUser) TableName() string { return "sys_user" }

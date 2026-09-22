@@ -4,12 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 
 	"onepark/app/workorder-service/internal/config"
 	"onepark/app/workorder-service/internal/consumer"
 	"onepark/app/workorder-service/internal/cron"
 	"onepark/app/workorder-service/internal/handler"
 	"onepark/app/workorder-service/internal/svc"
+	"onepark/common/health"
 	cmw "onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
@@ -34,6 +36,12 @@ func main() {
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+
+	// 健康检查: /api/healthz 存活(不探依赖), /api/readyz 就绪(探 MySQL + Redis; Kafka 由 Producer 旁路兜底).
+	server.AddRoutes([]rest.Route{
+		{Method: http.MethodGet, Path: "/api/healthz", Handler: health.Liveness()},
+		{Method: http.MethodGet, Path: "/api/readyz", Handler: health.Readiness(ctx.DB, ctx.Redis)},
+	})
 
 	// 告警自动建单消费者: 消费 alarm-event → 幂等建报修工单(alarm_id 唯一键去重).
 	// Kafka.Enabled=false 时 Start 内部直接跳过; 注意 Consumer.Consume 阻塞运行,

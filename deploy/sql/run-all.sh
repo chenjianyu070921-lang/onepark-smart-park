@@ -19,7 +19,7 @@ echo "[run-all] 开始 OnePark 数据库初始化编排 (SQL_DIR=$SQL_DIR)"
 # 等待 MySQL 就绪(镜像入口执行本脚本时通常已就绪, 此处兜底)
 i=0
 while [ "$i" -lt 60 ]; do
-  if mysql -uroot -p"$ROOT_PWD" -e "SELECT 1" >/dev/null 2>&1; then
+  if mysql --default-character-set=utf8mb4 -uroot -p"$ROOT_PWD" -e "SELECT 1" >/dev/null 2>&1; then
     break
   fi
   i=$((i + 1))
@@ -34,7 +34,9 @@ run_one() {
     return 0
   fi
   echo "[run-all] -> $f"
-  if mysql -uroot -p"$ROOT_PWD" < "$SQL_DIR/$f" >/dev/null 2>&1; then
+  # SQL 文件为 UTF-8; 显式 --default-character-set=utf8mb4 避免 mysql 客户端以 latin1 读取,
+  # 否则 UTF-8 字节被当作 CP1252 二次编码, 灌入 utf8mb4 列后产生双重编码乱码(中文变 ç³»ç»Ÿ...)。
+  if mysql --default-character-set=utf8mb4 -uroot -p"$ROOT_PWD" < "$SQL_DIR/$f" >/dev/null 2>&1; then
     echo "[run-all] OK:   $f"
   else
     echo "[run-all] FAIL: $f (详见 mysql 报错, 继续后续脚本)"

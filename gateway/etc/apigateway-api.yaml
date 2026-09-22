@@ -1,15 +1,31 @@
 Name: apigateway-api
 Host: 0.0.0.0
 Port: 8080
+# 运行模式: 驱动网关鉴权开关(见 apigateway.go 的 isLocalMode).
+# 本地联调 dev(关闭鉴权, 无需 token); 生产置 pre/prod(强制开启鉴权).
+# 由 compose/.env 注入 GATEWAY_MODE(如 dev/pre/prod).
+# 注意: go-zero 的 conf.UseEnv 基于 os.ExpandEnv, 不支持 ${VAR:-default} 语法,
+# 故此处必须用 ${GATEWAY_MODE}(无 :- 默认), 由部署侧确保注入; 未注入则 Mode 为空会触发枚举校验失败.
+Mode: ${GATEWAY_MODE}
 
 # 无鉴权联调默认园区ID(生产由 M6 鉴权后经 Header 注入 x-tenant-id 覆盖)
 DefaultTenantId: 1
 DefaultUserId: 0
 
-# 网关统一鉴权密钥: 必须与 auth-service 的 JWT_SECRET 一致(由 compose 注入 AUTH_SECRET).
-# dev/test 默认不启用(见 apigateway.go 中 isLocalMode 判定); prod/pre 强制启用(失败即拒绝启动).
+# 网关统一鉴权: 是否启用 = Auth.Enabled || !isLocalMode(Mode)(见 apigateway.go).
+# Mode 来自本文件 top-level Mode(${GATEWAY_MODE}): dev/test 不启用(便于无 token 联调),
+# pre/prod 强制启用, 且 Auth.GrpcAddress 为空会 log.Fatalf 拒绝启动(安全兜底).
+# 网关不再本地验签, 统一委托 auth-service gRPC Verify(签名/过期/吊销一站式).
 Auth:
-  Secret: ${AUTH_SECRET}
+  Enabled: false
+  GrpcAddress: ${AUTH_GRPC_ADDR} # auth-service gRPC 地址, 如 127.0.0.1:18088
+  Secret: ${AUTH_SECRET}        # 保留: 与 auth-service 共享 JWT 密钥(后续本地预校验/调试用)
+
+# 统一 RBAC(委托 user-manage gRPC CheckPermission): 仅当鉴权启用且配置了 GrpcAddress 时生效,
+# 对受保护写操作做权限校验(注册表见 internal/middleware/permission.go), 无权返回 403.
+# 未配置则全部放行(渐进覆盖, 不破坏其余服务). 由 compose 注入 USER_GRPC_ADDR.
+User:
+  GrpcAddress: ${USER_GRPC_ADDR} # user-manage gRPC 地址, 如 127.0.0.1:18089
 
 # 限流依赖的 Redis(令牌桶计数). 未配置或 Redis 不可用时, 限流优雅降级为放行.
 # Addr 与其他业务服务一致用 ${REDIS_ADDR}(compose=redis:6379, 本地联调改 127.0.0.1:6379), 不再硬编码.
@@ -20,17 +36,40 @@ Redis:
   PoolSize: 50
   MinIdleConns: 10
 
-# 网关全局令牌桶限流(单 IP 维度). Capacity<=0 关闭.
+# 网关全局令牌桶限流(单 IP 维度, 见 internal/middleware/ratelimit.go 的 clientIP).
+# 默认 100 QPS/IP: RatePerSec=100(稳定速率), Capacity=100(突发桶容量). 二者任一<=0 关闭.
+# 未配置 Redis 或 Redis 不可用时优雅降级为放行(不阻塞可用性).
 RateLimit:
-  Capacity: 200
-  RatePerSec: 50
+  Capacity: 100
+  RatePerSec: 100
+
+# 上游表配置中心(可选, 与 internal/config.NacosConf 字段一一对应).
+# 启用条件: Address 非空. 启用后从 Nacos 拉取 dataId=gateway-upstreams 的上游表并监听热更新;
+# 拉取/解析失败自动回退下方静态 Upstreams, 不阻塞启动、不影响可用性(见 internal/discovery/nacos.go).
+#
+# 为什么集群/容器部署必须配它: 下方静态 Upstreams 的 host 是 127.0.0.1(本地联调口径),
+# 容器内 127.0.0.1 指向网关自身 -> 转发必然失败; 容器形态需由 Nacos 下发指向服务 DNS 名的上游表
+# (deploy/nacos/gateway-upstreams.json, 由 compose 的 nacos-init / K8s 的 onepark-nacos-init 发布).
+# 地址留空(未注入 NACOS_ADDRESS)时本段不生效, 网关退化为使用静态 Upstreams(本地联调行为不变).
+Nacos:
+  Address: ${NACOS_ADDRESS}
+  Namespace: ${NACOS_NS}
+  Group: ${NACOS_GROUP}
+  DataId: gateway-upstreams
+  Username: ${NACOS_USERNAME}
+  Password: ${NACOS_PASSWORD}
 
 # 路由前缀 -> 上游服务(最长前缀优先匹配, 见 internal/proxy/proxy.go).
-# 端口与各服务实际监听端口一致(来源 deploy/docker-compose.yml 的 PORT 与 app/*/etc/*-api.yaml):
-#   device 8001 / user-manage 8086 / auth 8088 / workorder 8082 / alarm 8009 /
-#   dispatch 8053 / leasing 8051 / dashboard 8052 / billing 8063.
-# 本地联调用 127.0.0.1; 容器编排下网关改用 Nacos 动态上游(deploy/nacos/gateway-upstreams.json,
-# 使用 compose 服务 DNS 名), 二者仅 host 不同, 前缀/端口保持一致.
+# 端口逐一核对自各服务 app/*/etc/*-api.yaml 的 Port 字段(已对齐, 无漂移).
+# 全部 19 个服务目录中, 仅下列 16 个暴露 REST API, 可被本网关路由; 其余 3 个非 REST:
+#   - event-dispatcher : MQTT/Kafka 消费者, 无 HTTP 端口(不路由)
+#   - shadow-service   : gRPC(127.0.0.1:9002), 非 REST(不路由)
+#   - gateway-service  : 设备 IoT 网关(TCP/CoAP, 7000), 非用户 REST 入口(不路由)
+# 端口一览: auth 8088 / workorder 8082 / visitor 8083 / alarm 8009 / video 8011 /
+#   access-control 8010 / user-manage 8086 / device 8001 / parking 8084 / notice 8085 /
+#   leasing 8051 / dashboard 8052 / dispatch 8053 / energy-data 8061 / energy-analysis 8062 / billing 8063.
+# 本地联调用 127.0.0.1(Nacos.Address 留空时生效); 容器/集群部署改由上方 Nacos 动态下发,
+# 二者仅 host 不同, 前缀/端口保持一致.
 Upstreams:
   - Prefix: /api/workorder
     Target: http://127.0.0.1:8082
