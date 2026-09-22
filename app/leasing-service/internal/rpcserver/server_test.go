@@ -47,7 +47,9 @@ func openTestDB(t *testing.T) *gormx.DB {
 			continue
 		}
 		var c config.Config
-		if err := conf.Load(p, &c); err != nil {
+		// conf.UseEnv() 必须开: 配置里的 DSN 已是 ${VAR} 占位符(平台统一要求),
+		// 不开则加载到的是字面量, 连接必然失败 -> DB 用例**静默跳过**(go test 仍打印 ok)。
+		if err := conf.Load(p, &c, conf.UseEnv()); err != nil {
 			continue
 		}
 		if c.MySQL.DataSource == "" {

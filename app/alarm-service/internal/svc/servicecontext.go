@@ -8,6 +8,7 @@ import (
 
 	"onepark/app/alarm-service/internal/config"
 	"onepark/app/alarm-service/internal/dedup"
+	"onepark/app/alarm-service/internal/dispatch"
 	"onepark/app/alarm-service/internal/model"
 	"onepark/app/alarm-service/internal/notify"
 	"onepark/app/alarm-service/internal/rule"
@@ -100,7 +101,24 @@ func newNotifier(c config.Config) notify.Notifier {
 		topic = notify.DefaultTopic
 	}
 	log.Printf("[info] alarm-service alarm event notify enabled, topic=%s", topic)
-	return notify.NewKafkaNotifier(kafka.NewProducer(brokers), topic)
+	return notify.NewKafkaNotifier(kafka.NewProducer(brokers), topic,
+		notify.WithPriorityTable(newPriorityTable(c)))
+}
+
+// newPriorityTable 按配置生成"告警等级 → 工单优先级"映射(#40 的派单衔接).
+//
+// 非法覆盖项在此打 WARN 后按默认继续: 这条旁路不影响服务可启动性,
+// 但必须留痕 —— 否则运营改了映射却不生效时没有任何线索.
+func newPriorityTable(c config.Config) dispatch.Table {
+	table, rejected := dispatch.ParseTable(c.Dispatch.LevelPriority)
+	for _, reason := range rejected {
+		log.Printf("[warn] alarm-service dispatch priority override rejected: %s", reason)
+	}
+	if len(c.Dispatch.LevelPriority) > 0 && len(rejected) == 0 {
+		log.Printf("[info] alarm-service dispatch priority overrides applied, levels=%d",
+			len(c.Dispatch.LevelPriority))
+	}
+	return table
 }
 
 // newSearcher 按配置装配 ES 检索客户端(#41/#44).

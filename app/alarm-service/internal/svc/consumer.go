@@ -51,11 +51,13 @@ var retryBackoff = []time.Duration{100 * time.Millisecond, 500 * time.Millisecon
 // AreaID/Timestamp 为契约定稿前的旧字段, 仅用于兼容历史消息, 新生产端不会发送.
 // 字段缺失时的降级策略见 IdempotentID / MatchIntrusionRule 注释.
 //
-// ⚠️ 入站兼容(M1 实际报文与本结构的差异, 2026-09-20 联调取证):
-// event-dispatcher 投递的 Message 用 `occurred_at` 承载事件时间, 且不带 tenant_id / area_id;
-// 本结构原本只读 `timestamp`, 直接按 M1 报文解析会得到 Timestamp=0。
-// 详见 EventTime 与 parseDeviceEvent 的注释 —— 这不是洁癖, Timestamp=0 会让
-// request_id 缺失时的指纹降级把"不同时刻的同类事件"算成同一条, 从而静默丢告警。
+// Source 生产端来源(mqtt / tcp-gateway / http-fallback), 仅用于排查, 不参与判定.
+//
+// ⚠️ 入站兼容(2026-09-20 联调取证): 生产端已统一到 occurred_at, 但历史消息与
+// device-service 的 HTTP 降级通道仍可能只带 timestamp(毫秒)。两个时间字段都必须认 ——
+// 只认其中一个时, 另一类消息的事件时间恒为 0, 而 IdempotentID 的指纹降级把时间算进哈希,
+// 恒为 0 会让"同一设备同一类型"的所有事件指纹相同, 被 L1 幂等判为已处理丢弃(静默丢告警).
+// 详见 EventTime 的注释.
 type DeviceEvent struct {
 	RequestID string `json:"request_id"`
 	TenantID  int64  `json:"tenant_id"`
@@ -64,24 +66,29 @@ type DeviceEvent struct {
 	DeviceType string          `json:"device_type"`
 	EventType  string          `json:"event_type"`
 	ZoneID     string          `json:"zone_id"`     // 能源区域编码, 空表示未分区
-	OccurredAt int64           `json:"occurred_at"` // 事件时间(Unix 秒)
+	OccurredAt int64           `json:"occurred_at"` // 事件时间(Unix 秒), 统一契约字段
 	Payload    json.RawMessage `json:"payload"`
-	Timestamp  int64           `json:"timestamp"`   // 事件时间(毫秒), device-service HTTP 降级通道的写法
-	OccurredAt int64           `json:"occurred_at"` // 事件时间(毫秒), event-dispatcher(MQTT 通道)的写法
+	Source     string          `json:"source"`
+	AreaID     int64           `json:"area_id"`   // 旧契约字段(历史消息兼容)
+	Timestamp  int64           `json:"timestamp"` // 旧契约字段, 毫秒(历史消息兼容)
 }
 
-// EventTime 返回归一化后的事件时间(毫秒).
+// EventTime 返回事件时间的 Unix 秒.
 //
-// 为什么必须两个字段都认: 同一条链路上有两个生产者 —— device-service 的 HTTP 降级通道
-// 写 `timestamp`, event-dispatcher 的 MQTT 通道写 `occurred_at`(见各自的消息结构体)。
-// 只认其中一个时, 另一个通道的消息解析出来时间恒为 0, 而 IdempotentID 的指纹降级
-// 把时间算进哈希 —— 恒为 0 意味着"同一设备同一类型"的所有事件指纹相同,
-// 第二条起就被 L1 幂等判为已处理直接丢弃。现象不是报错, 是告警**静默变少**。
+// 单位必须与 common/kafka.DeviceTelemetry 一致(秒), 不能各自解释: 告警落库、ES 双写、
+// 大屏聚合都按秒消费, 混入毫秒会让时间整体偏移 1000 倍。
+//
+// 取值顺序: occurred_at(统一契约) → timestamp(历史消息, 毫秒换算为秒) → 0。
+// 均缺失时返回 0 而不是当前时间: 指纹降级会把这个值算进哈希, 用"处理时刻"会让
+// 重投的同一条消息算出不同指纹, 幂等失效。
 func (e DeviceEvent) EventTime() int64 {
-	if e.Timestamp != 0 {
-		return e.Timestamp
+	if e.OccurredAt > 0 {
+		return e.OccurredAt
 	}
-	return e.OccurredAt
+	if e.Timestamp > 0 {
+		return e.Timestamp / 1000
+	}
+	return 0
 }
 
 // IdempotentID 返回写入 alarm.request_id 的幂等键.
@@ -234,6 +241,15 @@ func (s *ServiceContext) HandleDeviceEvent(ctx context.Context, msg kafkago.Mess
 		log.Infof("alarm skip duplicated device event request_id=%s", id)
 		return nil
 	}
+	// 走到这里说明本次调用刚刚占下了 L1 幂等键(SetNX 写入成功)。
+	// 从这一刻起, 只要告警没有真正落库, 就必须把键释放掉(见 releaseDedupKey):
+	// 否则后续重投会被 L1 判成"已处理"直接返回 nil —— 告警永久丢失、不进死信台账,
+	// 日志还伪装成一次正常去重, 运维从现象上完全看不出曾经失败过。
+	// 这是 common/dedup 幂等键语义铁律在本链路的落点: 键存在必须等价于"告警确实落库了"。
+	fail := func(err error) error {
+		s.releaseDedupKey(ctx, id)
+		return err
+	}
 
 	// 命中多条规则时逐条落库; L2 冷却按"设备 + 事件 + 规则"维度抑制, 不同规则互不掩盖.
 	now := time.Now()
@@ -242,7 +258,7 @@ func (s *ServiceContext) HandleDeviceEvent(ctx context.Context, msg kafkago.Mess
 			cooling, err := s.Cooldown.TryAcquire(ctx, cooldownKey(ev, d.RuleID), cooldownTTL)
 			if err != nil {
 				log.Errorf("alarm cooldown unavailable, requeue later device_id=%s err=%v", ev.DeviceID, err)
-				return err
+				return fail(err)
 			}
 			if cooling {
 				log.Infof("alarm suppressed by cooldown device_id=%s event_type=%s rule_id=%d",
@@ -259,7 +275,7 @@ func (s *ServiceContext) HandleDeviceEvent(ctx context.Context, msg kafkago.Mess
 				continue
 			}
 			log.Errorf("alarm create failed request_id=%s rule_id=%d err=%v", id, d.RuleID, err)
-			return err
+			return fail(err)
 		}
 		log.Infof("alarm created alarm_no=%s device_id=%s event_type=%s level=%d rule_id=%d",
 			a.AlarmNo, a.DeviceID, a.EventType, a.Level, a.RuleID)
@@ -270,13 +286,31 @@ func (s *ServiceContext) HandleDeviceEvent(ctx context.Context, msg kafkago.Mess
 	return nil
 }
 
+// releaseDedupKey 释放 L1 幂等键, 使同一条消息可被重新处理(消费端重投 / 死信重放).
+//
+// 与 Dedup.Seen 配对使用, 只出现在"已占键但告警未落库"的失败路径上:
+// 不释放的话, 重投会被 Seen 判为已处理直接返回 nil, 告警就此消失且不进死信;
+// 释放后重投是安全的 —— 已落库的那几条由 L3 唯一索引(uk_request_rule)拦截, 不会重复.
+//
+// 释放失败只记日志: 最坏情况是回到修复前的行为(重投被跳过), 而释放成功才是新增的保障,
+// 不能因为释放这一步失败, 就把原本可重试的错误升级成"必须进死信"。
+func (s *ServiceContext) releaseDedupKey(ctx context.Context, id string) {
+	if s.Dedup == nil {
+		return
+	}
+	if err := s.Dedup.Release(ctx, keyDedup+id); err != nil {
+		logx.WithContext(ctx).Errorf("alarm release dedup key failed, retry may be skipped request_id=%s err=%v", id, err)
+	}
+}
+
 // notifyAlarmCreated 告警落库后向 M5 投递"告警产生"事件(#40 的上半段).
 //
 // **失败只记日志, 既不回滚告警也不阻塞位移** —— 与 resolve 路径(返回错误码让调用方补偿)
 // 刻意不同, 原因是这条路径重投没有意义:
-//   告警已落库 → 消费端重投 → L1 幂等键命中(或 L3 唯一索引命中)→ 本函数根本不会再被执行,
-//   通知永远补不上, 却让整条消息反复重试直至进死信。相比之下"告警在库里、M5 少收一条事件"
-//   是可接受的损失, 且落库成功日志已给出 alarm_no, 可人工补发。
+//
+//	告警已落库 → 消费端重投 → L1 幂等键命中(或 L3 唯一索引命中)→ 本函数根本不会再被执行,
+//	通知永远补不上, 却让整条消息反复重试直至进死信。相比之下"告警在库里、M5 少收一条事件"
+//	是可接受的损失, 且落库成功日志已给出 alarm_no, 可人工补发。
 //
 // 与广播/ES 双写同一取舍: 告警已落 MySQL(唯一事实来源), 旁路失败不应当阻塞主链路。
 func (s *ServiceContext) notifyAlarmCreated(ctx context.Context, a *model.Alarm, at time.Time) {
@@ -480,10 +514,13 @@ func (s *ServiceContext) evaluateRules(ctx context.Context, ev *DeviceEvent, ide
 	logx.WithContext(ctx).Slowf(
 		"alarm legacy hardcoded intrusion rule in use, alarm_rule has no enabled rule device_id=%s device_type=%s event_type=%s",
 		ev.DeviceID, ev.DeviceType, ev.EventType)
+	// 等级与规则表内的门禁闯入规则①保持一致(AlarmLevelMajor=3 "严重"):
+	// 回退路径只是"规则中心不可用时的兜底", 同一个现象在两条路径上必须产出同一等级,
+	// 否则规则一挂, 告警等级就从 3 掉到 2 —— 大屏的声光阈值与 M5 派单优先级都会跟着变。
 	return []*rule.Draft{{
 		RuleID:    hardcodedRuleID,
 		RuleName:  "硬编码门禁闯入规则",
-		Level:     model.AlarmLevelMinor,
+		Level:     model.AlarmLevelMajor,
 		EventType: ev.EventType,
 		DeviceID:  ev.DeviceID,
 		AreaID:    ev.AreaID,
