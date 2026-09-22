@@ -47,9 +47,13 @@ func (l *VisitorInviteLogic) VisitorInvite(req *types.VisitorInviteReq) (resp *t
 	}
 
 	// 黑名单实时拦截(P2): 邀请阶段即按手机号/身份证拦截被拉黑人员, 禁止生成通行码.
-	if blocked, e := checkBlocked(l.ctx, l.svcCtx, tenantID, req.VisitorPhone, req.IdNo); e != nil {
-		l.Errorf("check blocklist failed: %v", e)
-	} else if blocked {
+	// 安全设计: 查询异常 fail-closed(拒绝邀请), 防止 DB 抖动期间黑名单被绕过.
+	blocked, e := checkBlocked(l.ctx, l.svcCtx, tenantID, req.VisitorPhone, req.IdNo)
+	if e != nil {
+		l.Errorf("check blocklist failed, fail-closed deny (inviter=%d): %v", inviterID, e)
+		return nil, errorx.NewError(errorx.ErrVisitorBlacklisted, "风控校验暂不可用，已临时拒绝邀请")
+	}
+	if blocked {
 		// 黑名单命中事件(看板 P2): blocked → Kafka visitor-event(visitor_id=0 表示记录未创建),
 		// 供安防/大屏实时感知拉黑人员尝试进入; 尽力而为语义, 发布失败不影响拦截拒绝结果.
 		publishVisitorEvent(l.ctx, l.svcCtx, l.Logger, buildBlockedEvent(
