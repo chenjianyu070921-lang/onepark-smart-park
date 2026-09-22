@@ -68,9 +68,13 @@ services:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
     healthcheck:
-      # ⚠️ 服务尚无 /healthz（A7，待 M6 的 common/checks），只能做 TCP 连通性探测。
-      #    等 healthz 接上后应换成 HTTP 探测（TCP 通不代表业务可用）。
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 8051 || exit 1"]
+      # 探测 GET /health（common/health 提供，全平台统一）。
+      # 比 TCP 探测强：它证明 HTTP 路由真的在工作，而不只是端口开着。
+      #
+      # ⚠️ 这是**存活探测**，不是就绪探测：/health 刻意**总是返回 200**
+      #    （避免依赖抖动导致容器被反复重启），依赖是否可用要看 body 里的 status 字段
+      #    （ok / degraded）与 components 明细。
+      test: ["CMD-SHELL", "wget -q -T 2 -O /dev/null http://127.0.0.1:8051/health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 12
@@ -97,6 +101,7 @@ services:
     depends_on:
       mysql: { condition: service_healthy }
     healthcheck:
+      # gRPC 入口没有 REST 服务，因此**没有** /health 可探 —— 只能测端口连通。
       test: ["CMD-SHELL", "nc -z 127.0.0.1 9051 || exit 1"]
       interval: 10s
       timeout: 3s
@@ -136,7 +141,7 @@ services:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 8052 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -T 2 -O /dev/null http://127.0.0.1:8052/health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 12
@@ -168,7 +173,7 @@ services:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 8053 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -T 2 -O /dev/null http://127.0.0.1:8053/health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 12

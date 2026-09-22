@@ -73,7 +73,9 @@ CREATE TABLE IF NOT EXISTS sys_role_menu (
 INSERT IGNORE INTO sys_role (id, role_key, role_name, data_scope, remark) VALUES
     (1, 'super_admin', '超级管理员', 1, '全部数据权限, 拥有所有菜单权限'),
     (2, 'park_admin',  '园区管理员', 2, '本园区/租户数据权限'),
-    (3, 'staff',       '普通员工',   4, '仅本人数据权限');
+    (3, 'staff',       '普通员工',   4, '仅本人数据权限'),
+    (4, 'security',    '保安',       2, '本园区门禁查看/告警确认'),
+    (5, 'property_mgr','物业经理',   2, '本园区工单管理/停车管理');
 
 -- 菜单/权限目录(permission 为空表示仅目录节点, 不含具体操作权限)
 INSERT IGNORE INTO sys_menu (id, parent_id, menu_key, menu_name, permission, path, sort) VALUES
@@ -83,13 +85,30 @@ INSERT IGNORE INTO sys_menu (id, parent_id, menu_key, menu_name, permission, pat
     (4, 1, 'role',       '角色管理',   'role:read', '/sys/role',       4),
     (5, 1, 'role:write', '角色编辑',   'role:write','/sys/role/edit',  5),
     (6, 1, 'menu',       '菜单权限',   'menu:read', '/sys/menu',       6),
-    (7, 1, 'menu:write', '菜单编辑',   'menu:write','/sys/menu/edit',  7);
+    (7, 1, 'menu:write', '菜单编辑',   'menu:write','/sys/menu/edit',  7),
+    -- 业务权限目录(resource:action 粒度, 供网关 RBAC 注册表对齐):
+    -- 保安=门禁查看+告警确认; 物业经理=工单管理+停车管理. access:write/alarm:write 仅 super_admin(避免写操作对全员敞开).
+    (8,  1, 'access',       '门禁查看',     'access:read',    '/access',         8),
+    (9,  1, 'alarm',        '告警查看',     'alarm:read',     '/alarm',          9),
+    (10, 1, 'alarm:confirm','告警确认',     'alarm:confirm',  '/alarm/confirm',  10),
+    (11, 1, 'workorder',    '工单查看',     'workorder:read', '/workorder',      11),
+    (12, 1, 'workorder:write','工单管理',   'workorder:write','/workorder/manage',12),
+    (13, 1, 'parking',      '停车查看',     'parking:read',   '/parking',        13),
+    (14, 1, 'parking:write','停车管理',     'parking:write',  '/parking/manage', 14),
+    (15, 1, 'access:write', '门禁操作',     'access:write',   '/access/manage',  15),
+    (16, 1, 'alarm:write',  '告警规则管理', 'alarm:write',    '/alarm/manage',   16);
 
 -- 角色-菜单绑定: super_admin 拥有全部; park_admin 仅只读节点; staff 仅用户查看
 INSERT IGNORE INTO sys_role_menu (role_id, menu_id) VALUES
     (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7),
     (2, 1), (2, 2), (2, 4), (2, 6),
-    (3, 2);
+    (3, 2),
+    -- 保安: 门禁查看 + 告警查看 + 告警确认
+    (4, 8), (4, 9), (4, 10),
+    -- 物业经理: 工单查看/管理 + 停车查看/管理
+    (5, 11), (5, 12), (5, 13), (5, 14),
+    -- super_admin 拥有全部(含新增业务权限, 保持"管理员拥有所有菜单权限")
+    (1, 8), (1, 9), (1, 10), (1, 11), (1, 12), (1, 13), (1, 14), (1, 15), (1, 16);
 
 -- ============================================================
 -- 初始管理员种子账号(一键引导, 首次登录务必改密)

@@ -13,3 +13,13 @@ KafkaBrokers: "${KAFKA_BROKERS}"
 MaxFrameBytes: 8192
 ReadTimeoutSec: 120
 AuthTimeoutSec: 10
+
+# CoAP 多协议接入(与 TCP 共用 frame.Session 帧语义, 见 docs/design/coap-integration-plan.md).
+# Enabled 默认关: 灰度可控, 回滚 = 关配置, 零 DB 依赖零回归.
+CoAP:
+  Enabled: false                 # 置 true 开启 CoAP 接入(UDP 5683 + 可选 DTLS 5684)
+  Host: 0.0.0.0
+  Port: 5683                     # NoSec UDP 端口(内网/联调用)
+  DTLSEnabled: false             # 生产建议 true, 强制 DTLS 加密
+  DTLSPort: 5684                 # DTLS 端口
+  DTLSPSK: ${COAP_DTLS_PSK}      # DTLS 单部署共享预共享密钥(生产必填, 否则拒绝启动)

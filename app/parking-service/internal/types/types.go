@@ -114,3 +114,29 @@ type MonthlyCardListResp struct {
 	Total int64             `json:"total"` // 总数
 	List  []MonthlyCardItem `json:"list"`  // 当前页数据
 }
+
+// ---- 停车计费规则配置 (P2 计费规则配置接口) ----
+
+// UpsertParkingFeeRuleReq 保存计费规则请求.
+type UpsertParkingFeeRuleReq struct {
+	FreeMinutes   int     `json:"free_minutes"`            // 免费时长(分钟)
+	HourlyFee     float64 `json:"hourly_fee"`              // 元/小时(必须>0)
+	DailyCap      float64 `json:"daily_cap,optional"`      // 每日封顶(元, 0=不封顶)
+	EffectiveFrom int64   `json:"effective_from,optional"` // 生效起(秒级, 0=立即)
+	EffectiveTo   int64   `json:"effective_to,optional"`   // 生效止(秒级, 0=永久)
+}
+
+// ParkingFeeRuleItem 计费规则项.
+type ParkingFeeRuleItem struct {
+	Id            int64   `json:"id"`                      // 规则ID
+	FreeMinutes   int     `json:"free_minutes"`            // 免费时长(分钟)
+	HourlyFee     float64 `json:"hourly_fee"`              // 元/小时
+	DailyCap      float64 `json:"daily_cap"`               // 每日封顶(元, 0=不封顶)
+	EffectiveFrom int64   `json:"effective_from,optional"` // 生效起(秒级)
+	EffectiveTo   int64   `json:"effective_to,optional"`   // 生效止(秒级)
+}
+
+// ParkingFeeRuleResp 当前生效计费规则响应(无配置时 rule 为 null).
+type ParkingFeeRuleResp struct {
+	Rule *ParkingFeeRuleItem `json:"rule,optional"` // 当前生效规则(无配置为 null)
+}

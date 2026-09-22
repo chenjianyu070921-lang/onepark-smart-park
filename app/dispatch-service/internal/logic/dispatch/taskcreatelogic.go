@@ -51,9 +51,13 @@ func (l *TaskCreateLogic) TaskCreate(req *types.TaskCreateReq) (*types.TaskCreat
 	}
 
 	task := &model.DispatchTask{
-		TaskNo:   model.NewTaskNo(),
-		Title:    req.Title,
-		Source:   model.SourceManual,
+		TaskNo: model.NewTaskNo(),
+		Title:  req.Title,
+		Source: model.SourceManual,
+		// 租户只从 ctx 取(网关注入, 不可伪造)。
+		// ⚠️ 必须写: 列表/详情/状态流转都按 ctx 的租户过滤(Where tenant_id = ?),
+		// 不写就恒为 0 —— 网关注入非 0 租户时, 用户会**建完单立刻查不到自己的单**。
+		TenantID: ctxdata.GetTenantId(l.ctx),
 		ZoneCode: req.ZoneCode,
 		// 归一化技能标签, 保证与人员池中的写法能匹配上(大小写/空格/重复都抹平)
 		RequiredSkill: model.NormalizeSkills(req.RequiredSkill),

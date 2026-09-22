@@ -61,12 +61,25 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: DisableMonthlyCardHandler(serverCtx),
 			},
 			{
+				// 月卡		{
 				// 月卡分页列表+到期提醒筛选(P2)
 				Method:  http.MethodGet,
 				Path:    "/api/parking/monthly-cards",
 				Handler: ListMonthlyCardsHandler(serverCtx),
 			},
-		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
+			{
+				// 停车计费规则查询(P2 计费规则配置接口): 返回当前生效规则, 无配置为 null
+				Method:  http.MethodGet,
+				Path:    "/api/parking/fee-rule",
+				Handler: GetParkingFeeRuleHandler(serverCtx),
+			},
+			{
+				// 停车计费规则保存(P2 计费规则配置接口): 新增一条生效规则
+				Method:  http.MethodPost,
+				Path:    "/api/parking/fee-rule",
+				Handler: UpsertParkingFeeRuleHandler(serverCtx),
+			},
+			{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
 		},
 	)
 }

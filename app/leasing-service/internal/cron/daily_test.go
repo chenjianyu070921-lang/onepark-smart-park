@@ -67,12 +67,24 @@ func openTestDeps(t *testing.T) (*gormx.DB, *redisx.Client) {
 			continue
 		}
 		var c config.Config
-		if err := conf.Load(p, &c); err != nil {
+		// conf.UseEnv() 必须开: 配置里的 DSN/Redis 已是 ${VAR} 占位符(平台统一要求),
+		// 不开则加载到的是字面量, 连接必然失败 -> DB 用例**静默跳过**(go test 仍打印 ok)。
+		if err := conf.Load(p, &c, conf.UseEnv()); err != nil {
 			continue
 		}
 		if c.MySQL.DataSource == "" {
 			continue
 		}
+
+		// ⭐ 测试改用**独立 Redis DB(15)**。
+		//
+		// 为什么必须隔离: 月度出账与每日维护都靠 Redis 锁
+		// (`m5:lease:bill:lock:<账期>` / `m5:lease:lock:daily:<日期>`), 而锁是**跨进程共享**的。
+		// 于是只要本机还跑着 leasing-api(它的 cron 定时器会周期性抢同一把锁),
+		// 或者 go test 并行跑着别的包, 用例就会拿到「正在生成中 (M5-W-1001)」而假失败 ——
+		// 现象是"同一个用例单跑绿、全量跑红", 极易被误判成代码坏了。
+		// 锁与真实服务隔离后, 这类假失败从根上消失; MySQL 仍共用(各用例只断言自己造的数据)。
+		c.Redis.DB = 15
 
 		db, err := gormx.NewDB(c.MySQL.DataSource)
 		if err != nil {

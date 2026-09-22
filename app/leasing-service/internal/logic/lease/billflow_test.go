@@ -14,6 +14,7 @@ import (
 	"onepark/app/leasing-service/internal/model"
 	"onepark/app/leasing-service/internal/svc"
 	"onepark/app/leasing-service/internal/types"
+	"onepark/common/ctxdata"
 	"onepark/common/gormx"
 )
 
@@ -29,7 +30,10 @@ func openTestDB(t *testing.T) *gormx.DB {
 			continue
 		}
 		var c config.Config
-		if err := conf.Load(p, &c); err != nil {
+		// conf.UseEnv() 必须开: 配置里的 DSN/Redis 已是 ${VAR} 占位符(平台统一要求),
+		// 不开则加载到的是字面量 "${LEASING_MYSQL_DSN}", 连接必然失败 ——
+		// 表现为整个包的 DB 用例**静默跳过**(go test 仍打印 ok), 极易把"没跑"当"跑过了"。
+		if err := conf.Load(p, &c, conf.UseEnv()); err != nil {
 			continue
 		}
 		if c.MySQL.DataSource == "" {
@@ -65,15 +69,18 @@ const testPeriod = "2099-01"
 // TestBillFlow 账单闭环: 查询 -> 汇总 -> 缴费(幂等) -> 撤销.
 func TestBillFlow(t *testing.T) {
 	db := openTestDB(t)
-	ctx := context.Background()
 	svcCtx := &svc.ServiceContext{DB: db}
 
 	suffix := time.Now().UnixNano() % 1_000_000_000
 	rent, _ := decimal.NewFromString("10000.50")
+	// 账单接口现在只认 **ctx 里的租户**(网关注入, 不可伪造), 所以用例必须带租户调用 ——
+	// 这也正是本用例第 5 段能验证「跨租户看不见、也改不动」的前提。
+	tenantID := 9_500_000_000 + suffix%1000
+	ctx := ctxdata.SetTenantId(context.Background(), tenantID)
 
 	contract := &model.LeaseContract{
 		ContractNo:  fmt.Sprintf("LC-BILLFLOW-%d", suffix),
-		TenantId:    9_500_000_000 + suffix%1000,
+		TenantId:    tenantID,
 		TenantName:  "BillFlow Test Co",
 		ZoneCode:    "Z-9F-901",
 		AreaSqm:     100,
@@ -191,6 +198,43 @@ func TestBillFlow(t *testing.T) {
 	if _, err := NewBillStatusLogic(ctx, svcCtx).
 		BillStatus(&types.BillStatusReq{Id: 999_999_999, Action: "pay"}); err == nil {
 		t.Error("不存在的账单应报错")
+	}
+
+	// ---------- 5. 跨租户隔离(2026-09-21 修复的安全语义) ----------
+	// 修复前: 列表/汇总用**请求体里**的 tenant_id(传 0 还看到全部园区), 缴费接口**完全不查租户**
+	// —— 换个园区身份就能读别人账单、甚至改别人的缴费状态。现在只认 ctx 里的租户。
+	otherCtx := ctxdata.SetTenantId(context.Background(), tenantID+1)
+
+	otherList, err := NewBillListLogic(otherCtx, svcCtx).
+		BillList(&types.BillListReq{ContractId: contract.Id, Period: testPeriod, Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("跨租户查询应返回空结果而不是报错: %v", err)
+	}
+	if otherList.Total != 0 || len(otherList.List) != 0 {
+		t.Errorf("跨租户不应看到账单, 实际 total=%d len=%d", otherList.Total, len(otherList.List))
+	}
+
+	otherSum, err := NewBillSummaryLogic(otherCtx, svcCtx).
+		BillSummary(&types.BillSummaryReq{Period: testPeriod})
+	if err != nil {
+		t.Fatalf("跨租户汇总失败: %v", err)
+	}
+	if otherSum.BillCount != 0 || otherSum.TotalAmount != "0.00" {
+		t.Errorf("跨租户汇总不应计入本租户账单, 实际 count=%d total=%q",
+			otherSum.BillCount, otherSum.TotalAmount)
+	}
+
+	if _, err := NewBillStatusLogic(otherCtx, svcCtx).
+		BillStatus(&types.BillStatusReq{Id: bill.Id, Action: "pay"}); err == nil {
+		t.Error("跨租户不应能改别人园区的账单状态")
+	}
+	// 拒绝必须是**真拒绝**: 报错的同时不能已经把状态改了
+	var afterCross model.LeaseBill
+	if err := db.WithContext(ctx).First(&afterCross, bill.Id).Error; err != nil {
+		t.Fatalf("回读账单失败: %v", err)
+	}
+	if afterCross.Status != model.BillStatusUnpaid {
+		t.Errorf("跨租户操作不应改动账单状态, 实际 %d", afterCross.Status)
 	}
 }
 

@@ -18,8 +18,9 @@ func NewDevice(client devicepb.DeviceServiceClient) *Device {
 
 // Stat 取全园区设备台数与状态分布.
 //
-// 刻意**只传空请求, 不传 type**: M1 的 device 表当前没有 type 列, 传非 0 会返回
-// InvalidArgument(见 proto/device/device.proto 的注释)。待 M1 补该列后再启用按类型过滤。
+// 传空请求(type=0): 大屏需要全园区设备总览, type=0 表示"全部类型", 是正确的查询意图.
+// M1 device-service 的 GetDeviceStat 已完整支持 type 过滤(1地磁/2门禁/3摄像头...),
+// proto 契约与 device 表 type 列均已就绪; 若未来大屏需要按类型分卡片, 传对应 type 即可.
 //
 // total 直接取 M1 的返回值, 不做本地累加 —— 设备状态的真相源在 M1, M5 不重复计算,
 // 否则两边一旦漂移就无法判定谁错。
@@ -28,10 +29,14 @@ func (p *Device) Stat(ctx context.Context) (DeviceStat, error) {
 	if err != nil {
 		return DeviceStat{}, err
 	}
-	return DeviceStat{
+	stat := DeviceStat{
 		Total:   resp.GetTotal(),
 		Online:  resp.GetOnline(),
 		Offline: resp.GetOffline(),
 		Fault:   resp.GetFault(),
-	}, nil
+	}
+	// 透传 + 日志留痕: 数据不纠正(真相源在 M1), 但不一致必须可见 ——
+	// 否则 M1 给 device.status 新增取值后, 大屏会静默少算一截而无人知晓。
+	warnIfDrifted("设备", stat.Total, stat.Online+stat.Offline+stat.Fault)
+	return stat, nil
 }
