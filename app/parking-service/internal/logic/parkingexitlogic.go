@@ -54,7 +54,13 @@ func (l *ParkingExitLogic) ParkingExit(req *types.ParkingExitReq) (resp *types.P
 	if rec.EntryTime != nil {
 		dur = int(now.Sub(*rec.EntryTime).Minutes())
 	}
+	// 计费: 优先采用当前生效的配置规则; 无配置/解析失败降级为内置默认(CalcFee).
 	fee := svc.CalcFee(rec.EntryTime, &now, rec.VehicleType)
+	if rule, rerr := model.GetActiveParkingFeeRule(l.svcCtx.DB, tenantID, now); rerr == nil && rule != nil {
+		if cfg, perr := rule.ParseRule(); perr == nil {
+			fee = svc.CalcFeeByRule(rec.EntryTime, &now, rec.VehicleType, cfg)
+		}
+	}
 
 	updates := map[string]interface{}{
 		"status":        model.ParkingStatusDone,

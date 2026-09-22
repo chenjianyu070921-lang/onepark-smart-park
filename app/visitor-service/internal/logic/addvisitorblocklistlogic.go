@@ -59,17 +59,8 @@ func (l *AddVisitorBlocklistLogic) AddVisitorBlocklist(req *types.AddVisitorBloc
 	var exist model.VisitorBlocklist
 	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorBlocklist{}).
 		Where("tenant_id=? AND status=?", tenantID, model.BlocklistStatusActive)
-	conds := []string{}
-	args := []interface{}{}
-	if req.Phone != "" {
-		conds = append(conds, "phone = ?")
-		args = append(args, req.Phone)
-	}
-	if req.IdNo != "" {
-		conds = append(conds, "id_no = ?")
-		args = append(args, req.IdNo)
-	}
-	q = q.Where(strings.Join(conds, " OR "), args...)
+	where, args := buildBlocklistDedupWhere(req)
+	q = q.Where(where, args...)
 	if e := q.First(&exist).Error; e == nil {
 		if e := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorBlocklist{}).
 			Where("id=? AND tenant_id=?", exist.ID, tenantID).
@@ -106,4 +97,24 @@ func unixPtrBL(sec int64) *time.Time {
 	}
 	t := time.Unix(sec, 0)
 	return &t
+}
+
+// buildBlocklistDedupWhere 构造黑名单去重查询条件:
+// 同租户已生效记录中, 手机号或身份证任一命中即拦截(OR 语义); 两者皆空返回恒不成立条件.
+// 抽为纯函数以便单测, 与 AddVisitorBlocklist 去重逻辑保持一致.
+func buildBlocklistDedupWhere(req *types.AddVisitorBlocklistReq) (string, []interface{}) {
+	conds := []string{}
+	args := []interface{}{}
+	if req.Phone != "" {
+		conds = append(conds, "phone = ?")
+		args = append(args, req.Phone)
+	}
+	if req.IdNo != "" {
+		conds = append(conds, "id_no = ?")
+		args = append(args, req.IdNo)
+	}
+	if len(conds) == 0 {
+		return "1=0", nil
+	}
+	return strings.Join(conds, " OR "), args
 }
