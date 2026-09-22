@@ -39,11 +39,15 @@ func (p *Alarm) Stat(ctx context.Context, tenantId int64) (AlarmStat, error) {
 	}
 
 	counts := resp.GetLevelCount()
-	return AlarmStat{
+	stat := AlarmStat{
 		Total:    resp.GetTotal(),
 		Critical: counts[alarmLevelCritical],
 		Major:    counts[alarmLevelMajor],
 		Minor:    counts[alarmLevelMinor],
 		Info:     counts[alarmLevelInfo],
-	}, nil
+	}
+	// 四项只覆盖等级 1~4; 若 M3 新增等级码, 分项之和会小于 total ——
+	// 数据照原样透传, 但必须留痕, 否则大屏"总数与分组对不上"查不出原因。
+	warnIfDrifted("告警", stat.Total, stat.Critical+stat.Major+stat.Minor+stat.Info)
+	return stat, nil
 }

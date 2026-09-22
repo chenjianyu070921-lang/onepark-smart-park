@@ -47,5 +47,8 @@ func (p *WorkOrder) Stat(ctx context.Context, tenantId int64) (WorkOrderStat, er
 		sec := m * 60
 		stat.AvgHandleSec = &sec
 	}
+	// 完成率换算后必须落在 [0,1]; 越界说明 M2 的口径变了(百分比与小数互换等),
+	// 这时大屏会显示"完成率 150%"这类一眼假却无人认领的数字。
+	warnIfRateOutOfRange("工单完成", stat.CompleteRate)
 	return stat, nil
 }
