@@ -20,6 +20,9 @@ FROM golang:1.26 AS builder
 # 上游阶段也需要 args 来拼路径
 ARG SVC_DIR
 ARG MAIN
+# 构建期模块代理(默认国内 goproxy.cn, 可被 --build-arg GOPROXY=... 覆盖); 避免容器内 go mod download 拉取失败.
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=$GOPROXY
 WORKDIR /src
 # 复制整个仓库(经根 .dockerignore 排除 .git/docs/deploy 等非构建文件), 保证 go.work 完整可解析.
 COPY . .

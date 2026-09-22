@@ -24,7 +24,7 @@ const visitorEventPublishTimeout = 2 * time.Second
 // 消费端应按 event 分发且对未知类型静默忽略, 保证新增事件向后兼容.
 type VisitorEvent struct {
 	EventId      string `json:"event_id"`      // 事件ID(优先取全链路 RequestId, 便于幂等去重)
-	Event        string `json:"event"`         // invite / checkin / checkout
+	Event        string `json:"event"`         // invite / checkin / checkout / blocked
 	TenantId     int64  `json:"tenant_id"`     // 园区ID(RBAC 隔离维度)
 	VisitorId    int64  `json:"visitor_id"`    // 访客通行记录ID
 	VisitorName  string `json:"visitor_name"`  // 访客姓名
