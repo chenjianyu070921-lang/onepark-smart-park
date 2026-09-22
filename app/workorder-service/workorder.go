@@ -10,12 +10,16 @@ import (
 	"onepark/app/workorder-service/internal/consumer"
 	"onepark/app/workorder-service/internal/cron"
 	"onepark/app/workorder-service/internal/handler"
+	"onepark/app/workorder-service/internal/rpcserver"
 	"onepark/app/workorder-service/internal/svc"
 	"onepark/common/health"
 	cmw "onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
+	"github.com/zeromicro/go-zero/zrpc"
+	"google.golang.org/grpc"
+	workorderpb "onepark/proto/workorder"
 )
 
 var configFile = flag.String("f", "etc/workorder-api.yaml", "the config file")
@@ -36,6 +40,16 @@ func main() {
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+
+	// 工单 gRPC 服务(M5 运营大屏 ListWorkOrders 聚合查询): 与 REST 同进程双模监听 9091.
+	// 注册 WorkorderServer 实现(rpcserver 包), 由 M5 dashboard 经 WORKORDER_RPC_ENDPOINTS 调用.
+	grpcServer := zrpc.MustNewServer(c.Rpc, func(s *grpc.Server) {
+		workorderpb.RegisterWorkorderServiceServer(s, rpcserver.NewWorkorderServer(ctx.DB))
+	})
+	defer grpcServer.Stop()
+	go func() {
+		grpcServer.Start()
+	}()
 
 	// 健康检查: /api/healthz 存活(不探依赖), /api/readyz 就绪(探 MySQL + Redis; Kafka 由 Producer 旁路兜底).
 	server.AddRoutes([]rest.Route{

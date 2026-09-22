@@ -50,6 +50,10 @@ func (l *VisitorInviteLogic) VisitorInvite(req *types.VisitorInviteReq) (resp *t
 	if blocked, e := checkBlocked(l.ctx, l.svcCtx, tenantID, req.VisitorPhone, req.IdNo); e != nil {
 		l.Errorf("check blocklist failed: %v", e)
 	} else if blocked {
+		// 黑名单命中事件(看板 P2): blocked → Kafka visitor-event(visitor_id=0 表示记录未创建),
+		// 供安防/大屏实时感知拉黑人员尝试进入; 尽力而为语义, 发布失败不影响拦截拒绝结果.
+		publishVisitorEvent(l.ctx, l.svcCtx, l.Logger, buildBlockedEvent(
+			tenantID, 0, inviterID, req.VisitorName, req.VisitorPhone, 0))
 		return nil, errorx.NewError(errorx.ErrVisitorBlacklisted, "访客已被拉黑, 禁止邀请")
 	}
 
