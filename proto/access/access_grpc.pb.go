@@ -20,15 +20,39 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AccessControlService_Ping_FullMethodName = "/onepark.access.AccessControlService/Ping"
+	AccessControlService_Ping_FullMethodName            = "/onepark.access.AccessControlService/Ping"
+	AccessControlService_CheckPermission_FullMethodName = "/onepark.access.AccessControlService/CheckPermission"
+	AccessControlService_RemoteOpen_FullMethodName      = "/onepark.access.AccessControlService/RemoteOpen"
 )
 
 // AccessControlServiceClient is the client API for AccessControlService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// 门禁服务对外 gRPC 契约(服务间调用; HTTP 接口见 accesscontrol.api).
+//
+// 与 HTTP 的分工: HTTP 面向前端/BFF(带 JWT 与网关注入的租户身份),
+// gRPC 面向服务间调用, 只暴露"控制面"两个动作 —— 权限校验与远程开门。
+// 查询类(通行记录 #48 / 授权 #45 / 撤权 #46)仍走 HTTP, 不在此处重复定义。
+//
+// ⚠️ 调用方前提: 本服务 gRPC 未挂鉴权(与 alarm-service gRPC 一致), 仅容器内网络可达。
+// 远程开门是不可逆的物理动作, 部署上必须保证 9009 不对集群外暴露。
 type AccessControlServiceClient interface {
-	// TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+	// Ping 探活.
 	Ping(ctx context.Context, in *common.Empty, opts ...grpc.CallOption) (*common.Empty, error)
+	// CheckPermission 判定某人在指定时刻能否通过某扇门(只读, 无副作用).
+	// 与 #45 授权时的校验口径完全一致(见 logic.PermissionAllowed):
+	// 无记录 / 已失效 / 已过期 / 不在时间段内 均返回 allowed=false 并给出 reason。
+	CheckPermission(ctx context.Context, in *CheckPermissionReq, opts ...grpc.CallOption) (*CheckPermissionResp, error)
+	// RemoteOpen 远程开门(#47).
+	//
+	// 语义与 HTTP #47 一致且刻意保持同步: 复用同一份 logic, 不在此处重写一遍判定 ——
+	// 两套实现必然在某天漂移成两套口径(一边放行另一边拒绝), 而门禁的后果不可逆。
+	//
+	// success=true 表示"命令已下发且设备确认"; 设备不在同一条调用链上给出最终结果,
+	// 超时/失败按错误码返回, 但审计表 access_operate_log 仍会留下记录。
+	// request_id 为幂等键: 同一 request_id 重复调用只下发一次; 被拒/失败会释放该键, 可带同一 request_id 重试。
+	RemoteOpen(ctx context.Context, in *RemoteOpenReq, opts ...grpc.CallOption) (*RemoteOpenResp, error)
 }
 
 type accessControlServiceClient struct {
@@ -49,12 +73,54 @@ func (c *accessControlServiceClient) Ping(ctx context.Context, in *common.Empty,
 	return out, nil
 }
 
+func (c *accessControlServiceClient) CheckPermission(ctx context.Context, in *CheckPermissionReq, opts ...grpc.CallOption) (*CheckPermissionResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckPermissionResp)
+	err := c.cc.Invoke(ctx, AccessControlService_CheckPermission_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accessControlServiceClient) RemoteOpen(ctx context.Context, in *RemoteOpenReq, opts ...grpc.CallOption) (*RemoteOpenResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoteOpenResp)
+	err := c.cc.Invoke(ctx, AccessControlService_RemoteOpen_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AccessControlServiceServer is the server API for AccessControlService service.
 // All implementations must embed UnimplementedAccessControlServiceServer
 // for forward compatibility.
+//
+// 门禁服务对外 gRPC 契约(服务间调用; HTTP 接口见 accesscontrol.api).
+//
+// 与 HTTP 的分工: HTTP 面向前端/BFF(带 JWT 与网关注入的租户身份),
+// gRPC 面向服务间调用, 只暴露"控制面"两个动作 —— 权限校验与远程开门。
+// 查询类(通行记录 #48 / 授权 #45 / 撤权 #46)仍走 HTTP, 不在此处重复定义。
+//
+// ⚠️ 调用方前提: 本服务 gRPC 未挂鉴权(与 alarm-service gRPC 一致), 仅容器内网络可达。
+// 远程开门是不可逆的物理动作, 部署上必须保证 9009 不对集群外暴露。
 type AccessControlServiceServer interface {
-	// TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+	// Ping 探活.
 	Ping(context.Context, *common.Empty) (*common.Empty, error)
+	// CheckPermission 判定某人在指定时刻能否通过某扇门(只读, 无副作用).
+	// 与 #45 授权时的校验口径完全一致(见 logic.PermissionAllowed):
+	// 无记录 / 已失效 / 已过期 / 不在时间段内 均返回 allowed=false 并给出 reason。
+	CheckPermission(context.Context, *CheckPermissionReq) (*CheckPermissionResp, error)
+	// RemoteOpen 远程开门(#47).
+	//
+	// 语义与 HTTP #47 一致且刻意保持同步: 复用同一份 logic, 不在此处重写一遍判定 ——
+	// 两套实现必然在某天漂移成两套口径(一边放行另一边拒绝), 而门禁的后果不可逆。
+	//
+	// success=true 表示"命令已下发且设备确认"; 设备不在同一条调用链上给出最终结果,
+	// 超时/失败按错误码返回, 但审计表 access_operate_log 仍会留下记录。
+	// request_id 为幂等键: 同一 request_id 重复调用只下发一次; 被拒/失败会释放该键, 可带同一 request_id 重试。
+	RemoteOpen(context.Context, *RemoteOpenReq) (*RemoteOpenResp, error)
 	mustEmbedUnimplementedAccessControlServiceServer()
 }
 
@@ -67,6 +133,12 @@ type UnimplementedAccessControlServiceServer struct{}
 
 func (UnimplementedAccessControlServiceServer) Ping(context.Context, *common.Empty) (*common.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
+}
+func (UnimplementedAccessControlServiceServer) CheckPermission(context.Context, *CheckPermissionReq) (*CheckPermissionResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method CheckPermission not implemented")
+}
+func (UnimplementedAccessControlServiceServer) RemoteOpen(context.Context, *RemoteOpenReq) (*RemoteOpenResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoteOpen not implemented")
 }
 func (UnimplementedAccessControlServiceServer) mustEmbedUnimplementedAccessControlServiceServer() {}
 func (UnimplementedAccessControlServiceServer) testEmbeddedByValue()                              {}
@@ -107,6 +179,42 @@ func _AccessControlService_Ping_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AccessControlService_CheckPermission_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckPermissionReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccessControlServiceServer).CheckPermission(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccessControlService_CheckPermission_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccessControlServiceServer).CheckPermission(ctx, req.(*CheckPermissionReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccessControlService_RemoteOpen_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoteOpenReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccessControlServiceServer).RemoteOpen(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccessControlService_RemoteOpen_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccessControlServiceServer).RemoteOpen(ctx, req.(*RemoteOpenReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AccessControlService_ServiceDesc is the grpc.ServiceDesc for AccessControlService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -117,6 +225,14 @@ var AccessControlService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Ping",
 			Handler:    _AccessControlService_Ping_Handler,
+		},
+		{
+			MethodName: "CheckPermission",
+			Handler:    _AccessControlService_CheckPermission_Handler,
+		},
+		{
+			MethodName: "RemoteOpen",
+			Handler:    _AccessControlService_RemoteOpen_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
