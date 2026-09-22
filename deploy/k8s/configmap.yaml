@@ -4,11 +4,62 @@ metadata:
   name: onepark-config
   namespace: onepark
 data:
-  # ---- 共享基础设施端点(非机密) ----
+  # =====================================================================
+  # 非机密运行期配置(供各服务 envFrom 注入, 与 deploy/.env.example 对齐).
+  # 命名/取值口径: 容器内一律用「K8s Service 名」而非 compose 服务名,
+  # 二者恰好同名(mysql/redis/kafka/emqx/nacos/tdengine/minio/elasticsearch),
+  # 故 compose 与 K8s 两套部署可共用同一份 etc/*.yaml 占位符.
+  #
+  # 机密请勿写在这里 —— DSN(内嵌密码)/密码/令牌走 Secret `onepark-secrets`,
+  # 由命令式创建(见 gen.sh 末尾提示 / README.md), 避免凭据入库被 secret 扫描命中.
+  # =====================================================================
+
+  # ---- 通用 ----
+  HTTP_HOST: "0.0.0.0"
+  RPC_HOST: "0.0.0.0"
+
+  # ---- MySQL(业务库 DSN 在 Secret; 此处仅非机密的库名/主机名, user-manage 引用) ----
+  MYSQL_HOST: "mysql"
+  MYSQL_DATABASE: "sys_db"
+
+  # ---- Redis ----
+  REDIS_HOST: "redis"
   REDIS_ADDR: "redis:6379"
+  REDIS_DB: "0"
+
+  # ---- Kafka ----
   KAFKA_BROKERS: "kafka:9092"
+
+  # ---- TDengine(写入走 REST; Token 留空即无鉴权) ----
   TDENGINE_REST: "http://tdengine:6041"
-  # ---- 各服务独立 MySQL DSN(按需补充, 命名须与各自 etc/*-api.yaml 中的 ${...} 对齐) ----
-  # 示例(仅 workorder 已确认命名, 其余按各服务 yaml 的实际 ${...} 键名补齐):
-  WORKORDER_MYSQL_DSN: "workorder:CHANGE_ME@tcp(mysql:3306)/workorder_db?charset=utf8mb4&parseTime=true"
-  # USERMANAGE_MYSQL_DSN / AUTH_MYSQL_DSN / DEVICE_MYSQL_DSN / ... 见各服务 etc yaml
+  TDENGINE_TOKEN: ""
+
+  # ---- EMQX / MQTT ----
+  EMQX_BROKER: "tcp://emqx:1883"
+  EMQX_TOPIC: "onepark/device/#"
+  EMQX_CLIENT: "event-dispatcher"
+
+  # ---- Nacos(网关动态上游; 地址留空则退回 apigateway-api.yaml 静态上游) ----
+  NACOS_ADDRESS: "nacos:8848"
+  NACOS_HOST: "nacos"
+  NACOS_NS: "onepark"
+  NACOS_GROUP: "DEFAULT_GROUP"
+
+  # ---- M1 设备 gRPC(access-control/visitor 远程开门复用) ----
+  DEVICE_RPC_ENDPOINTS: "device-service:9001"
+
+  # ---- 大屏(dashboard-service)四路聚合数据源的 gRPC 端点 ----
+  WORKORDER_RPC_ENDPOINTS: "workorder-service:9091"
+  ALARM_RPC_ENDPOINTS: "alarm-service:9009"
+  ENERGY_DATA_RPC_ENDPOINTS: "energy-data-service:9061"
+
+  # ---- M3 告警 ----
+  ALARM_KAFKA_GROUP: "alarm-service"
+  ALARM_ES_URL: "http://elasticsearch:9200"
+
+  # ---- M6 工单附件对象存储(仅端点与公网前缀; AccessKey/SecretKey 在 Secret) ----
+  WORKORDER_MINIO_ENDPOINT: "http://minio:9000"
+  WORKORDER_MINIO_PUBLIC_URL: "http://minio:9000"
+
+  # ---- M3 视频流下发(留空 = 仅返回 RTSP, 关闭签名链路; 签名密钥在 Secret) ----
+  VIDEO_FLV_BASE_URL: ""

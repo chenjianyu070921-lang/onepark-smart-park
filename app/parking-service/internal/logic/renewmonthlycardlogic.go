@@ -37,8 +37,9 @@ func (l *RenewMonthlyCardLogic) RenewMonthlyCard(req *types.RenewMonthlyCardReq)
 		return nil, errorx.NewError(errorx.ErrBadRequest, "月卡ID非法")
 	}
 
+	now := time.Now()
 	newEnd := time.Unix(req.EndTime, 0)
-	if newEnd.Before(time.Now()) {
+	if !renewEndAfterNow(newEnd, now) {
 		return nil, errorx.NewError(errorx.ErrBadRequest, "新到期时间必须晚于当前时间")
 	}
 
@@ -55,7 +56,7 @@ func (l *RenewMonthlyCardLogic) RenewMonthlyCard(req *types.RenewMonthlyCardReq)
 		l.Errorf("get monthly card failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "查询月卡失败")
 	}
-	if !newEnd.After(card.EndTime) {
+	if !renewEndAfterCur(newEnd, card.EndTime) {
 		return nil, errorx.NewError(errorx.ErrBadRequest, "新到期时间必须晚于当前到期时间")
 	}
 
@@ -72,4 +73,16 @@ func (l *RenewMonthlyCardLogic) RenewMonthlyCard(req *types.RenewMonthlyCardReq)
 	card.Status = model.MonthlyCardStatusActive
 
 	return monthlyCardResp(card), nil
+}
+
+// renewEndAfterNow 续费校验(1/2): 新到期时间必须晚于当前时间.
+// 抽为纯函数便于单测, 与 RenewMonthlyCard 业务约束保持一致.
+func renewEndAfterNow(newEnd, now time.Time) bool {
+	return newEnd.After(now)
+}
+
+// renewEndAfterCur 续费校验(2/2): 新到期时间必须晚于现有到期时间, 防止"续费"反而缩短有效期.
+// 已过期月卡(curEnd 在过去)续费到未来时间即合法, 续费后自动恢复生效(见 RenewMonthlyCard).
+func renewEndAfterCur(newEnd, curEnd time.Time) bool {
+	return newEnd.After(curEnd)
 }

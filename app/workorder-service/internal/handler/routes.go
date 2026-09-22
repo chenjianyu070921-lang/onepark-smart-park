@@ -55,10 +55,17 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: UploadWorkOrderAttachmentHandler(serverCtx),
 			},
 			{
+				// 工单		{
 				// 工单附件列表
 				Method:  http.MethodGet,
 				Path:    "/api/workorder/:id/attachments",
 				Handler: ListWorkOrderAttachmentsHandler(serverCtx),
+			},
+			{
+				// 工单统计看板(P2: 物业后台统计端点, 与 gRPC 聚合字段对齐)
+				Method:  http.MethodGet,
+				Path:    "/api/workorder/statistics",
+				Handler: GetWorkOrderStatisticsHandler(serverCtx),
 			},
 			{
 				Method:  http.MethodGet,

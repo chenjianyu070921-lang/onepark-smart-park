@@ -19,7 +19,9 @@ Kafka:
 # M1 device-service gRPC(访客签入开门联动); NonBlock 允许 M1 未就绪时启动, 调用失败降级
 DeviceRPC:
   Endpoints:
-    - ${DEVICE_RPC_ENDPOINTS:-127.0.0.1:9001}
+    # 注意: go-zero 的 conf.UseEnv() 不支持 ${VAR:-default} 默认值语法(会取到空值),
+    # 默认值由部署侧提供(compose .env / K8s ConfigMap 均已注入 DEVICE_RPC_ENDPOINTS)。
+    - ${DEVICE_RPC_ENDPOINTS}
   NonBlock: true
 
 # 门岗开门设备(M1 设备中心注册的 device_id 与开门指令名)

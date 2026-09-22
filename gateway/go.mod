@@ -3,14 +3,21 @@ module onepark/gateway
 go 1.25.2
 
 // 本地模块重定向: 使本模块脱离 go.work(如 GOWORK=off / IDE 未启用 workspace)时仍可独立编译.
-require onepark/common v0.0.0
+require (
+	onepark/common v0.0.0
+	onepark/proto v0.0.0
+)
 
-replace onepark/common => ../common
+replace (
+	onepark/common => ../common
+	onepark/proto => ../proto
+)
 
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5
 	github.com/zeromicro/go-zero v1.10.3
+	google.golang.org/grpc v1.80.0
 )
 
 require (
@@ -100,7 +107,6 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
-	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect

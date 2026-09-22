@@ -17,6 +17,8 @@ type Config struct {
 	DefaultUserId int64 `json:",default=0"`
 	// Auth 网关统一鉴权开关(默认关闭, 兼顾联调; 生产开启需与 auth-service 共享 JWT 密钥).
 	Auth AuthConf `json:",optional"`
+	// User user-manage gRPC 配置(供 RBAC CheckPermission 调用). 鉴权未启用时本段无需配置.
+	User UserConf `json:",optional"`
 	// Nacos 可选: 配置中心动态上游表. Address 为空时忽略, 继续使用上方静态 Upstreams.
 	Nacos NacosConf `json:",optional"`
 	// Redis 限流/缓存依赖(可选); 未配置时网关限流优雅降级为放行.
@@ -27,8 +29,8 @@ type Config struct {
 
 // RateLimitConf 网关令牌桶限流配置(单 IP 维度).
 type RateLimitConf struct {
-	Capacity   int64   `json:",default=200"` // 桶容量: 单 IP 最多允许的突发请求数
-	RatePerSec float64 `json:",default=50"`  // 稳定补充速率(令牌/秒)
+	Capacity   int64   `json:",default=100"` // 桶容量: 单 IP 最多允许的突发请求数(默认 100)
+	RatePerSec float64 `json:",default=100"` // 稳定补充速率(令牌/秒), 默认 100 QPS/IP
 }
 
 // NacosConf 网关上游表配置中心(仅替换"上游地址从哪来", 不改转发逻辑).
@@ -47,8 +49,19 @@ type NacosConf struct {
 type AuthConf struct {
 	// Enabled 是否启用 JWT 校验; 关闭时网关仅做默认身份注入(联调模式).
 	Enabled bool `json:",default=false"`
-	// Secret 与 auth-service 共享的 JWT 签名密钥; 开启鉴权时必填(可由环境变量 AUTH_SECRET 注入).
+	// GrpcAddress auth-service gRPC 地址(Verify 校验入口), 形如 127.0.0.1:18088, 可由环境变量 AUTH_GRPC_ADDR 注入.
+	// 开启鉴权时必填; 网关不再本地验签, 统一委托 auth-service.Verify(签名/过期/吊销一站式).
+	GrpcAddress string `json:",optional"`
+	// Secret 保留字段: 与 auth-service 共享的 JWT 签名密钥(供后续本地预校验/调试), 当前鉴权已委托 gRPC Verify.
 	Secret string `json:",optional"`
+}
+
+// UserConf 网关调用 user-manage gRPC 的配置(RBAC CheckPermission 入口).
+// 仅当鉴权启用(Auth.Enabled 或生产模式)且配置了 GrpcAddress 时, 网关才会对受保护写操作做权限校验;
+// 未配置则 RBAC 不生效(全部放行), 不影响网关可用性.
+type UserConf struct {
+	// GrpcAddress user-manage gRPC 地址(CheckPermission 入口), 形如 127.0.0.1:18089, 可由环境变量 USER_GRPC_ADDR 注入.
+	GrpcAddress string `json:",optional"`
 }
 
 // UpstreamConf 单条上游路由配置.

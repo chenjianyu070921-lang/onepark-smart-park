@@ -41,7 +41,7 @@ func (l *CreateMonthlyCardLogic) CreateMonthlyCard(req *types.CreateMonthlyCardR
 		return nil, errorx.NewError(errorx.ErrBadRequest, "车牌号不能为空")
 	}
 	start, end := time.Unix(req.StartTime, 0), time.Unix(req.EndTime, 0)
-	if !end.After(start) {
+	if !monthlyCardTimeValid(start, end) {
 		return nil, errorx.NewError(errorx.ErrBadRequest, "生效止必须晚于生效起")
 	}
 
@@ -102,4 +102,10 @@ func fetchMonthlyCard(db *gorm.DB, ctx context.Context, tenantID, id int64) (*mo
 		return nil, e
 	}
 	return &card, nil
+}
+
+// monthlyCardTimeValid 月卡有效期校验: 生效止必须晚于生效起.
+// 抽为纯函数以便单测, 与 CreateMonthlyCard 业务约束保持一致.
+func monthlyCardTimeValid(start, end time.Time) bool {
+	return end.After(start)
 }

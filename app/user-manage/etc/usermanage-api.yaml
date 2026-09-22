@@ -7,3 +7,8 @@ MySQL:
   DataSource: "root:${MYSQL_ROOT_PASSWORD}@tcp(${MYSQL_HOST}:${MYSQL_PORT})/${MYSQL_DATABASE}?charset=utf8mb4&parseTime=true&loc=Local"
   MaxOpenConns: 20
   MaxIdleConns: 10
+
+# 双模 gRPC(可选): 配置后同进程额外起 gRPC server, 供网关 RBAC 调用 CheckPermission.
+# 为空(未注入 USER_GRPC_ADDR)则仅暴露 HTTP(网关行为不变, RBAC 不生效). 由 compose 注入.
+Grpc:
+  ListenOn: ${USER_GRPC_ADDR}

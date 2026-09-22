@@ -116,6 +116,28 @@ type MonthlyCardListResp {
 	List  []MonthlyCardItem `json:"list"`
 }
 
+// ---- 停车计费规则配置 (P2 计费规则配置接口) ----
+type UpsertParkingFeeRuleReq {
+	FreeMinutes   int     `json:"free_minutes"`            // 免费时长(分钟)
+	HourlyFee     float64 `json:"hourly_fee"`              // 元/小时(必须>0)
+	DailyCap      float64 `json:"daily_cap,optional"`      // 每日封顶(元, 0=不封顶)
+	EffectiveFrom int64   `json:"effective_from,optional"` // 生效起(秒级, 0=立即)
+	EffectiveTo   int64   `json:"effective_to,optional"`   // 生效止(秒级, 0=永久)
+}
+
+type ParkingFeeRuleItem {
+	Id            int64   `json:"id"`
+	FreeMinutes   int     `json:"free_minutes"`
+	HourlyFee     float64 `json:"hourly_fee"`
+	DailyCap      float64 `json:"daily_cap"`
+	EffectiveFrom int64   `json:"effective_from,optional"`
+	EffectiveTo   int64   `json:"effective_to,optional"`
+}
+
+type ParkingFeeRuleResp {
+	Rule *ParkingFeeRuleItem `json:"rule,optional"` // 当前生效规则(无配置为 null)
+}
+
 service parking-api {
 	@handler ParkingEntry
 	post /api/parking/entry (ParkingEntryReq) returns (ParkingRecordResp)
@@ -141,5 +163,12 @@ service parking-api {
 
 	@handler ListMonthlyCards
 	get /api/parking/monthly-cards (ListMonthlyCardsReq) returns (MonthlyCardListResp)
+
+	// 停车计费规则配置(P2)
+	@handler GetParkingFeeRule
+	get /api/parking/fee-rule (IdReq) returns (ParkingFeeRuleResp)
+
+	@handler UpsertParkingFeeRule
+	post /api/parking/fee-rule (UpsertParkingFeeRuleReq) returns (ParkingFeeRuleResp)
 }
 

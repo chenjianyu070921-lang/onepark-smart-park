@@ -86,3 +86,16 @@ func (s *UserManageServer) UserList(ctx context.Context, _ *commonpb.Empty) (*us
 	}
 	return &userpb.UserListResp{List: infos, Total: resp.Total}, nil
 }
+
+// CheckPermission 网关统一 RBAC 入口: 委托 PermissionCheckLogic 校验用户是否拥有某 permission.
+// 调用方为网关(已鉴权), 直接透传 in.UserId(网关注入的已鉴权用户ID), 不信任请求体之外的身份.
+func (s *UserManageServer) CheckPermission(ctx context.Context, in *userpb.CheckPermissionReq) (*userpb.CheckPermissionResp, error) {
+	resp, err := logic.NewPermissionCheckLogic(ctx, s.svcCtx).PermissionCheck(&types.CheckPermissionReq{
+		UserId:    in.UserId,
+		Permission: in.Permission,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &userpb.CheckPermissionResp{Allowed: resp.Allowed}, nil
+}

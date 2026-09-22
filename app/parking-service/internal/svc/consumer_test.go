@@ -17,6 +17,12 @@ func TestCalcFee(t *testing.T) {
 		return &tm
 	}
 
+	// 跨天场景: 23:00 入场, 次日 07:00 出场 = 480 分钟 → 8 小时(覆盖看板"跨天计费").
+	overnightEntry := time.Date(2026, 9, 18, 23, 0, 0, 0, time.Local)
+	overnightExit := overnightEntry.Add(8 * time.Hour)
+	// 免费时长截断边界: 15 分 59 秒按 int 分钟截断为 15, 仍免费.
+	truncExit := entry.Add(15*time.Minute + 59*time.Second)
+
 	cases := []struct {
 		name  string
 		entry *time.Time
@@ -28,9 +34,12 @@ func TestCalcFee(t *testing.T) {
 		{"VIP免费", &entry, at(120), model.VehicleTypeVIP, 0},
 		{"时间缺失兜底0", nil, nil, model.VehicleTypeTemp, 0},
 		{"临时车15分钟内免费", &entry, at(15), model.VehicleTypeTemp, 0},
+		{"临时车15分59秒截断仍免费", &entry, &truncExit, model.VehicleTypeTemp, 0},
 		{"临时车16分钟按1小时", &entry, at(16), model.VehicleTypeTemp, 5},
 		{"临时车61分钟按2小时", &entry, at(61), model.VehicleTypeTemp, 10},
 		{"临时车120分钟整2小时", &entry, at(120), model.VehicleTypeTemp, 10},
+		{"临时车跨天8小时", &overnightEntry, &overnightExit, model.VehicleTypeTemp, 40},
+		{"异常车型按临时计费", &entry, at(120), model.VehicleTypeAbnormal, 10},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -94,4 +103,43 @@ func TestNormalizeTelemetry(t *testing.T) {
 			t.Errorf("字段优先级错误: %+v", got)
 		}
 	})
+}
+
+// 验证按配置规则计费 CalcFeeByRule(计费规则配置接口生效路径):
+// 免费时长/每小时单价/每日封顶; cfg=nil 时降级为内置默认(与 CalcFee 口径一致).
+func TestCalcFeeByRule(t *testing.T) {
+	entry := time.Date(2026, 9, 21, 9, 0, 0, 0, time.Local)
+	at := func(min int) *time.Time {
+		tm := entry.Add(time.Duration(min) * time.Minute)
+		return &tm
+	}
+	cfg := func(free int, hourly, cap float64) *model.ParkingFeeRuleConfig {
+		return &model.ParkingFeeRuleConfig{FreeMinutes: free, HourlyFee: hourly, DailyCap: cap}
+	}
+
+	cases := []struct {
+		name  string
+		entry *time.Time
+		exit  *time.Time
+		vType int8
+		rule  *model.ParkingFeeRuleConfig
+		want  float64
+	}{
+		{"规则nil降级CalcFee", &entry, at(61), model.VehicleTypeTemp, nil, 10},
+		{"免费时长边界内免费", &entry, at(30), model.VehicleTypeTemp, cfg(30, 5, 0), 0},
+		{"免费时长边界外按1小时", &entry, at(31), model.VehicleTypeTemp, cfg(30, 5, 0), 5},
+		{"自定义单价90分钟按2小时", &entry, at(90), model.VehicleTypeTemp, cfg(0, 8, 0), 16},
+		{"每日封顶生效", &entry, at(500), model.VehicleTypeTemp, cfg(15, 5, 20), 20},
+		{"封顶未触发走原价", &entry, at(120), model.VehicleTypeTemp, cfg(15, 5, 20), 10},
+		{"月卡配置规则下仍免费", &entry, at(500), model.VehicleTypeMonthly, cfg(15, 5, 20), 0},
+		{"VIP配置规则下仍免费", &entry, at(500), model.VehicleTypeVIP, cfg(15, 5, 20), 0},
+		{"时间缺失兜底0", nil, nil, model.VehicleTypeTemp, cfg(15, 5, 20), 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := CalcFeeByRule(c.entry, c.exit, c.vType, c.rule); got != c.want {
+				t.Errorf("CalcFeeByRule(%s) = %.2f, want %.2f", c.name, got, c.want)
+			}
+		})
+	}
 }
