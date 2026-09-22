@@ -129,7 +129,6 @@ func (l *VisitorInviteLogic) VisitorInvite(req *types.VisitorInviteReq) (resp *t
 
 // genQRCode 生成加密二维码内容: base64(JSON{载荷} + 签名).
 // 签名 = md5(tenant|inviter|visitor|expire|salt), 防止伪造.
-// genQRCode 生成加密二维码内容: base64(JSON{载荷} + 签名).
 // salt 为二维码签名盐(来自配置中心), 由调用方透传, 避免硬编码密钥.
 func genQRCode(tenantID, inviterID int64, visitorName string, expire int64, salt string) (string, error) {
 	payload := map[string]interface{}{
@@ -161,7 +160,6 @@ func genQRCodeImage(content string) (string, error) {
 // 内容格式: base64( JSON载荷 + "|" + md5签名 ), 与 genQRCode 生成规则严格对应.
 // 签名比对使用 constant-time 比较, 防时序攻击.
 // 返回: nil 表示验签通过; 非 nil 携带具体原因(仅记日志, 对外统一报"二维码无效"避免泄露校验细节).
-// verifyQRSign 校验二维码内容签名, 防止伪造二维码(伪造内容即使碰巧入库命中也过不了签名关).
 // salt 为签名盐(来自配置中心), 必须与 genQRCode 生成时使用的盐一致; 由调用方透传.
 func verifyQRSign(content string, salt string) error {
 	raw, err := base64.StdEncoding.DecodeString(content)

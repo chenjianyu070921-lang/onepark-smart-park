@@ -99,7 +99,8 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 	}
 	if blocked {
 		_ = l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).
-			Where("id=? AND tenant_id=?", rec.ID, tenantID).Update("blacklisted", 1).Error
+			Where("id=? AND tenant_id=?", rec.ID, tenantID).
+			Updates(map[string]interface{}{"blacklisted": 1, "updated_at": time.Now()}).Error
 		// 黑名单命中事件(看板 P2): blocked → Kafka visitor-event, 供安防/大屏实时感知拦截动态;
 		// 尽力而为语义, 发布失败不影响拦截拒绝结果.
 		publishVisitorEvent(l.ctx, l.svcCtx, l.Logger, buildBlockedEvent(
