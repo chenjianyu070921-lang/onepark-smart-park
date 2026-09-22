@@ -86,8 +86,13 @@ const (
 	ErrVideoStream         = "M3-E-3003" // 视频流地址获取失败
 	ErrVideoStreamNotFound = "M3-E-3004" // 取流: 摄像头不存在
 	ErrVideoCameraOffline  = "M3-E-3005" // 取流: 设备离线
+	// 录像计划 / 回放(video-service, 由 M3 占用 3006-3008)
+	ErrVideoRecordPlanCreate   = "M3-E-3006" // 录像计划写入失败(创建/修改/删除/列表)
+	ErrVideoRecordPlanNotFound = "M3-E-3007" // 录像计划不存在
+	ErrVideoPlayback           = "M3-E-3008" // 回放查询失败
 	// 参数校验类错误必须用 W 级别才能返回 400, 见 KI-2 与 docs/m3/04 §6 注.
-	ErrVideoParamInvalid = "M3-W-3001" // 视频参数非法(HTTP 400), 如 RTSP 地址格式错误
+	ErrVideoParamInvalid       = "M3-W-3001" // 视频参数非法(HTTP 400), 如 RTSP 地址格式错误
+	ErrVideoRecordParamInvalid = "M3-W-3002" // 录像计划/回放参数非法(HTTP 400), 如回放区间超限
 )
 
 // M1 物联接入底座错误码
