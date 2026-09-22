@@ -4,8 +4,13 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
+
+	"gorm.io/gorm"
+
+	"onepark/common/gormx"
 )
 
 // ErrDuplicateRequest 幂等键冲突(uk_request 命中), 表示该遥测消息此前已建过停车记录.
@@ -52,6 +57,46 @@ type ParkingFeeRule struct {
 
 // TableName 指定停车计费规则表名.
 func (ParkingFeeRule) TableName() string { return "parking_fee_rule" }
+
+// ParkingFeeRuleConfig 计费规则反序列化结构(对应 parking_fee_rule.rule_json).
+// 字段: 免费时长(分钟)/每小时单价(元)/每日封顶(元, 0=不封顶).
+// 以 JSON 存储便于后续扩展阶梯/分车型费率而不改表结构.
+type ParkingFeeRuleConfig struct {
+	FreeMinutes int     `json:"free_minutes"` // 免费时长(分钟)
+	HourlyFee   float64 `json:"hourly_fee"`   // 每小时单价(元)
+	DailyCap    float64 `json:"daily_cap"`    // 每日封顶(元, 0=不封顶)
+}
+
+// ParseRule 解析计费规则 JSON; 解析失败返回错误(调用方降级为内置默认规则).
+func (r *ParkingFeeRule) ParseRule() (*ParkingFeeRuleConfig, error) {
+	if r == nil || r.RuleJSON == "" {
+		return nil, errors.New("parking: empty fee rule")
+	}
+	var cfg ParkingFeeRuleConfig
+	if err := json.Unmarshal([]byte(r.RuleJSON), &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// GetActiveParkingFeeRule 取当前生效的计费规则: 生效时间窗覆盖 at 的最新一条.
+// db 为 nil 时返回 (nil, nil) 由调用方降级为内置默认规则; 查不到返回 (nil, nil).
+func GetActiveParkingFeeRule(db *gormx.DB, tenantID int64, at time.Time) (*ParkingFeeRule, error) {
+	if db == nil {
+		return nil, nil
+	}
+	var rule ParkingFeeRule
+	q := db.Model(&ParkingFeeRule{}).Where("tenant_id = ?", tenantID)
+	q = q.Where("(effective_from IS NULL OR effective_from <= ?)", at)
+	q = q.Where("(effective_to IS NULL OR effective_to >= ?)", at)
+	if err := q.Order("id DESC").First(&rule).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &rule, nil
+}
 
 // 停车状态码(与 ParkingRecord.Status 字段含义一致)
 const (

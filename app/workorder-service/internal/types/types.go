@@ -86,3 +86,13 @@ type WorkOrderResp struct {
 	OrderNo string `json:"order_no"` // 工单号
 	Status  int8   `json:"status"`   // 当前状态
 }
+
+// WorkOrderStatisticsResp 工单统计看板响应(P2: 物业后台统计端点, 与 gRPC ListWorkOrders 聚合字段对齐).
+type WorkOrderStatisticsResp struct {
+	Total             int64   `json:"total"`               // 工单总数
+	PendingCount      int64   `json:"pending_count"`       // 待处理(待派单+处理中)
+	TodayCount        int64   `json:"today_count"`         // 今日新建
+	CompletedToday    int64   `json:"completed_today"`     // 今日完成
+	AvgProcessMinutes float64 `json:"avg_process_minutes"` // 平均处理时长(分钟)
+	CompletionRate    float64 `json:"completion_rate"`     // 完成率(0~100)
+}
