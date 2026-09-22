@@ -5,8 +5,7 @@
 Name: leasing.rpc
 ListenOn: 0.0.0.0:9051
 
-# MySQL 连接(leasing_db)。
-# 本地开发默认值; 部署环境请改回 ${LEASING_MYSQL_DSN} 由环境变量注入
-# (grpcserver/main.go 已启用 conf.UseEnv(), 否则占位符不会被展开)。
+# MySQL 连接(leasing_db)。DSN 由环境变量注入(LEASING_MYSQL_DSN);
+# grpcserver/main.go 已启用 conf.UseEnv(), 否则占位符不会被展开。
 MySQL:
-  DataSource: "root:onepark123@tcp(127.0.0.1:3306)/leasing_db?charset=utf8mb4&parseTime=True&loc=Local"
+  DataSource: "${LEASING_MYSQL_DSN}"

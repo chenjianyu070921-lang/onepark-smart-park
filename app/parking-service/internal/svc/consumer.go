@@ -165,7 +165,6 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 
 	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
 	now := time.Now()
-	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
 
 	vehicleType := t.VehicleType
 	if vehicleType == 0 {
@@ -286,6 +285,7 @@ func ResolveVehicleType(db *gormx.DB, tenantID int64, plateNo string, at time.Ti
 }
 
 // CalcFee 简化计费: 月卡/VIP 免费, 临时车首 15 分钟免费, 之后 5 元/小时向上取整.
+// 作为计费规则未配置时的内置默认, 与既有单测口径一致(15 分钟免费, 5 元/小时).
 func CalcFee(entry, exit *time.Time, vehicleType int8) float64 {
 	switch vehicleType {
 	case model.VehicleTypeMonthly, model.VehicleTypeVIP:
@@ -300,6 +300,32 @@ func CalcFee(entry, exit *time.Time, vehicleType int8) float64 {
 	}
 	hours := (mins + 59) / 60 // 向上取整到小时
 	return float64(hours) * 5.0
+}
+
+// CalcFeeByRule 按配置规则计费(计费规则配置接口生效时走此路径).
+// 月卡/VIP 免费; 免费时长内免费; 之后按 每小时单价 向上取整; 每日封顶(>0 时)取 min.
+// cfg 为 nil 时降级为内置默认(与 CalcFee 行为一致).
+func CalcFeeByRule(entry, exit *time.Time, vehicleType int8, cfg *model.ParkingFeeRuleConfig) float64 {
+	if cfg == nil {
+		return CalcFee(entry, exit, vehicleType)
+	}
+	switch vehicleType {
+	case model.VehicleTypeMonthly, model.VehicleTypeVIP:
+		return 0
+	}
+	if entry == nil || exit == nil {
+		return 0
+	}
+	mins := int(exit.Sub(*entry).Minutes())
+	if mins <= cfg.FreeMinutes {
+		return 0
+	}
+	hours := (mins + 59) / 60 // 向上取整到小时
+	fee := float64(hours) * cfg.HourlyFee
+	if cfg.DailyCap > 0 && fee > cfg.DailyCap {
+		fee = cfg.DailyCap
+	}
+	return fee
 }
 
 // msgOf 将停车记录序列化为事件消息体.

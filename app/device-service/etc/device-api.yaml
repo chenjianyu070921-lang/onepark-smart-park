@@ -13,7 +13,10 @@ Redis:
   Type: node
 
 # M1 对外 gRPC (SendCommand / GetDevice), 直连模式, 不依赖 Etcd
+# Name 必填 —— go-zero 配置校验要求 RpcConf.Name 非空, 缺失会直接报
+# `field "Rpc.Name" is not set` 并拒绝启动(实测).
 Rpc:
+  Name: device.rpc
   ListenOn: 0.0.0.0:9001
   Timeout: 3000
 

@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"onepark/app/gateway-service/internal/config"
+	"onepark/app/gateway-service/internal/coap"
 	"onepark/app/gateway-service/internal/frame"
 	"onepark/app/gateway-service/internal/svc"
 
@@ -27,7 +28,12 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
+	// conf.UseEnv() 必填: go-zero 默认不做 ${VAR} 环境变量展开。
+	// 本服务 etc/gateway.yaml 引用 ${AUTH_SECRET}/${REDIS_ADDR}/${REDIS_PASS}/
+	// ${NACOS_ADDRESS} 等 8 个占位符, 不启用则这些字段在 compose/K8s 中
+	// 以字面量生效 -> AUTH_SECRET 未展开会导致网关无法校验 JWT(全量鉴权失败),
+	// Nacos.Address 字面量非空会触发对虚假主机名的连接尝试。
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 
 	ctx := svc.NewServiceContext(c)
 	defer ctx.Close()
@@ -42,6 +48,11 @@ func main() {
 	// 进程退出时通知所有连接会话停止
 	taskCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// CoAP 接入(与 TCP 共用 frame.Session 帧语义): CoAP.Enabled=false 时直接跳过.
+	if err := coap.Start(taskCtx, ctx); err != nil {
+		logx.Must(err)
+	}
 
 	go func() {
 		quit := make(chan os.Signal, 1)

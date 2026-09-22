@@ -47,7 +47,7 @@ func (l *RecallNoticeLogic) RecallNotice(id int64, req *types.RecallNoticeReq) (
 	}
 
 	// 仅已发布可撤回: 草稿(1)未发布、已撤回(3)不可重复撤回.
-	if notice.Status != model.NoticeStatusPublished {
+	if !CanRecall(notice.Status) {
 		return nil, errorx.NewError(errorx.ErrNoticeNotPublished, "仅已发布(2)公告可撤回")
 	}
 
@@ -78,4 +78,10 @@ func (l *RecallNoticeLogic) RecallNotice(id int64, req *types.RecallNoticeReq) (
 	}
 
 	return &types.RecallNoticeResp{Id: id, Status: model.NoticeStatusWithdrawn}, nil
+}
+
+// CanRecall 判断公告是否可撤回: 仅已发布(2)可撤回; 草稿(1)未发布、已撤回(3)不可重复撤回.
+// 抽为纯函数以便单测, 与 RecallNotice 业务约束保持一致.
+func CanRecall(status int8) bool {
+	return status == model.NoticeStatusPublished
 }
