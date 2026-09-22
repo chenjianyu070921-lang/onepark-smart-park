@@ -61,6 +61,38 @@ func VerifyStreamSign(secret string, cameraID, expiresAt int64, sign string, now
 	return hmac.Equal([]byte(SignStream(secret, cameraID, expiresAt)), []byte(sign))
 }
 
+// playbackSignPayload 回放签名原文: 绑定「摄像头ID + 时间范围 + 过期时间」。
+//
+// 为什么回放不能复用拉流签名: 拉流签名只回答"能不能看这个摄像头",
+// 回放多一个"能看哪一段"的维度 —— 若沿用只绑 camera_id+expires 的签名,
+// 一个合法签名可以被拿到同一摄像头的任意时间段上重放, 时段授权形同虚设。
+func playbackSignPayload(cameraID, startUnix, endUnix, expiresAt int64) string {
+	return strconv.FormatInt(cameraID, 10) + "|" + strconv.FormatInt(startUnix, 10) + "|" +
+		strconv.FormatInt(endUnix, 10) + "|" + strconv.FormatInt(expiresAt, 10)
+}
+
+// SignPlayback 生成回放地址签名; 未配置密钥时返回空串(与拉流签名同一套取舍)。
+func SignPlayback(secret string, cameraID, startUnix, endUnix, expiresAt int64) string {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(playbackSignPayload(cameraID, startUnix, endUnix, expiresAt)))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// VerifyPlaybackSign 校验回放签名(网关 / 流媒体服务回放前鉴权)。
+func VerifyPlaybackSign(secret string, cameraID, startUnix, endUnix, expiresAt int64, sign string, now time.Time) bool {
+	if strings.TrimSpace(secret) == "" || strings.TrimSpace(sign) == "" {
+		return false
+	}
+	if now.Unix() > expiresAt {
+		return false
+	}
+	return hmac.Equal([]byte(SignPlayback(secret, cameraID, startUnix, endUnix, expiresAt)), []byte(sign))
+}
+
 // signedFlvURL 给 FLV 拉流地址追加时效签名参数。
 //
 // base 为空(未配置流媒体服务)或未启用签名时原样返回: 不编造带参数的空地址,

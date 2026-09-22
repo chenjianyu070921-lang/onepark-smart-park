@@ -350,7 +350,7 @@ finally {
 Write-Host "`n================ 汇总 ================" -ForegroundColor Cyan
 Write-Host ("PASS={0}  FAIL={1}" -f $script:Passed, $script:Failed) -ForegroundColor $(if ($script:Failed -eq 0) { "Green" } else { "Red" })
 if ($script:Failed -eq 0) {
-    Write-Host "全部断言通过 ✅ 可回填 docs/m5/06-Kafka端到端验证报告.md" -ForegroundColor Green
+    Write-Host "全部断言通过 ✅ 可回填 docs/m5/07-Kafka端到端验证报告.md" -ForegroundColor Green
     exit 0
 }
 Write-Host "存在失败断言, 请按上方 [FAIL] 逐条排查; 服务日志: $LogDir" -ForegroundColor Red

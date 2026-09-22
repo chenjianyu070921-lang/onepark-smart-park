@@ -100,3 +100,120 @@ type StreamResp struct {
 	// SignAlg 签名算法标识; Sign 为空时同样为空串.
 	SignAlg string `json:"sign_alg"`
 }
+
+// ###########################################################################
+// 录像计划 + 回放(docs/m3/11 阶段二的前置: 本节只做"什么时候录"的策略层与
+// "哪些时段可回放"的推导, 媒体文件本身由流媒体网关承载, M3 不存录像)
+// ###########################################################################
+
+// CreateRecordPlanReq 创建录像计划请求.
+// Strategy 留空默认 always(全天); DaysOfWeek/StartMinute/EndMinute 仅 scheduled 使用.
+type CreateRecordPlanReq struct {
+	CameraId int64  `json:"camera_id"`
+	Name     string `json:"name"`
+	Strategy string `json:"strategy,optional"` // always 全天 / scheduled 定时
+	// DaysOfWeek 生效日: 1=周一 ... 7=周日, 逗号分隔; 空表示每天. 例: "1,2,3,4,5"(工作日).
+	DaysOfWeek string `json:"days_of_week,optional"`
+	// StartMinute / EndMinute 当日起止分钟(0-1439 / 1-1440); 不支持跨零点,
+	// 需要 22:00-06:00 请拆成 "22:00-24:00" 与 "00:00-06:00" 两条计划.
+	StartMinute int `json:"start_minute,optional"`
+	EndMinute   int `json:"end_minute,optional"`
+	// RetentionDays 录像保留天数; 不传用 Record.DefaultRetentionDays(默认 7).
+	RetentionDays int `json:"retention_days,optional"`
+	// Status 用指针: 0(停用)是合法取值, 用零值判断"是否传入"会让新建即停用的计划改不动.
+	Status *int8 `json:"status,optional"`
+}
+
+// CreateRecordPlanResp 创建录像计划响应
+type CreateRecordPlanResp struct {
+	Id int64 `json:"id"`
+}
+
+// UpdateRecordPlanReq 修改录像计划请求: 传什么改什么.
+type UpdateRecordPlanReq struct {
+	Id   int64  `path:"id"`
+	Name string `json:"name,optional"`
+	// Strategy 改成 always 时, DaysOfWeek/StartMinute/EndMinute 会被重置为全天语义,
+	// 与创建期的参数校验保持一致(避免"策略=全天但还残留定时字段"的自相矛盾配置).
+	Strategy      string  `json:"strategy,optional"`
+	DaysOfWeek    *string `json:"days_of_week,optional"` // 指针: 空串表示改为每天生效
+	StartMinute   *int    `json:"start_minute,optional"`
+	EndMinute     *int    `json:"end_minute,optional"`
+	RetentionDays *int    `json:"retention_days,optional"`
+	Status        *int8   `json:"status,optional"`
+}
+
+// UpdateRecordPlanResp 修改录像计划响应
+type UpdateRecordPlanResp struct {
+	Id int64 `json:"id"`
+}
+
+// DeleteRecordPlanResp 删除录像计划响应
+type DeleteRecordPlanResp struct {
+	Id int64 `json:"id"`
+}
+
+// RecordPlanItem 录像计划列表项
+type RecordPlanItem struct {
+	Id            int64  `json:"id"`
+	CameraId      int64  `json:"camera_id"`
+	Name          string `json:"name"`
+	Strategy      string `json:"strategy"`
+	DaysOfWeek    string `json:"days_of_week"`
+	StartMinute   int    `json:"start_minute"`
+	EndMinute     int    `json:"end_minute"`
+	RetentionDays int    `json:"retention_days"`
+	Status        int8   `json:"status"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
+// ListRecordPlansReq 录像计划列表请求
+type ListRecordPlansReq struct {
+	CameraId int64 `form:"camera_id,optional"` // 摄像头筛选, 0表示全部
+	Status   int8  `form:"status,optional"`    // 状态筛选: -1或不传表示全部, 0停用/1启用
+	Page     int64 `form:"page,optional"`
+	PageSize int64 `form:"page_size,optional"`
+}
+
+// ListRecordPlansResp 录像计划分页列表响应
+type ListRecordPlansResp struct {
+	Total    int64            `json:"total"`
+	Page     int64            `json:"page"`
+	PageSize int64            `json:"page_size"`
+	List     []RecordPlanItem `json:"list"`
+}
+
+// PlaybackReq 回放查询请求: 按摄像头 + 时间区间推导可用录像窗口.
+type PlaybackReq struct {
+	CameraId  int64 `form:"camera_id"`
+	StartTime int64 `form:"start_time"` // 起始时间(秒级时间戳, 闭区间)
+	EndTime   int64 `form:"end_time"`   // 结束时间(秒级时间戳, 开区间)
+}
+
+// PlaybackSegment 一段可回放录像窗口.
+type PlaybackSegment struct {
+	PlanId   int64  `json:"plan_id"`
+	PlanName string `json:"plan_name"`
+	// StartTime/EndTime 该段录像的时间范围(秒级时间戳).
+	StartTime int64 `json:"start_time"`
+	EndTime   int64 `json:"end_time"`
+	// PlaybackUrl 回放地址; 未配置 Record.PlaybackBaseURL 时为空串
+	// —— 没有可用的的实际承载点时不下发编造出来的 URL(与 #51 FLV 的取舍一致).
+	PlaybackUrl string `json:"playback_url"`
+	ExpiresAt   int64  `json:"expires_at"`
+	Sign        string `json:"sign"`
+	SignAlg     string `json:"sign_alg"`
+}
+
+// PlaybackResp 回放查询结果.
+type PlaybackResp struct {
+	CameraId  int64 `json:"camera_id"`
+	StartTime int64 `json:"start_time"`
+	EndTime   int64 `json:"end_time"`
+	// HasPlan 该摄像头是否存在启用中的录像计划(与"有计划但已过期"区分):
+	// 两者都返回 0 段录像, 没有这个字段时用户只能看到"回放不了", 无法判断该配计划还是该查期限.
+	HasPlan bool              `json:"has_plan"`
+	Total   int64             `json:"total"`
+	List    []PlaybackSegment `json:"list"`
+}

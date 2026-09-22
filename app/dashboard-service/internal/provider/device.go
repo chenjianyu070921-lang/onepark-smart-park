@@ -29,10 +29,14 @@ func (p *Device) Stat(ctx context.Context) (DeviceStat, error) {
 	if err != nil {
 		return DeviceStat{}, err
 	}
-	return DeviceStat{
+	stat := DeviceStat{
 		Total:   resp.GetTotal(),
 		Online:  resp.GetOnline(),
 		Offline: resp.GetOffline(),
 		Fault:   resp.GetFault(),
-	}, nil
+	}
+	// 透传 + 日志留痕: 数据不纠正(真相源在 M1), 但不一致必须可见 ——
+	// 否则 M1 给 device.status 新增取值后, 大屏会静默少算一截而无人知晓。
+	warnIfDrifted("设备", stat.Total, stat.Online+stat.Offline+stat.Fault)
+	return stat, nil
 }

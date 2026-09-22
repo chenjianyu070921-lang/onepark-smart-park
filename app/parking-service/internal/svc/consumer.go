@@ -165,7 +165,6 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 
 	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
 	now := time.Now()
-	eventTime := time.Unix(t.Timestamp, 0) // 事件时间(occurred_at), 而非处理时间
 
 	vehicleType := t.VehicleType
 	if vehicleType == 0 {

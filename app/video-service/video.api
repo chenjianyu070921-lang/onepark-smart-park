@@ -106,6 +106,111 @@ type StreamResp {
 	SignAlg   string `json:"sign_alg"`    // 签名算法标识; Sign 为空时同样为空串
 }
 
+// ###########################################################################
+// 录像计划 + 回放
+// M3 只负责"什么时候录、录多久可回看"的策略层与回放授权, 不存媒体文件
+// (录像实体由流媒体网关承载, 见 docs/m3/11); 回放接口返回的是按计划推导出的可用录像窗口.
+// ###########################################################################
+
+// CreateRecordPlanReq 创建录像计划请求
+type CreateRecordPlanReq {
+	CameraId      int64  `json:"camera_id"`
+	Name          string `json:"name"`
+	Strategy      string `json:"strategy,optional"`       // always 全天(默认) / scheduled 定时
+	DaysOfWeek    string `json:"days_of_week,optional"`   // scheduled 生效日: 1=周一..7=周日; 空表示每天
+	StartMinute   int    `json:"start_minute,optional"`   // 当日起始分钟 0-1439
+	EndMinute     int    `json:"end_minute,optional"`     // 当日结束分钟 1-1440(不支持跨零点)
+	RetentionDays int    `json:"retention_days,optional"` // 录像保留天数, 默认取配置 7 天
+	Status        *int8  `json:"status,optional"`         // 1启用(默认)/0停用
+}
+
+// CreateRecordPlanResp 创建录像计划响应
+type CreateRecordPlanResp {
+	Id int64 `json:"id"`
+}
+
+// UpdateRecordPlanReq 修改录像计划请求, 传什么改什么
+type UpdateRecordPlanReq {
+	Id            int64   `path:"id"`
+	Name          string  `json:"name,optional"`
+	Strategy      string  `json:"strategy,optional"`
+	DaysOfWeek    *string `json:"days_of_week,optional"` // 传空串表示改为每天生效
+	StartMinute   *int    `json:"start_minute,optional"`
+	EndMinute     *int    `json:"end_minute,optional"`
+	RetentionDays *int    `json:"retention_days,optional"`
+	Status        *int8   `json:"status,optional"`
+}
+
+// UpdateRecordPlanResp 修改录像计划响应
+type UpdateRecordPlanResp {
+	Id int64 `json:"id"`
+}
+
+// DeleteRecordPlanResp 删除录像计划响应
+type DeleteRecordPlanResp {
+	Id int64 `json:"id"`
+}
+
+// RecordPlanItem 录像计划列表项
+type RecordPlanItem {
+	Id            int64  `json:"id"`
+	CameraId      int64  `json:"camera_id"`
+	Name          string `json:"name"`
+	Strategy      string `json:"strategy"`
+	DaysOfWeek    string `json:"days_of_week"`
+	StartMinute   int    `json:"start_minute"`
+	EndMinute     int    `json:"end_minute"`
+	RetentionDays int    `json:"retention_days"`
+	Status        int8   `json:"status"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
+// ListRecordPlansReq 录像计划列表请求
+type ListRecordPlansReq {
+	CameraId int64 `form:"camera_id,optional"` // 0 表示全部摄像头
+	Status   int8  `form:"status,optional"`    // -1 或不传表示全部
+	Page     int64 `form:"page,optional"`
+	PageSize int64 `form:"page_size,optional"`
+}
+
+// ListRecordPlansResp 录像计划分页列表响应
+type ListRecordPlansResp {
+	Total    int64            `json:"total"`
+	Page     int64            `json:"page"`
+	PageSize int64            `json:"page_size"`
+	List     []RecordPlanItem `json:"list"`
+}
+
+// PlaybackReq 回放查询请求
+type PlaybackReq {
+	CameraId  int64 `form:"camera_id"`
+	StartTime int64 `form:"start_time"` // 秒级时间戳, 闭区间(左闭)
+	EndTime   int64 `form:"end_time"`   // 秒级时间戳, 开区间(右开)
+}
+
+// PlaybackSegment 一段可回放录像窗口
+type PlaybackSegment {
+	PlanId      int64  `json:"plan_id"`
+	PlanName    string `json:"plan_name"`
+	StartTime   int64  `json:"start_time"`
+	EndTime     int64  `json:"end_time"`
+	PlaybackUrl string `json:"playback_url"` // 未配置 Record.PlaybackBaseURL 时为空串
+	ExpiresAt   int64  `json:"expires_at"`
+	Sign        string `json:"sign"`
+	SignAlg     string `json:"sign_alg"`
+}
+
+// PlaybackResp 回放查询结果
+type PlaybackResp {
+	CameraId  int64             `json:"camera_id"`
+	StartTime int64             `json:"start_time"`
+	EndTime   int64             `json:"end_time"`
+	HasPlan   bool              `json:"has_plan"` // 是否存在启用中的录像计划
+	Total     int64             `json:"total"`
+	List      []PlaybackSegment `json:"list"`
+}
+
 service video-api {
 	@handler AddCamera
 	post /api/video/camera (AddCameraReq) returns (AddCameraResp)
@@ -124,4 +229,22 @@ service video-api {
 
 	@handler DeleteCamera
 	delete /api/video/camera/:id (IdReq) returns (DeleteCameraResp)
+
+	@handler CreateRecordPlan
+	post /api/video/record-plan (CreateRecordPlanReq) returns (CreateRecordPlanResp)
+
+	@handler GetRecordPlan
+	get /api/video/record-plan/:id (IdReq) returns (RecordPlanItem)
+
+	@handler UpdateRecordPlan
+	put /api/video/record-plan/:id (UpdateRecordPlanReq) returns (UpdateRecordPlanResp)
+
+	@handler DeleteRecordPlan
+	delete /api/video/record-plan/:id (IdReq) returns (DeleteRecordPlanResp)
+
+	@handler ListRecordPlans
+	get /api/video/record-plans (ListRecordPlansReq) returns (ListRecordPlansResp)
+
+	@handler Playback
+	get /api/video/playback (PlaybackReq) returns (PlaybackResp)
 }
