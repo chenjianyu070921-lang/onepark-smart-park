@@ -1,4 +1,4 @@
-package model
+﻿package model
 
 import (
 	"time"
@@ -24,6 +24,7 @@ type CommandLog struct {
 	Mode        int8           `gorm:"column:mode;type:tinyint;not null;default:1" json:"mode"`
 	Status      int8           `gorm:"column:status;type:tinyint;not null;default:0;index:idx_device_status,priority:2;index:idx_timeout,priority:1" json:"status"`
 	Response    datatypes.JSON `gorm:"column:response;type:json" json:"response"`
+	RetryCount  int            `gorm:"column:retry_count;type:int;not null;default:0" json:"retry_count"`
 	SentAt      *time.Time     `gorm:"column:sent_at" json:"sent_at"`
 	ExecutedAt  *time.Time     `gorm:"column:executed_at" json:"executed_at"`
 	TimeoutAt   time.Time      `gorm:"column:timeout_at;not null;index:idx_timeout,priority:2" json:"timeout_at"`

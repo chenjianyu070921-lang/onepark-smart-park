@@ -41,12 +41,14 @@ func main() {
 			log.Fatalf("gateway: 鉴权已启用但 Auth.GrpcAddress 为空 (set AUTH_GRPC_ADDR or Auth.GrpcAddress)")
 		}
 		// 全接口强制校验: 委托 auth-service gRPC Verify, 仅鉴权引导端点(login/refresh/verify/logout)公开, 见 middleware.Auth.
-		final = middleware.Auth(ctx.AuthClient)(final)
 		// 统一 RBAC: 鉴权后、转发前对受保护写操作做权限校验(委托 user-manage gRPC CheckPermission, Redis 缓存).
 		// 仅当配置了 user-manage gRPC 地址时生效; 未配置则全部放行(渐进覆盖, 不破坏可用性).
+		// 注意包裹顺序: 后套的中间件在外层先执行. Permission 依赖 Auth 注入的 x-user-id,
+		// 因此必须先应用 Permission(内层), 再应用 Auth(外层), 才能保证"先鉴权后鉴权权限"的执行顺序.
 		if ctx.UserClient != nil {
 			final = middleware.Permission(ctx.UserClient, ctx.Redis)(final)
 		}
+		final = middleware.Auth(ctx.AuthClient)(final)
 	}
 	// 全局令牌桶限流(单 IP): 需配置 Redis 且 Capacity>0; 否则优雅降级放行, 不影响可用性.
 	rateLimited := false

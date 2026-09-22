@@ -1,0 +1,42 @@
+#!/bin/sh
+# 代码讲解闸门 commit-msg 校验
+# 安装（每个组员执行一次）：git config core.hooksPath scripts/hooks
+# 规则正本见 AGENTS.md 第一节。
+#
+# 校验逻辑：commit 命中 app/ gateway/ common/ 下的 Go 源码改动（排除 *.pb.go）
+# 时，必须同批提交 docs/walkthrough/ 下的讲解卡；否则拒绝提交。
+# 确属放行类改动（纯 CRUD/配置/文档/样式）时，在 commit message 首行写
+#   no-gate: <一行理由>
+# 跳过校验——逃生记录会留在 git log 里，供教师审计。
+
+MSG_FILE="$1"
+
+# 合并提交不拦截（代码已经过原分支的闸门校验）
+[ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ] && exit 0
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+# 逃生通道：commit message 首行 no-gate 声明
+if [ -f "$MSG_FILE" ] && head -n 1 "$MSG_FILE" | grep -qiE '^no-gate[[:space:]]*:'; then
+    exit 0
+fi
+
+# 拦截范围（路径近似）：核心 Go 源码改动，排除生成代码
+code_files=$(echo "$staged" | grep -E '^(app|gateway|common)/.*\.go$' | grep -v '\.pb\.go$')
+[ -z "$code_files" ] && exit 0
+
+# 通过条件：同批提交 docs/walkthrough/ 下的讲解卡
+card=$(echo "$staged" | grep -E '^docs/walkthrough/.*\.md$')
+[ -n "$card" ] && exit 0
+
+cat >&2 <<'EOF'
+[代码讲解闸门] 本次提交命中拦截范围的代码改动，但未附带讲解卡。
+
+拦截范围与规则正本见 AGENTS.md 第一节。两种通过方式：
+  1. 同批提交 docs/walkthrough/<模块>-<YYYYMMDD>.md 讲解卡（正常路径）；
+  2. 确属放行类改动（纯 CRUD/配置/文档/样式）时，commit message 首行写：
+         no-gate: <一行理由>
+     逃生记录会留在 git log 中，供教师审计。
+EOF
+exit 1

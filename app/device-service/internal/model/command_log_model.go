@@ -1,4 +1,4 @@
-package model
+﻿package model
 
 import (
 	"context"
@@ -12,14 +12,16 @@ type (
 		Insert(ctx context.Context, c *CommandLog) error
 		FindByRequestID(ctx context.Context, requestID string) (*CommandLog, error)
 		UpdateStatus(ctx context.Context, requestID string, status int8, response []byte) error
-		// FindTimeoutList 查询已超时但仍在等待(0待发送/1已下发)的指令, 供超时扫描任务处理
 		FindTimeoutList(ctx context.Context, limit int) ([]*CommandLog, error)
-		// MarkStatus 仅推进状态, 不改动 response
 		MarkStatus(ctx context.Context, requestID string, status int8) error
-		// MarkSent 推进状态并写入下发时间
 		MarkSent(ctx context.Context, requestID string, status int8) error
-		// ExtendTimeout 延长超时时间, 用于重发后重新计时
 		ExtendTimeout(ctx context.Context, requestID string, timeoutAt time.Time) error
+
+		RecordSuccess(ctx context.Context, requestID string, response []byte, executedAt time.Time) error
+		RecordFailureForRetry(ctx context.Context, requestID string, response []byte, executedAt time.Time, maxRetry int) error
+		FindRetryList(ctx context.Context, limit int) ([]*CommandLog, error)
+		ClaimRetry(ctx context.Context, requestID string, timeoutAt time.Time, maxRetry int) (bool, error)
+		FinishTimeout(ctx context.Context, requestID string) error
 	}
 
 	commandLogModel struct {
@@ -71,6 +73,41 @@ func (m *commandLogModel) ExtendTimeout(ctx context.Context, requestID string, t
 }
 
 func (m *commandLogModel) FindTimeoutList(ctx context.Context, limit int) ([]*CommandLog, error) {
+	return m.FindRetryList(ctx, limit)
+}
+
+func (m *commandLogModel) MarkStatus(ctx context.Context, requestID string, status int8) error {
+	return m.db.WithContext(ctx).Model(&CommandLog{}).
+		Where("request_id = ?", requestID).
+		Update("status", status).Error
+}
+
+// RecordSuccess applies a successful acknowledgement only while the command can still
+// transition from pending or sent. A zero-row update is an idempotent no-op.
+func (m *commandLogModel) RecordSuccess(ctx context.Context, requestID string, response []byte, executedAt time.Time) error {
+	return m.db.WithContext(ctx).Model(&CommandLog{}).
+		Where("request_id = ? AND status IN ?", requestID, []int8{CommandStatusPending, CommandStatusSent}).
+		Updates(map[string]any{
+			"status":      CommandStatusSuccess,
+			"response":    response,
+			"executed_at": executedAt,
+		}).Error
+}
+
+// RecordFailureForRetry keeps a failed command retryable while retry_count is below the
+// configured limit. Once the limit is reached it writes terminal failed status.
+func (m *commandLogModel) RecordFailureForRetry(ctx context.Context, requestID string, response []byte, executedAt time.Time, maxRetry int) error {
+	return m.db.WithContext(ctx).Model(&CommandLog{}).
+		Where("request_id = ? AND status IN ?", requestID, []int8{CommandStatusPending, CommandStatusSent}).
+		Updates(map[string]any{
+			"status":      gorm.Expr("CASE WHEN retry_count >= ? THEN ? ELSE ? END", maxRetry, CommandStatusFailed, CommandStatusSent),
+			"response":    response,
+			"executed_at": executedAt,
+			"timeout_at":  executedAt,
+		}).Error
+}
+
+func (m *commandLogModel) FindRetryList(ctx context.Context, limit int) ([]*CommandLog, error) {
 	var list []*CommandLog
 	if err := m.db.WithContext(ctx).
 		Where("status IN ? AND timeout_at < NOW()", []int8{CommandStatusPending, CommandStatusSent}).
@@ -80,8 +117,25 @@ func (m *commandLogModel) FindTimeoutList(ctx context.Context, limit int) ([]*Co
 	return list, nil
 }
 
-func (m *commandLogModel) MarkStatus(ctx context.Context, requestID string, status int8) error {
+// ClaimRetry atomically reserves one resend. The status predicate prevents a successful
+// acknowledgement from being overwritten, and retry_count < max prevents duplicate claims.
+func (m *commandLogModel) ClaimRetry(ctx context.Context, requestID string, timeoutAt time.Time, maxRetry int) (bool, error) {
+	result := m.db.WithContext(ctx).Model(&CommandLog{}).
+		Where("request_id = ? AND status IN ? AND retry_count < ?", requestID,
+			[]int8{CommandStatusPending, CommandStatusSent}, maxRetry).
+		Updates(map[string]any{
+			"retry_count": gorm.Expr("retry_count + 1"),
+			"status":      CommandStatusSent,
+			"timeout_at":  timeoutAt,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+func (m *commandLogModel) FinishTimeout(ctx context.Context, requestID string) error {
 	return m.db.WithContext(ctx).Model(&CommandLog{}).
-		Where("request_id = ?", requestID).
-		Update("status", status).Error
+		Where("request_id = ? AND status IN ?", requestID, []int8{CommandStatusPending, CommandStatusSent}).
+		Update("status", CommandStatusTimeout).Error
 }

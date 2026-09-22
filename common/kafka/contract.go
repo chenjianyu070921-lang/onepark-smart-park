@@ -85,3 +85,20 @@ func NewDLQEnvelope(sourceTopic, reason string, raw []byte) DLQEnvelope {
 		FailedAt:    time.Now(),
 	}
 }
+
+// Command result statuses. Only these two values are valid on CommandResult.Status.
+const (
+	CommandStatusSuccess = "success"
+	CommandStatusFailed  = "failed"
+)
+
+// CommandResult is the authoritative acknowledgement contract for device commands.
+// Producers must use kafka.TopicDeviceCommandResult and key messages by DeviceID.
+type CommandResult struct {
+	RequestID  string          `json:"request_id"`
+	DeviceID   string          `json:"device_id"`
+	Status     string          `json:"status"` // success / failed
+	Response   json.RawMessage `json:"response"`
+	OccurredAt int64           `json:"occurred_at"` // Unix seconds
+	Source     string          `json:"source"`      // mqtt / tcp-gateway
+}
