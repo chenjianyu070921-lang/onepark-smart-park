@@ -176,3 +176,46 @@ func TestLogoutAccessThenVerifyInvalid(t *testing.T) {
 	}
 }
 
+// TestLogoutAccessBlocksPairedRefreshRoundTrip 端到端固化 tokenblk<->auth 登出集成闭环:
+// 模拟登录(登记 refresh 白名单 + access↔refresh 配对) -> 用 access 注销(连带吊销配套 refresh)
+// -> 再用该 refresh 去刷新, 必须在 Refresh 逻辑中于 DB 查询之前被拒(refresh.go:39 的 RefreshExists 失败).
+// 这比 TestLogoutAccessRevokesPairedRefresh 更强: 真实走完 Refresh 入口, 证明"注销真正结束会话",
+// 攻击者拿到配套 refresh 也换不出新 access(而非仅单测 tokenblk.RefreshExists 返回 false).
+func TestLogoutAccessBlocksPairedRefreshRoundTrip(t *testing.T) {
+	rdb := mustRedis(t)
+	ctx := newTestCtxWithRedis(t, rdb)
+	at := mustToken(t, 42, "1,2", 7, jwt.TypeAccess, 3600)
+	rt := mustToken(t, 42, "1,2", 7, jwt.TypeRefresh, 86400)
+
+	// 模拟登录: 登记 refresh 白名单 + access↔refresh 配对.
+	ac, err := jwt.Parse(testSecret, at)
+	if err != nil {
+		t.Fatalf("解析 access 失败: %v", err)
+	}
+	rc, err := jwt.Parse(testSecret, rt)
+	if err != nil {
+		t.Fatalf("解析 refresh 失败: %v", err)
+	}
+	if err := tokenblk.StoreRefresh(context.Background(), rdb, rc.ID, 86400*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := tokenblk.LinkPair(context.Background(), rdb, ac.ID, rc.ID, 86400*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	// 用 access 令牌注销 -> 连带吊销配套 refresh(tokenblk).
+	if err := NewLogoutLogic(context.Background(), ctx).Logout(&types.LogoutReq{Token: at}); err != nil {
+		t.Fatalf("注销失败: %v", err)
+	}
+
+	// 用被连带吊销的 refresh 去刷新: 必须在 DB 查询前被拒(ErrUnauthorized).
+	_, err = NewRefreshLogic(context.Background(), ctx).Refresh(&types.RefreshReq{RefreshToken: rt})
+	if err == nil {
+		t.Fatal("配套 refresh 被注销后仍应刷新被拒")
+	}
+	ce, ok := err.(*errorx.CodeError)
+	if !ok || ce.Code != errorx.ErrUnauthorized {
+		t.Fatalf("期望 ErrUnauthorized, 实际 %v", err)
+	}
+}
+
