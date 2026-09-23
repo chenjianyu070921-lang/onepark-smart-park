@@ -2,6 +2,14 @@ Name: workorder-api
 Host: 0.0.0.0
 Port: 8082
 
+# 工单 gRPC 服务(M5 运营大屏 ListWorkOrders 聚合查询); 与 REST 同进程双模监听.
+# Name 必填(go-zero 配置校验要求 Rpc.Name 非空, 缺失会拒绝启动); ListenOn 须与
+# dashboard 的 WORKORDER_RPC_ENDPOINTS(部署编排为 workorder-service:9091)一致.
+Rpc:
+  Name: workorder.rpc
+  ListenOn: 0.0.0.0:9091
+  Timeout: 3000
+
 # MySQL 连接配置 (DSN 由环境变量注入)
 MySQL:
   DataSource: ${WORKORDER_MYSQL_DSN}

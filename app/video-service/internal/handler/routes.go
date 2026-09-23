@@ -43,7 +43,37 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/video/camera/:id",
 				Handler: DeleteCameraHandler(serverCtx),
 			},
-		{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, nil)},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/video/record-plan",
+				Handler: CreateRecordPlanHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/video/record-plans",
+				Handler: ListRecordPlansHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/video/record-plan/:id",
+				Handler: GetRecordPlanHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/api/video/record-plan/:id",
+				Handler: UpdateRecordPlanHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/api/video/record-plan/:id",
+				Handler: DeleteRecordPlanHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/video/playback",
+				Handler: PlaybackHandler(serverCtx),
+			},
+			{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, nil)},
 		},
 	)
 }

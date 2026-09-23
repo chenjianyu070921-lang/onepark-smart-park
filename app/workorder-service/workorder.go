@@ -10,12 +10,16 @@ import (
 	"onepark/app/workorder-service/internal/consumer"
 	"onepark/app/workorder-service/internal/cron"
 	"onepark/app/workorder-service/internal/handler"
+	"onepark/app/workorder-service/internal/rpcserver"
 	"onepark/app/workorder-service/internal/svc"
 	"onepark/common/health"
 	cmw "onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
+	"github.com/zeromicro/go-zero/zrpc"
+	"google.golang.org/grpc"
+	workorderpb "onepark/proto/workorder"
 )
 
 var configFile = flag.String("f", "etc/workorder-api.yaml", "the config file")
@@ -37,10 +41,24 @@ func main() {
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
 
+	// 工单 gRPC 服务(M5 运营大屏 ListWorkOrders 聚合查询): 与 REST 同进程双模监听 9091.
+	// 注册 WorkorderServer 实现(rpcserver 包), 由 M5 dashboard 经 WORKORDER_RPC_ENDPOINTS 调用.
+	grpcServer := zrpc.MustNewServer(c.Rpc, func(s *grpc.Server) {
+		workorderpb.RegisterWorkorderServiceServer(s, rpcserver.NewWorkorderServer(ctx.DB))
+	})
+	defer grpcServer.Stop()
+	// gRPC 启动可观测性: go-zero zrpc.Start() 返回 void(监听异常由框架内部 fatal, 已是 fail-fast),
+	// 故启动结果不在此捕获; 就绪状态由 /api/readyz 的 grpc 探针(TCP 探 ListenOn)反映,
+	// 若监听失败该组件置 degraded, 运维可据此摘流量/告警, 避免"看起来健康但 gRPC 实际未起"的静默降级.
+	go func() {
+		grpcServer.Start()
+	}()
+
 	// 健康检查: /api/healthz 存活(不探依赖), /api/readyz 就绪(探 MySQL + Redis; Kafka 由 Producer 旁路兜底).
 	server.AddRoutes([]rest.Route{
 		{Method: http.MethodGet, Path: "/api/healthz", Handler: health.Liveness()},
-		{Method: http.MethodGet, Path: "/api/readyz", Handler: health.Readiness(ctx.DB, ctx.Redis)},
+		{Method: http.MethodGet, Path: "/api/readyz", Handler: health.Readiness(ctx.DB, ctx.Redis,
+			health.TCPProbe("grpc", c.Rpc.ListenOn))},
 	})
 
 	// 告警自动建单消费者: 消费 alarm-event → 幂等建报修工单(alarm_id 唯一键去重).
