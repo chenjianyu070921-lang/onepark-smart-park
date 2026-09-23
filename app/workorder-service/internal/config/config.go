@@ -2,6 +2,7 @@ package config
 
 import (
 	"github.com/zeromicro/go-zero/rest"
+	"github.com/zeromicro/go-zero/zrpc"
 	"onepark/common/gormx"
 	"onepark/common/minio"
 	"onepark/common/redisx"
@@ -11,6 +12,7 @@ import (
 // 包含 go-zero REST 基础配置、MySQL、Redis、Kafka 等连接信息.
 type Config struct {
 	rest.RestConf
+	Rpc   zrpc.RpcServerConf // 工单 gRPC 服务(M5 大屏 ListWorkOrders 聚合查询, 监听 9091)
 	MySQL gormx.MySQLConf  // MySQL 连接配置
 	Redis redisx.RedisConf // Redis 连接配置(分布式锁防重)
 	Kafka KafkaConf        // Kafka 连接配置

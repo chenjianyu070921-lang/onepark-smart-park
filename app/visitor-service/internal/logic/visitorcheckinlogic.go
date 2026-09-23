@@ -91,11 +91,20 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 	}
 
 	// 黑名单实时拦截(P2): 命中则标记该记录并拒绝通行.
-	if blocked, e := checkBlocked(l.ctx, l.svcCtx, rec.TenantID, rec.VisitorPhone, rec.IdNo); e != nil {
-		l.Errorf("check blocklist failed: %v", e)
-	} else if blocked {
+	// 安全设计: 查询异常 fail-closed(拒绝通行), 防止 DB 抖动期间黑名单被绕过(典型 fail-open 漏洞).
+	blocked, e := checkBlocked(l.ctx, l.svcCtx, rec.TenantID, rec.VisitorPhone, rec.IdNo)
+	if e != nil {
+		l.Errorf("check blocklist failed, fail-closed deny (rec_id=%d): %v", rec.ID, e)
+		return nil, errorx.NewError(errorx.ErrVisitorBlacklisted, "风控校验暂不可用，已临时拒绝通行")
+	}
+	if blocked {
 		_ = l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).
-			Where("id=? AND tenant_id=?", rec.ID, tenantID).Update("blacklisted", 1).Error
+			Where("id=? AND tenant_id=?", rec.ID, tenantID).
+			Updates(map[string]interface{}{"blacklisted": 1, "updated_at": time.Now()}).Error
+		// 黑名单命中事件(看板 P2): blocked → Kafka visitor-event, 供安防/大屏实时感知拦截动态;
+		// 尽力而为语义, 发布失败不影响拦截拒绝结果.
+		publishVisitorEvent(l.ctx, l.svcCtx, l.Logger, buildBlockedEvent(
+			tenantID, rec.ID, rec.InviterID, rec.VisitorName, rec.VisitorPhone, rec.Status))
 		return nil, errorx.NewError(errorx.ErrVisitorBlacklisted, "访客已被拉黑, 禁止通行")
 	}
 
@@ -175,7 +184,7 @@ func verifyChannelColumn(channel int8) (string, error) {
 
 // checkBlocked 查询访客黑名单是否命中(人员维度实时拦截).
 // 入参: 当前 ctx/svcCtx/tenantID, 以及待校验的手机号与身份证号(可空, 全空直接返回未命中).
-// 返回: true 表示在生效期内被拉黑; 查询异常时返回 error 由调用方决定是否放行.
+// 返回: true 表示在生效期内被拉黑; 查询异常时返回 error, 安全关键调用方须 fail-closed(拒绝通行) 而非放行.
 func checkBlocked(ctx context.Context, svcCtx *svc.ServiceContext, tenantID int64, phone, idNo string) (bool, error) {
 	if phone == "" && idNo == "" {
 		return false, nil

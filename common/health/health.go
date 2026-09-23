@@ -10,6 +10,7 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"time"
 
@@ -88,6 +89,35 @@ func Readiness(db *gormx.DB, rdb *redisx.Client, probes ...Probe) http.HandlerFu
 			Timestamp:  time.Now().Format(time.RFC3339),
 			Components: comps,
 		})
+	}
+}
+
+// TCPProbe 返回探测指定 TCP 地址连通性的 Probe(如 gRPC 监听端口),
+// 用于把"端口是否在监听"纳入就绪探针; 未监听即视为该依赖未就绪(degraded).
+// addr 形如 host:port, 0.0.0.0 自动归一到 127.0.0.1 以便本机探活.
+func TCPProbe(name, addr string) Probe {
+	return func(ctx context.Context) (string, bool, string) {
+		if addr == "" {
+			return name, true, "addr empty, skipped"
+		}
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			host, port = addr, ""
+		}
+		if host == "" || host == "0.0.0.0" {
+			host = "127.0.0.1"
+		}
+		target := addr
+		if port != "" {
+			target = net.JoinHostPort(host, port)
+		}
+		d := net.Dialer{Timeout: 2 * time.Second}
+		conn, err := d.DialContext(ctx, "tcp", target)
+		if err != nil {
+			return name, false, err.Error()
+		}
+		_ = conn.Close()
+		return name, true, ""
 	}
 }
 

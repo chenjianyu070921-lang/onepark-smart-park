@@ -20,10 +20,11 @@ import (
 const visitorEventPublishTimeout = 2 * time.Second
 
 // VisitorEvent 访客事件载荷(发布到 Kafka topic=visitor-event).
-// event 取值: invite(邀请签发) / checkin(签入核销) / checkout(签出离场).
+// event 取值: invite(邀请签发) / checkin(签入核销) / checkout(签出离场) / blocked(黑名单拦截, 看板 P2).
+// 消费端应按 event 分发且对未知类型静默忽略, 保证新增事件向后兼容.
 type VisitorEvent struct {
 	EventId      string `json:"event_id"`      // 事件ID(优先取全链路 RequestId, 便于幂等去重)
-	Event        string `json:"event"`         // invite / checkin / checkout
+	Event        string `json:"event"`         // invite / checkin / checkout / blocked
 	TenantId     int64  `json:"tenant_id"`     // 园区ID(RBAC 隔离维度)
 	VisitorId    int64  `json:"visitor_id"`    // 访客通行记录ID
 	VisitorName  string `json:"visitor_name"`  // 访客姓名
@@ -32,6 +33,21 @@ type VisitorEvent struct {
 	Status       int8   `json:"status"`        // 事件后记录状态(1待使用/2已签入/3已签出/4已过期)
 	DeviceId     string `json:"device_id"`     // 开门设备ID(签入/签出时; 邀请为空)
 	Timestamp    int64  `json:"timestamp"`     // 事件时间(秒级)
+}
+
+// buildBlockedEvent 构造黑名单拦截事件(event=blocked, 看板 P2: 黑名单命中事件通知链路).
+// 纯函数便于单测; visitorID 为 0 表示邀请阶段拦截(通行记录尚未创建), status 传记录当前状态
+// (邀请阶段无记录传 0, 签入阶段传被拦截记录的既有状态); DeviceId 恒为空(未放行即无开门设备).
+func buildBlockedEvent(tenantID, visitorID, inviterID int64, name, phone string, status int8) VisitorEvent {
+	return VisitorEvent{
+		Event:        "blocked",
+		TenantId:     tenantID,
+		VisitorId:    visitorID,
+		VisitorName:  name,
+		VisitorPhone: phone,
+		InviterId:    inviterID,
+		Status:       status,
+	}
 }
 
 // publishVisitorEvent 发布访客事件到 Kafka.
