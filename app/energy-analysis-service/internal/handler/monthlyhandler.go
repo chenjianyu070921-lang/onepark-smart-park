@@ -27,6 +27,7 @@ func MonthlyHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			writeErr(w, err)
 			return
 		}
-		response.Ok(w, resp)
+		// 同上: 只交给全局 OkHandler 包装一次, 避免响应体嵌套两层.
+		httpx.OkJsonCtx(r.Context(), w, resp)
 	}
 }

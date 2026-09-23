@@ -27,6 +27,8 @@ func DailyHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			writeErr(w, err)
 			return
 		}
-		response.Ok(w, resp)
+		// 交给 response.Init() 注册的全局 OkHandler 统一包装,
+		// 此处若先 response.Ok 再入 httpx 会被包两层 {data:{code,msg,data}}.
+		httpx.OkJsonCtx(r.Context(), w, resp)
 	}
 }

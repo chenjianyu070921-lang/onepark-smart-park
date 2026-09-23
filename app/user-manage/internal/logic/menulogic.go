@@ -49,6 +49,48 @@ func (l *MenuCreateLogic) MenuCreate(req *types.CreateMenuReq) (resp *types.Crea
 	return &types.CreateMenuResp{Id: menu.ID}, nil
 }
 
+// ---- MenuList ----
+type MenuListLogic struct {
+	logx.Logger
+	ctx    context.Context
+	svcCtx *svc.ServiceContext
+}
+
+func NewMenuListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *MenuListLogic {
+	return &MenuListLogic{Logger: logx.WithContext(ctx), ctx: ctx, svcCtx: svcCtx}
+}
+
+// MenuList 菜单列表. req.RoleId > 0 时只返回该角色已授权的菜单; 否则返回全量目录.
+// 前端侧边栏按角色拉取可见菜单, 角色管理页的授权面板则拉全量.
+func (l *MenuListLogic) MenuList(req *types.MenuListReq) (*types.MenuListResp, error) {
+	var (
+		menus []*model.SysMenu
+		err   error
+	)
+	if req != nil && req.RoleId > 0 {
+		menus, err = l.svcCtx.MenuModel.FindListByRoleID(l.ctx, req.RoleId)
+	} else {
+		menus, err = l.svcCtx.MenuModel.FindList(l.ctx)
+	}
+	if err != nil {
+		l.Errorf("查询菜单列表失败: %v", err)
+		return nil, errorx.NewError(errorx.ErrInternal, "查询菜单列表失败")
+	}
+	list := make([]types.MenuInfo, 0, len(menus))
+	for _, m := range menus {
+		list = append(list, types.MenuInfo{
+			Id:         m.ID,
+			ParentId:   m.ParentID,
+			MenuKey:    m.MenuKey,
+			MenuName:   m.MenuName,
+			Permission: m.Permission,
+			Path:       m.Path,
+			Sort:       m.Sort,
+		})
+	}
+	return &types.MenuListResp{List: list, Total: int64(len(list))}, nil
+}
+
 // ---- RoleMenuAssign (角色-菜单/权限) ----
 type RoleMenuAssignLogic struct {
 	logx.Logger

@@ -114,6 +114,7 @@ var permRegistry = map[string][]permRule{
 	http.MethodGet: {
 		{"/api/users", "user:read"},    // 用户列表/详情
 		{"/api/roles", "role:read"},    // 角色列表
+		{"/api/menus", "menu:read"},    // 菜单列表
 		{"/api/alarms", "alarm:read"},  // 告警列表(复数路径, 单独列)
 		{"/api/alarm", "alarm:read"},   // 告警活跃/规则/详情/死信(保安)
 		{"/api/access", "access:read"}, // 门禁记录(保安)

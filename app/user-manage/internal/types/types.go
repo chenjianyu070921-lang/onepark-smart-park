@@ -83,6 +83,17 @@ type MenuInfo struct {
 	Sort       int    `json:"sort"`
 }
 
+// MenuListReq 菜单查询. RoleId > 0 时只返回该角色已授权的菜单(前端侧边栏按角色渲染);
+// 不传则平台返回全部菜单(角色管理页授权面板需要全量目录).
+type MenuListReq struct {
+	RoleId uint64 `form:"role_id,optional"`
+}
+
+type MenuListResp struct {
+	List  []MenuInfo `json:"list"`
+	Total int64      `json:"total"`
+}
+
 type CreateMenuReq struct {
 	ParentId   uint64 `json:"parent_id"`
 	MenuKey    string `json:"menu_key"`
