@@ -21,7 +21,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -70,7 +69,7 @@ func main() {
 		}
 		var err error
 		// access 类型的令牌才允许接入大屏(refresh 会被拒)
-		tk, err = jwt.Generate(*secret, 1, "1", *tenant, "access", int64((*dur+time.Minute).Seconds()))
+		tk, err = jwt.Generate(*secret, 1, "1", *tenant, "access", int64((*dur + time.Minute).Seconds()))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[wsload] 生成 token 失败: %v\n", err)
 			os.Exit(1)
