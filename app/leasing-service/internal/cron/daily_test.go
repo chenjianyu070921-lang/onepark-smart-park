@@ -168,11 +168,15 @@ func TestRunDailyOnce_AutoRenewAndExpire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunDailyOnce 失败: %v", err)
 	}
-	if res.Renewed != 1 {
-		t.Errorf("Renewed = %d, 期望 1", res.Renewed)
+	// ⚠️ 这两个是**全库**计数, 只断言"至少发生了", 不断言精确条数。
+	// 开发库里只要还躺着别的超期合同(联调数据、演示 seed 数据都会), 精确值就会变 ——
+	// 断言 == 1 属于脆测试(同包的 bill_test 也为这个原因只断言"至少改派一张")。
+	// 「本次到底改了什么」由下面针对本用例三份合同的**逐项断言**精确保证。
+	if res.Renewed < 1 {
+		t.Errorf("Renewed = %d, 期望 >= 1(本用例的自动续约合同应被续签)", res.Renewed)
 	}
-	if res.Expired != 1 {
-		t.Errorf("Expired = %d, 期望 1", res.Expired)
+	if res.Expired < 1 {
+		t.Errorf("Expired = %d, 期望 >= 1(本用例的不续约超期合同应转已到期)", res.Expired)
 	}
 
 	// 1) 续约: 终止日按原租期(1 年)顺延, 状态仍是生效中
