@@ -1,0 +1,59 @@
+name: gate-audit
+
+on:
+  pull_request:
+
+jobs:
+  gate-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 代码讲解闸门审计
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          files=$(git diff --name-only "$base" "$head" || true)
+
+          hit=0
+          for f in $files; do
+            case "$f" in
+              app/*|gateway/*|common/*)
+                case "$f" in
+                  *.pb.go) ;;
+                  *.go) hit=1 ;;
+                esac
+                ;;
+            esac
+            [ "$hit" -eq 1 ] && break
+          done
+
+          if [ "$hit" -eq 0 ]; then
+            echo "未命中拦截范围, 闸门通过。"
+            exit 0
+          fi
+
+          has_card=0
+          for f in $files; do
+            case "$f" in
+              docs/walkthrough/*) has_card=1; break ;;
+            esac
+          done
+
+          if [ "$has_card" -eq 1 ]; then
+            echo "已附带 docs/walkthrough/ 讲解卡, 闸门通过。"
+            exit 0
+          fi
+
+          # 放行声明写在 PR 描述里
+          body="${{ github.event.pull_request.body }}"
+          case "$body" in
+            *no-gate:*) echo "PR 描述含 no-gate: 声明, 闸门放行。"; exit 0 ;;
+          esac
+
+          echo "::error::[代码讲解闸门] PR 命中 app/gateway/common Go 源码改动, 但未附带 docs/walkthrough/ 讲解卡, 且 PR 描述无 no-gate: 声明。"
+          echo "修复方式: 提交 docs/walkthrough/ 讲解卡, 或在 PR 描述首行写 'no-gate: <理由>'。"
+          exit 1

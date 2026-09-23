@@ -110,3 +110,69 @@ func TestRefreshLogicRejectsUnknownRefresh(t *testing.T) {
 // 单测无法注入 sys_db, 故轮换语义交由集成测试(TestLoginLogicIntegration 同类路径)与联调覆盖;
 // 本文件仅固化"refresh 登记表"的单元行为(见 TestLogoutLogicRevokesRefresh / TestRefreshLogicRejectsUnknownRefresh).
 
+// TestLogoutAccessRevokesPairedRefresh 固化"用 access 令牌注销会连带吊销配套 refresh"的闭环:
+// 否则 refresh 白名单残留, 攻击者仍可用 refresh 换发新 access, 注销未真正结束会话.
+func TestLogoutAccessRevokesPairedRefresh(t *testing.T) {
+	rdb := mustRedis(t)
+	ctx := newTestCtxWithRedis(t, rdb)
+	at := mustToken(t, 42, "1,2", 7, jwt.TypeAccess, 3600)
+	rt := mustToken(t, 42, "1,2", 7, jwt.TypeRefresh, 86400)
+
+	ac, err := jwt.Parse(testSecret, at)
+	if err != nil {
+		t.Fatalf("解析 access 失败: %v", err)
+	}
+	rc, err := jwt.Parse(testSecret, rt)
+	if err != nil {
+		t.Fatalf("解析 refresh 失败: %v", err)
+	}
+	// 模拟登录时已登记 refresh 白名单 + access↔refresh 配对.
+	if err := tokenblk.StoreRefresh(context.Background(), rdb, rc.ID, 86400*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := tokenblk.LinkPair(context.Background(), rdb, ac.ID, rc.ID, 86400*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if !tokenblk.RefreshExists(context.Background(), rdb, rc.ID) {
+		t.Fatal("登记后 refresh 应存在")
+	}
+
+	// 用 access 令牌注销.
+	if err := NewLogoutLogic(context.Background(), ctx).Logout(&types.LogoutReq{Token: at}); err != nil {
+		t.Fatalf("注销失败: %v", err)
+	}
+	// access 应入黑名单.
+	if resp, err := NewVerifyLogic(context.Background(), ctx).Verify(&types.VerifyReq{Token: at}); err != nil || resp.Valid {
+		t.Fatal("注销后 access 应失效")
+	}
+	// 配套 refresh 应被连带吊销.
+	if tokenblk.RefreshExists(context.Background(), rdb, rc.ID) {
+		t.Fatal("注销 access 应连带吊销配套 refresh")
+	}
+}
+
+// TestLogoutAccessThenVerifyInvalid 端到端固化"tokenblk <-> auth 登出"集成闭环:
+// 走 Logout 逻辑吊销 access 令牌(内部调用 tokenblk.Revoke)后, 同一令牌经 Verify 逻辑应判定失效.
+// 这是对 TestVerifyLogicRespectsBlacklist(直接调用 tokenblk.Revoke)的补充 —— 真实走完 Logout 入口,
+// 覆盖"用户注销 -> 网关/服务端后续校验立即失效"这一 P0 语义.
+func TestLogoutAccessThenVerifyInvalid(t *testing.T) {
+	rdb := mustRedis(t)
+	ctx := newTestCtxWithRedis(t, rdb)
+	tok := mustToken(t, 42, "1,2", 7, jwt.TypeAccess, 3600)
+
+	// 注销前 Verify 应有效.
+	if resp, err := NewVerifyLogic(context.Background(), ctx).Verify(&types.VerifyReq{Token: tok}); err != nil || !resp.Valid {
+		t.Fatalf("注销前应有效: err=%v resp=%+v", err, resp)
+	}
+
+	// 走 Logout 逻辑 -> tokenblk.Revoke(access jti, TTL=令牌剩余有效期).
+	if err := NewLogoutLogic(context.Background(), ctx).Logout(&types.LogoutReq{Token: tok}); err != nil {
+		t.Fatalf("注销失败: %v", err)
+	}
+
+	// 注销后经 Verify 应失效(完整集成闭环).
+	if resp, err := NewVerifyLogic(context.Background(), ctx).Verify(&types.VerifyReq{Token: tok}); err != nil || resp.Valid {
+		t.Fatalf("注销后应失效: err=%v resp=%+v", err, resp)
+	}
+}
+

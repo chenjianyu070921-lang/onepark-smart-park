@@ -43,6 +43,12 @@ RateLimit:
   Capacity: 100
   RatePerSec: 100
 
+# 全局熔断(所有上游共享, 见 internal/proxy/proxy.go 的 breaker):
+# 单上游连续失败达 BreakerThreshold 即断开, 冷却 BreakerCooldown 后半开探一个; 断开期返回 503.
+# 二者任一<=0 回落默认(5 / 10s). 一般无需改; 高抖动上游可调小阈值/冷却以快速止损.
+BreakerThreshold: 5
+BreakerCooldown: 10s
+
 # 上游表配置中心(可选, 与 internal/config.NacosConf 字段一一对应).
 # 启用条件: Address 非空. 启用后从 Nacos 拉取 dataId=gateway-upstreams 的上游表并监听热更新;
 # 拉取/解析失败自动回退下方静态 Upstreams, 不阻塞启动、不影响可用性(见 internal/discovery/nacos.go).

@@ -54,5 +54,10 @@ func (l *LogoutLogic) Logout(req *types.LogoutReq) error {
 		l.Errorf("注销令牌入黑名单失败: %v", err)
 		return errorx.NewError(errorx.ErrInternal, "注销失败")
 	}
+	// 连带吊销配套 refresh 令牌(白名单): 仅黑 access 不够, 否则 7d refresh 仍可换发新 access, 注销未真正生效.
+	if pr := tokenblk.PairedRefresh(l.ctx, l.svcCtx.Redis, claims.ID); pr != "" {
+		_ = tokenblk.RevokeRefresh(l.ctx, l.svcCtx.Redis, pr)
+		_ = tokenblk.UnlinkPair(l.ctx, l.svcCtx.Redis, claims.ID)
+	}
 	return nil
 }

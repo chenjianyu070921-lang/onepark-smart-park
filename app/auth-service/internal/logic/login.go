@@ -63,6 +63,10 @@ func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err erro
 	// refresh 令牌登记入 Redis(TTL=有效期 7d): 供刷新时校验有效性/吊销; Redis 不可用时降级为无操作.
 	if rc, perr := jwt.Parse(l.svcCtx.JwtSecret, refresh); perr == nil {
 		_ = tokenblk.StoreRefresh(l.ctx, l.svcCtx.Redis, rc.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second)
+		// 记录 access↔refresh 配对, 供"用 access 注销"时连带吊销 refresh(真正结束会话).
+		if ac, aerr := jwt.Parse(l.svcCtx.JwtSecret, access); aerr == nil {
+			_ = tokenblk.LinkPair(l.ctx, l.svcCtx.Redis, ac.ID, rc.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second)
+		}
 	}
 
 	return &types.LoginResp{

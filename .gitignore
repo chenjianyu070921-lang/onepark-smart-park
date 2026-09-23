@@ -48,3 +48,7 @@ docs/ticket-*.html
 # Redis 测试实例的快照产物（本机 phpStudy redis 起指定 datadir 时落盘）
 dump.rdb
 
+# 本地脚本 / 技能目录（工具链, 不入仓）
+scripts/
+skills/
+

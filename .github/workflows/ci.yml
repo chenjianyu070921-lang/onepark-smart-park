@@ -1,0 +1,27 @@
+name: ci
+
+# 构建/测试/静态检查流水线(与 gate-audit.yml 的 PR 闸门审计互补:
+# gate-audit 只卡讲解卡, 本流水线才真正跑 build/test/vet).
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test-vet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./... -count=1
+
+      - name: Vet
+        run: go vet ./...

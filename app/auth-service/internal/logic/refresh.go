@@ -63,10 +63,16 @@ func (l *RefreshLogic) Refresh(req *types.RefreshReq) (resp *types.LoginResp, er
 	if gerr != nil {
 		return nil, errorx.NewError(errorx.ErrInternal, gerr.Error())
 	}
-	// 刷新令牌轮换: 吊销旧 refresh jti, 登记新 refresh jti(防 7d 窗口内令牌重用). Redis 不可用时降级为无操作.
+	// 刷新令牌轮换: 先登记新 refresh jti, 成功后再吊销旧 refresh jti.
+	// 顺序关键(白名单写入时机): 若先吊销旧、后登记新, 一旦"登记新"这一步 Redis 写入失败,
+	// 旧已被吊销而新未入库, 但响应仍把新令牌返回客户端 -> 拿到永远无法使用的 refresh, 会话被静默弄丢.
+	// 先登记新可保证写入失败时旧仍可用、客户端可重试, 不丢会话. Redis 不可用时两段均降级为无操作.
 	if nc, nerr := jwt.Parse(l.svcCtx.JwtSecret, refresh); nerr == nil {
-		_ = tokenblk.RevokeRefresh(l.ctx, l.svcCtx.Redis, claims.ID)
-		_ = tokenblk.StoreRefresh(l.ctx, l.svcCtx.Redis, nc.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second)
+		if ac, aerr := jwt.Parse(l.svcCtx.JwtSecret, access); aerr == nil {
+			_ = tokenblk.LinkPair(l.ctx, l.svcCtx.Redis, ac.ID, nc.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second)
+		}
+		_ = tokenblk.StoreRefresh(l.ctx, l.svcCtx.Redis, nc.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second) // 先登记新
+		_ = tokenblk.RevokeRefresh(l.ctx, l.svcCtx.Redis, claims.ID)                                            // 后吊销旧
 	}
 
 	return &types.LoginResp{
