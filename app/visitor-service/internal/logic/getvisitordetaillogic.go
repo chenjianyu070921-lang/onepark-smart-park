@@ -43,7 +43,7 @@ func (l *GetVisitorDetailLogic) GetVisitorDetail(req *types.VisitorIdReq) (resp 
 		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
 	}
 	if req.Id <= 0 {
-		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "访客记录ID非法")
+		return nil, errorx.NewError(errorx.ErrBadRequest, "访客记录ID非法")
 	}
 
 	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).
@@ -63,7 +63,7 @@ func (l *GetVisitorDetailLogic) GetVisitorDetail(req *types.VisitorIdReq) (resp 
 	var rec model.VisitorRecord
 	if e := q.First(&rec).Error; e != nil {
 		if e == gorm.ErrRecordNotFound {
-			return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "访客记录不存在")
+			return nil, errorx.NewError(errorx.ErrVisitorNotFound, "访客记录不存在")
 		}
 		l.Errorf("get visitor detail failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "查询访客详情失败")

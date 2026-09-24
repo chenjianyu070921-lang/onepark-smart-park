@@ -107,6 +107,11 @@ func RunPublishDueOnce(ctx context.Context, svcCtx *svc.ServiceContext) (int, er
 			continue // 已被其他实例/上一轮发布, 跳过避免重复推送
 		}
 
+		// 回填模型状态: n 是 Find 读出的草稿(status=草稿), 若不回写则推给消费者的事件 status=草稿,
+		// 消费端 noticeevent.go 仅推 status==2 → 定时发布实时推送被静默丢弃(审查问题5).
+		n.Status = model.NoticeStatusPublished
+		n.UpdatedAt = now
+
 		// 投递 notice-event: 载荷与建单立即发布完全一致(整条公告模型), 消费端无感知差异.
 		if svcCtx.Producer != nil {
 			b, err := json.Marshal(n)

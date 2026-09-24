@@ -12,6 +12,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// maxPageSize 公告列表单页上限, 与 workorder 列表口径一致.
+const maxPageSize = 200
+
 // ListNoticesLogic 公告分页查询逻辑(支持类型/状态筛选, 强制租户隔离).
 // 列表优先返回置顶项, 其次按创建时间倒序.
 type ListNoticesLogic struct {
@@ -57,6 +60,10 @@ func (l *ListNoticesLogic) ListNotices(req *types.ListNoticeReq) (resp *types.No
 	}
 	if size < 1 {
 		size = 10
+	}
+	// 单页上限, 防止超大 page_size 深翻页拖库(与 workorder 列表口径一致, 审查问题8).
+	if size > maxPageSize {
+		size = maxPageSize
 	}
 
 	var list []model.Notice

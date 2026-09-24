@@ -11,11 +11,13 @@ import (
 	"onepark/app/workorder-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/gormx"
 	"onepark/common/minio"
 
 	"github.com/google/uuid"
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // UploadWorkOrderAttachmentLogic 工单附件上传逻辑.
@@ -91,8 +93,10 @@ func (l *UploadWorkOrderAttachmentLogic) UploadWorkOrderAttachment(req *types.Up
 	}
 
 	// 聚合该工单全部附件 object_key 写回主表 attachments 列, 使 GetWorkOrder 直接返回最新列表.
+	// 同步失败必须上抛(原实现仅记日志返回成功, 会让 GetWorkOrder 返回不完整的附件列表, 审查问题3).
 	if e := l.syncAttachments(tenantID, wo.ID); e != nil {
 		l.Errorf("sync work order attachments failed: %v", e)
+		return nil, errorx.NewError(errorx.ErrM2Internal, "同步附件列表失败")
 	}
 
 	return &types.UploadWorkOrderAttachmentResp{
@@ -103,17 +107,31 @@ func (l *UploadWorkOrderAttachmentLogic) UploadWorkOrderAttachment(req *types.Up
 }
 
 // syncAttachments 把指定工单的全部附件 object_key 聚合为 JSON 写回 work_order.attachments.
+// 修复: 原实现为"读全部附件→写回主表"两步非原子, 并发上传会出现读-改-写竞争导致后写的缓存列覆盖先写,
+// 造成附件漏显(审查问题3). 这里包在事务内并对主表行加 FOR UPDATE 锁, 串行化同单的缓存列更新;
+// 同时 json.Marshal 错误不再被忽略.
 func (l *UploadWorkOrderAttachmentLogic) syncAttachments(tenantID, woID int64) error {
-	var atts []model.WorkOrderAttachment
-	if e := l.svcCtx.DB.WithContext(l.ctx).Where("work_order_id=?", woID).Find(&atts).Error; e != nil {
-		return e
-	}
-	keys := make([]string, 0, len(atts))
-	for _, a := range atts {
-		keys = append(keys, a.ObjectKey)
-	}
-	b, _ := json.Marshal(keys)
-	return l.svcCtx.DB.WithContext(l.ctx).Model(&model.WorkOrder{}).
-		Where("id=? AND tenant_id=?", woID, tenantID).
-		Update("attachments", string(b)).Error
+	return l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gormx.DB) error {
+		// 行锁主表, 阻止并发上传对该单 attachments 列的读-改-写竞争.
+		var wo model.WorkOrder
+		if e := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id=? AND tenant_id=?", woID, tenantID).First(&wo).Error; e != nil {
+			return e
+		}
+		var atts []model.WorkOrderAttachment
+		if e := tx.Where("work_order_id=?", woID).Find(&atts).Error; e != nil {
+			return e
+		}
+		keys := make([]string, 0, len(atts))
+		for _, a := range atts {
+			keys = append(keys, a.ObjectKey)
+		}
+		b, err := json.Marshal(keys)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&model.WorkOrder{}).
+			Where("id=? AND tenant_id=?", woID, tenantID).
+			Update("attachments", string(b)).Error
+	})
 }
