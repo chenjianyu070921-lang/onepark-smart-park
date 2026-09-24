@@ -247,6 +247,9 @@ services:
       TDENGINE_TOKEN: ${TDENGINE_TOKEN:-}
       # HTTP 接口鉴权密钥; 为空时放行(M6 认证服务就绪前保持可联调).
       JWT_SECRET: ${JWT_SECRET}
+      # 影子服务直连地址: 注册设备后同步调 EnsureShadow 在 shadow_db 显式建影子;
+      # 为空时仅写本地 device_db.shadow(降级, 不影响主链路).
+      SHADOW_RPC_TARGET: ${SHADOW_RPC_TARGET:-shadow-service:9002}
     ports:
       - "${DEVICE_SERVICE_PORT:-8001}:8001"
     networks: [onepark]
@@ -881,10 +884,15 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      mysql:
+        condition: service_healthy
     environment:
       EMQX_BROKER: ${EMQX_BROKER}
       EMQX_CLIENT: ${EMQX_CLIENT}
       KAFKA_BROKERS: ${KAFKA_BROKERS}
+      # 设备档案只读连接(指向 device_db): 投递前充入 tenant_id/zone_id,
+      # 缺失时 resolver=nil 消息零值放行, M3 告警将以 tenant_id=0 落库不可见.
+      MYSQL_DSN: ${DISPATCHER_MYSQL_DSN}
     networks: [onepark]
 
   # ---- 初始化: 将网关上游表发布到 Nacos 配置中心(幂等, 失败不阻断) ----

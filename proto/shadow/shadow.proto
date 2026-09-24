@@ -24,6 +24,10 @@ service Shadow {
 
   // UpdateReported 更新设备上报值, version 为乐观锁: 传 0 表示不校验版本
   rpc UpdateReported(UpdateReportedReq) returns (UpdateShadowResp);
+
+  // EnsureShadow 确保设备影子存在(幂等): 不存在则以空 desired/reported 创建, 存在则返回现状.
+  // 设备注册成功后由 device-service 调用, 使影子创建从"遥测惰性补建"变为"注册显式创建".
+  rpc EnsureShadow(EnsureShadowReq) returns (EnsureShadowResp);
 }
 
 // GetShadowReq 查询影子请求
@@ -59,4 +63,16 @@ message UpdateShadowResp {
   uint32 version    = 2; // 更新后的版本号
   bool   success    = 3; // 是否更新成功(版本冲突时为 false)
   string message    = 4; // 失败原因
+}
+
+// EnsureShadowReq 确保影子存在请求
+message EnsureShadowReq {
+  string device_id = 1; // 设备ID
+}
+
+// EnsureShadowResp 确保影子存在响应
+message EnsureShadowResp {
+  string device_id = 1; // 设备ID
+  uint32 version   = 2; // 当前版本号
+  bool   created   = 3; // 本次是否新建(false=已存在, 幂等返回)
 }

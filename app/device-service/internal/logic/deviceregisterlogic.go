@@ -16,6 +16,7 @@ import (
 	"onepark/app/device-service/internal/svc"
 	"onepark/app/device-service/internal/types"
 	"onepark/common/errorx"
+	shadowpb "onepark/proto/shadow"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -96,6 +97,17 @@ func (l *DeviceRegisterLogic) DeviceRegister(req *types.DeviceRegisterReq) (resp
 	if err := l.svcCtx.ShadowModel.Insert(l.ctx, shadow); err != nil {
 		l.Errorf("影子创建失败: %v", err)
 		return nil, errorx.NewError(errorx.ErrShadowCreateFail, "影子创建失败")
+	}
+
+	// 6.1 同步 shadow-service(shadow_db)显式建影子, 供跨模块 RPC 查询.
+	// 失败仅告警不阻断注册: 本地影子(device_db)已满足遥测合并主链路,
+	// shadow_db 副本缺失由后续 EnsureShadow 重试/对账补齐(幂等, 重复调用安全).
+	if l.svcCtx.ShadowCli != nil {
+		rpcCtx, cancel := context.WithTimeout(l.ctx, 2*time.Second)
+		defer cancel()
+		if _, err := l.svcCtx.ShadowCli.EnsureShadow(rpcCtx, &shadowpb.EnsureShadowReq{DeviceId: deviceID}); err != nil {
+			l.Errorf("影子 RPC 同步失败(本地影子已建, 不影响主链路): deviceId=%s, err=%v", deviceID, err)
+		}
 	}
 
 	// 7. 返回明文密钥（仅此一次）

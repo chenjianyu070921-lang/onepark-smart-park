@@ -23,6 +23,7 @@ const (
 	Shadow_GetShadow_FullMethodName      = "/shadow.Shadow/GetShadow"
 	Shadow_UpdateDesired_FullMethodName  = "/shadow.Shadow/UpdateDesired"
 	Shadow_UpdateReported_FullMethodName = "/shadow.Shadow/UpdateReported"
+	Shadow_EnsureShadow_FullMethodName   = "/shadow.Shadow/EnsureShadow"
 )
 
 // ShadowClient is the client API for Shadow service.
@@ -36,6 +37,9 @@ type ShadowClient interface {
 	UpdateDesired(ctx context.Context, in *UpdateDesiredReq, opts ...grpc.CallOption) (*UpdateShadowResp, error)
 	// UpdateReported 更新设备上报值, version 为乐观锁: 传 0 表示不校验版本
 	UpdateReported(ctx context.Context, in *UpdateReportedReq, opts ...grpc.CallOption) (*UpdateShadowResp, error)
+	// EnsureShadow 确保设备影子存在(幂等): 不存在则以空 desired/reported 创建, 存在则返回现状.
+	// 设备注册成功后由 device-service 调用, 使影子创建从"遥测惰性补建"变为"注册显式创建".
+	EnsureShadow(ctx context.Context, in *EnsureShadowReq, opts ...grpc.CallOption) (*EnsureShadowResp, error)
 }
 
 type shadowClient struct {
@@ -86,6 +90,16 @@ func (c *shadowClient) UpdateReported(ctx context.Context, in *UpdateReportedReq
 	return out, nil
 }
 
+func (c *shadowClient) EnsureShadow(ctx context.Context, in *EnsureShadowReq, opts ...grpc.CallOption) (*EnsureShadowResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EnsureShadowResp)
+	err := c.cc.Invoke(ctx, Shadow_EnsureShadow_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ShadowServer is the server API for Shadow service.
 // All implementations must embed UnimplementedShadowServer
 // for forward compatibility
@@ -97,6 +111,9 @@ type ShadowServer interface {
 	UpdateDesired(context.Context, *UpdateDesiredReq) (*UpdateShadowResp, error)
 	// UpdateReported 更新设备上报值, version 为乐观锁: 传 0 表示不校验版本
 	UpdateReported(context.Context, *UpdateReportedReq) (*UpdateShadowResp, error)
+	// EnsureShadow 确保设备影子存在(幂等): 不存在则以空 desired/reported 创建, 存在则返回现状.
+	// 设备注册成功后由 device-service 调用, 使影子创建从"遥测惰性补建"变为"注册显式创建".
+	EnsureShadow(context.Context, *EnsureShadowReq) (*EnsureShadowResp, error)
 	mustEmbedUnimplementedShadowServer()
 }
 
@@ -115,6 +132,9 @@ func (UnimplementedShadowServer) UpdateDesired(context.Context, *UpdateDesiredRe
 }
 func (UnimplementedShadowServer) UpdateReported(context.Context, *UpdateReportedReq) (*UpdateShadowResp, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateReported not implemented")
+}
+func (UnimplementedShadowServer) EnsureShadow(context.Context, *EnsureShadowReq) (*EnsureShadowResp, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EnsureShadow not implemented")
 }
 func (UnimplementedShadowServer) mustEmbedUnimplementedShadowServer() {}
 
@@ -201,6 +221,24 @@ func _Shadow_UpdateReported_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Shadow_EnsureShadow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnsureShadowReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ShadowServer).EnsureShadow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Shadow_EnsureShadow_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ShadowServer).EnsureShadow(ctx, req.(*EnsureShadowReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Shadow_ServiceDesc is the grpc.ServiceDesc for Shadow service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -223,6 +261,10 @@ var Shadow_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateReported",
 			Handler:    _Shadow_UpdateReported_Handler,
+		},
+		{
+			MethodName: "EnsureShadow",
+			Handler:    _Shadow_EnsureShadow_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

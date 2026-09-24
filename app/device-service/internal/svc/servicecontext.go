@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/zeromicro/go-zero/core/stores/redis"
+	"github.com/zeromicro/go-zero/zrpc"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
@@ -15,6 +16,7 @@ import (
 	"onepark/common/kafka"
 	"onepark/common/mqtt"
 	"onepark/common/tdengine"
+	"onepark/proto/shadow"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -32,7 +34,9 @@ type ServiceContext struct {
 	// Downlink 指令下行(MQTT); 为 nil 时指令仅落库, 不阻断受理
 	Downlink CommandDownlink
 	// TDengine 遥测时序落库; 为 nil 时跳过写时序库
-	TDengine        *tdengine.Client
+	TDengine *tdengine.Client
+	// ShadowCli 影子服务客户端; 为 nil 时注册链路仅写本地 shadow 表(device_db), 不同步 shadow_db
+	ShadowCli       shadow.ShadowClient
 	ProductModel    model.ProductModel
 	DeviceModel     model.DeviceModel
 	ShadowModel     model.ShadowModel
@@ -104,6 +108,25 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if ctx.TDengine == nil {
 		logx.Errorf("未配置 TDengine REST 地址, 遥测不落时序库")
 	}
+
+	// 影子服务客户端: 连接失败只降级不 panic, 注册链路仍可写本地 shadow 表
+	c.ShadowRpc.Target = os.ExpandEnv(c.ShadowRpc.Target)
+	// 环境变量未注入时 yaml 占位符可能未被替换, 视为未配置
+	if strings.Contains(c.ShadowRpc.Target, "${") {
+		c.ShadowRpc.Target = ""
+	}
+	if c.ShadowRpc.Target != "" {
+		cli, err := zrpc.NewClient(c.ShadowRpc)
+		if err != nil {
+			logx.Errorf("shadow-service 客户端初始化失败, 影子 RPC 同步降级为仅写本地库: %v", err)
+		} else {
+			logx.Infof("影子 RPC 同步已就绪: target=%s", c.ShadowRpc.Target)
+			ctx.ShadowCli = shadow.NewShadowClient(cli.Conn())
+		}
+	} else {
+		logx.Infof("未配置 ShadowRpc.Target, 影子 RPC 同步关闭(仅写本地 shadow 表)")
+	}
+	ctx.Config.ShadowRpc = c.ShadowRpc
 
 	return ctx
 }

@@ -21,18 +21,17 @@ import (
 var configFile = flag.String("f", "etc/gateway.yaml", "config file")
 
 // gateway-service: M1 多协议网关.
-// 当前实现 TCP 长连接接入: 设备建连 -> auth 帧认证(bcrypt 校验设备密钥)
+// TCP 长连接接入: 设备建连 -> auth 帧认证(bcrypt 校验设备密钥)
 // -> telemetry/event/status 上报投递 Kafka -> ack 回执回写 command_log.
-// CoAP 接入后续引入 plgd-dev/go-coap, 与 TCP 共用同一套帧语义.
+// CoAP 接入已实现(plgd-dev/go-coap, UDP 5683 + 可选 DTLS 5684),
+// 与 TCP 共用同一套 frame.Session 帧语义, CoAP.Enabled 默认关.
 func main() {
 	flag.Parse()
 
 	var c config.Config
 	// conf.UseEnv() 必填: go-zero 默认不做 ${VAR} 环境变量展开。
-	// 本服务 etc/gateway.yaml 引用 ${AUTH_SECRET}/${REDIS_ADDR}/${REDIS_PASS}/
-	// ${NACOS_ADDRESS} 等 8 个占位符, 不启用则这些字段在 compose/K8s 中
-	// 以字面量生效 -> AUTH_SECRET 未展开会导致网关无法校验 JWT(全量鉴权失败),
-	// Nacos.Address 字面量非空会触发对虚假主机名的连接尝试。
+	// 本服务 etc/gateway.yaml 引用 ${MYSQL_DSN}/${KAFKA_BROKERS}/${COAP_DTLS_PSK},
+	// 不启用则以字面量生效 -> 数据库/ broker 全部连向名为 "${MYSQL_DSN}" 的虚假地址。
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
 
 	ctx := svc.NewServiceContext(c)
