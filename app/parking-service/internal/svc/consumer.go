@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -119,7 +120,9 @@ func (s *ServiceContext) handleTelemetry(ctx context.Context, msg kafkago.Messag
 	t := normalizeTelemetry(&raw)
 
 	if t.TenantID == 0 {
-		fmt.Printf("[warn] parking telemetry missing tenant_id: device=%s event=%s\n", t.DeviceID, t.Event)
+		// 缺少 tenant_id 的设备遥测会破坏多租户隔离, 直接丢弃(返回 nil 提交位移)而非继续处理(审查问题4/隔离).
+		fmt.Printf("[warn] parking telemetry missing tenant_id, drop: device=%s event=%s\n", t.DeviceID, t.Event)
+		return nil
 	}
 
 	switch t.Event {
@@ -188,6 +191,11 @@ func (s *ServiceContext) onTelemetryEntry(ctx context.Context, t *deviceTelemetr
 	// 无需解析 MySQL 错误码, 也不必为此引入 go-sql-driver 依赖.
 	res := s.DB.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(rec)
 	if res.Error != nil {
+		// L1 幂等键已在 seen 中预占(SetNX), 落库失败必须 Release, 否则重投命中已占位键被 skip,
+		// 该停车记录永不落库 → 离场查不到在场记录 → 丢单不计费(审查问题4). RowsAffected==0 属确为重, 不释放.
+		if s.Dedup != nil {
+			_ = s.Dedup.Release(ctx, keyDedup+id)
+		}
 		return res.Error
 	}
 	if res.RowsAffected == 0 {
@@ -243,6 +251,10 @@ func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry
 			"updated_at":    now,
 		})
 	if res.Error != nil {
+		// L1 幂等键已在 seen 中预占, 离场结算失败必须 Release, 否则重投被 skip 导致丢单/重复计费(审查问题4).
+		if s.Dedup != nil {
+			_ = s.Dedup.Release(ctx, keyDedup+id)
+		}
 		return res.Error
 	}
 	if res.RowsAffected == 0 {
@@ -294,7 +306,8 @@ func CalcFee(entry, exit *time.Time, vehicleType int8) float64 {
 	if entry == nil || exit == nil {
 		return 0
 	}
-	mins := int(exit.Sub(*entry).Minutes())
+	// 计费分钟数向上取整: 15分01秒应计 16 分钟(>15 免费阈值); 原 int() 截断会把 15.x 误判免单(审查问题1).
+	mins := int(math.Ceil(exit.Sub(*entry).Minutes()))
 	if mins <= 15 {
 		return 0
 	}
@@ -316,14 +329,22 @@ func CalcFeeByRule(entry, exit *time.Time, vehicleType int8, cfg *model.ParkingF
 	if entry == nil || exit == nil {
 		return 0
 	}
-	mins := int(exit.Sub(*entry).Minutes())
+	// 计费分钟数向上取整(同 CalcFee, 避免 15.x 分钟误判免单, 审查问题1).
+	mins := int(math.Ceil(exit.Sub(*entry).Minutes()))
 	if mins <= cfg.FreeMinutes {
 		return 0
 	}
 	hours := (mins + 59) / 60 // 向上取整到小时
 	fee := float64(hours) * cfg.HourlyFee
-	if cfg.DailyCap > 0 && fee > cfg.DailyCap {
-		fee = cfg.DailyCap
+	// 每日封顶按"自然天"计: 跨天停车按天数放大封顶, 而非整段只封一次(审查问题2).
+	if cfg.DailyCap > 0 {
+		days := int(math.Ceil(float64(mins) / (24 * 60)))
+		if days < 1 {
+			days = 1
+		}
+		if fee > float64(days)*cfg.DailyCap {
+			fee = float64(days) * cfg.DailyCap
+		}
 	}
 	return fee
 }

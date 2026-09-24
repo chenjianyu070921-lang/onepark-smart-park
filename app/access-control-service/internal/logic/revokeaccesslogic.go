@@ -7,6 +7,7 @@ import (
 	"onepark/app/access-control-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/rbac"
 )
 
 // RevokeAccessLogic 门禁撤权逻辑(docs/m3/04 #46): 删除人员×设备对应的权限记录.
@@ -25,6 +26,12 @@ func (l *RevokeAccessLogic) RevokeAccess(req *types.RevokeAccessReq) (*types.Rev
 	tenantID := ctxdata.GetTenantId(l.ctx)
 	if tenantID == 0 {
 		return nil, errorx.NewError(errorx.ErrAccessParamInvalid, "缺少租户信息(x-tenant-id)")
+	}
+
+	// RBAC: 撤权同属权限管理操作, 仅系统管理员/园区管理员/保安可操作(审查问题14).
+	roles := rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))
+	if !rbac.HasRole(roles, rbac.RoleSystemAdmin) && !rbac.HasRole(roles, rbac.RoleParkAdmin) && !rbac.HasRole(roles, rbac.RoleSecurity) {
+		return nil, errorx.NewError(errorx.ErrForbidden, "无权限管理门禁授权")
 	}
 	if l.svcCtx.Permissions == nil {
 		return nil, errorx.NewError(errorx.ErrDepConnect, "权限存储未就绪(MySQL 未配置)")

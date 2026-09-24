@@ -13,6 +13,8 @@ import (
 	"onepark/app/notice-service/internal/config"
 	"onepark/common/kafka"
 	"onepark/common/redisx"
+
+	"strings"
 )
 
 // noticeEventChannel 在线推送的 Redis PubSub 频道名(按园区隔离).
@@ -81,8 +83,9 @@ func (h *NoticeEventHandler) Handle(ctx context.Context, value []byte) error {
 		h.Errorf("[consumer] 丢弃非法公告事件: %v", err)
 		return nil
 	}
-	if ev.Status != 2 { // 仅已发布公告触发推送(生产侧兜底校验)
-		h.Infof("[consumer] 公告非已发布状态, 跳过推送: id=%d status=%d", ev.ID, ev.Status)
+	// 仅已发布(2)或已撤回(3)触发推送: 撤回时前端据 status 实时下架横幅(审查问题6, 原仅放行2导致撤回不实时下架).
+	if ev.Status != 2 && ev.Status != 3 {
+		h.Infof("[consumer] 公告非已发布/已撤回状态, 跳过推送: id=%d status=%d", ev.ID, ev.Status)
 		return nil
 	}
 	if h.redis == nil {
@@ -126,11 +129,20 @@ type NoticeEventRunner struct {
 }
 
 // NewNoticeEventRunner 根据配置装配消费者; Enabled=false 时返回空跑实例(Start 直接跳过).
+// noticeEventTopic 返回公告事件消费主题: 配置未显式指定时回落为 notice-event,
+// 避免复用 KafkaConf 默认 workorder-event 导致订阅错主题、推送静默失效(审查问题7).
+func noticeEventTopic(t string) string {
+	if strings.TrimSpace(t) == "" {
+		return kafka.TopicNotice
+	}
+	return t
+}
+
 func NewNoticeEventRunner(cfg config.KafkaConf, rdb *redisx.Client) *NoticeEventRunner {
 	return &NoticeEventRunner{
 		Logger:  logx.WithContext(context.Background()),
 		handler: NewNoticeEventHandler(rdb),
-		topic:   cfg.Topic,
+		topic:   noticeEventTopic(cfg.Topic),
 		group:   cfg.Group,
 		enabled: cfg.Enabled,
 		brokers: cfg.Brokers,

@@ -13,6 +13,7 @@ import (
 	"onepark/app/access-control-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/rbac"
 )
 
 // maxGrantItems 单次授权条数上限(person × device), 防止误传大列表拖垮实例.
@@ -33,6 +34,13 @@ func (l *GrantAccessLogic) GrantAccess(req *types.GrantAccessReq) (*types.GrantA
 	tenantID := ctxdata.GetTenantId(l.ctx)
 	if tenantID == 0 {
 		return nil, errorx.NewError(errorx.ErrAccessParamInvalid, "缺少租户信息(x-tenant-id)")
+	}
+
+	// RBAC: 授权是权限提权操作, 仅系统管理员/园区管理员/保安可操作(见 common/rbac 角色约定),
+	// 原实现仅校验 tenant/operator 非空, 任意登录用户可给自己授权开门(审查问题14).
+	roles := rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))
+	if !rbac.HasRole(roles, rbac.RoleSystemAdmin) && !rbac.HasRole(roles, rbac.RoleParkAdmin) && !rbac.HasRole(roles, rbac.RoleSecurity) {
+		return nil, errorx.NewError(errorx.ErrForbidden, "无权限管理门禁授权")
 	}
 	if l.svcCtx.Permissions == nil {
 		return nil, errorx.NewError(errorx.ErrDepConnect, "权限存储未就绪(MySQL 未配置)")

@@ -44,6 +44,11 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
 	}
 
+	// 防御: 未配置 MySQL 时 svcCtx.DB 为 nil, 提前返回明确错误避免空指针 panic(审查问题12).
+	if l.svcCtx.DB == nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
+	}
+
 	channel := req.VerifyChannel
 	if channel == 0 {
 		channel = 1 // 默认二维码核验

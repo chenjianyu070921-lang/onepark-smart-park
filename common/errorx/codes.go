@@ -126,6 +126,7 @@ const (
 	ErrVisitorCheckinFailed = "M2-E-2003" // 访客签入失败（gRPC 开门失败等）
 	ErrVisitorBlacklisted   = "M2-E-2004" // 访客被拉黑, 禁止通行(邀请/签入实时拦截)
 	ErrVisitorVerifyChannel = "M2-E-2005" // 不支持的核验方式或凭证缺失/不匹配(多方式核验)
+	ErrVisitorNotFound      = "M2-E-2006" // 访客记录不存在
 
 	// 停车域 3001~3999
 	ErrParkingRecordNotFound = "M2-E-3001" // 停车记录不存在

@@ -52,16 +52,21 @@ func (l *GetWorkOrderStatisticsLogic) GetWorkOrderStatistics() (*types.WorkOrder
 	if tenantID != 0 {
 		q = q.Where("tenant_id = ?", tenantID)
 	}
+	// 完成率/今日完成需计入终态"已关闭"(status=4): FSM 允许 3→4 close, 关闭后若只计 status=3
+	// 会让完成率随 close 回退、今日完成数下降(审查问题9). 故 done/completed_today/avg 均用 status IN (3,4).
 	if err := q.Select(
 		"COUNT(*) AS total, "+
 			"COALESCE(SUM(status IN (?,?)), 0) AS pending, "+
 			"COALESCE(SUM(created_at >= ?), 0) AS today_new, "+
-			"COALESCE(SUM(status = ? AND finished_at >= ?), 0) AS completed_today, "+
-			"COALESCE(SUM(status = ?), 0) AS done, "+
-			"COALESCE(AVG(CASE WHEN status = ? AND finished_at IS NOT NULL THEN "+
+			"COALESCE(SUM(status IN (?,?) AND finished_at >= ?), 0) AS completed_today, "+
+			"COALESCE(SUM(status IN (?,?)), 0) AS done, "+
+			"COALESCE(AVG(CASE WHEN status IN (?,?) AND finished_at IS NOT NULL THEN "+
 			"TIMESTAMPDIFF(MINUTE, created_at, finished_at) END), 0) AS avg_process_min",
 		state.StatusPendingDispatch, state.StatusProcessing,
-		startOfDay, state.StatusCompleted, startOfDay, state.StatusCompleted, state.StatusCompleted,
+		startOfDay,
+		state.StatusCompleted, state.StatusClosed, startOfDay,
+		state.StatusCompleted, state.StatusClosed,
+		state.StatusCompleted, state.StatusClosed,
 	).Scan(&stats).Error; err != nil {
 		l.Errorf("workorder statistics failed: %v", err)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "工单统计查询失败")

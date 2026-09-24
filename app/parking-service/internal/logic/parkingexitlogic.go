@@ -70,9 +70,17 @@ func (l *ParkingExitLogic) ParkingExit(req *types.ParkingExitReq) (resp *types.P
 		"device_id_out": req.DeviceIDOut,
 		"updated_at":    now,
 	}
-	if e := l.svcCtx.DB.WithContext(l.ctx).Model(&rec).Updates(updates).Error; e != nil {
-		l.Errorf("update parking record failed: %v", e)
+	// CAS: 更新必须带 status=停车中 条件(与消费端 onTelemetryExit 一致), 防止并发/重试离场重复计费并重复广播(审查问题3).
+	res := l.svcCtx.DB.WithContext(l.ctx).Model(&model.ParkingRecord{}).
+		Where("id=? AND tenant_id=? AND status=?", rec.ID, tenantID, model.ParkingStatusParking).
+		Updates(updates)
+	if res.Error != nil {
+		l.Errorf("update parking record failed: %v", res.Error)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "离场计费失败")
+	}
+	if res.RowsAffected == 0 {
+		// 已被其它离场请求结算(或人工结单): 本次不再重复计费与广播.
+		return nil, errorx.NewError(errorx.ErrM2Internal, "该停车记录已结算或不存在")
 	}
 
 	// 发布离场事件 + 异常车辆告警.
