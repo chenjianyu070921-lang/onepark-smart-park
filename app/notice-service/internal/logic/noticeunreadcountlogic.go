@@ -46,6 +46,12 @@ func (l *NoticeUnreadCountLogic) NoticeUnreadCount() (resp *types.NoticeUnreadCo
 		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
 	}
 
+	// P1 高频读优化: 先查 Redis 读穿缓存(60s TTL), 命中直接返回不落 DB.
+	// 未命中/缓存不可用一律回落 DB COUNT, 缓存层不参与错误语义.
+	if unread, ok := getUnreadCache(l.ctx, l.svcCtx.Redis, tenantID, uid); ok {
+		return &types.NoticeUnreadCountResp{UnreadCount: unread}, nil
+	}
+
 	var unread int64
 	if e := l.svcCtx.DB.WithContext(l.ctx).Model(&model.NoticeRead{}).
 		Where("tenant_id=? AND user_id=? AND read_at IS NULL", tenantID, uid).
@@ -53,6 +59,9 @@ func (l *NoticeUnreadCountLogic) NoticeUnreadCount() (resp *types.NoticeUnreadCo
 		l.Errorf("count unread notices failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "统计未读通知失败")
 	}
+
+	// 回填缓存: 失败静默(仅记日志), 不影响本次返回.
+	setUnreadCache(l.ctx, l.svcCtx.Redis, tenantID, uid, unread)
 
 	return &types.NoticeUnreadCountResp{UnreadCount: unread}, nil
 }
