@@ -661,7 +661,9 @@ services:
       - "${VISITOR_SERVICE_PORT:-8083}:8083"
     networks: [onepark]
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8083 && exit 0 || exit 1"]
+      # P1: TCP 探活升级为 HTTP 就绪探针(复用统一 common/health; degraded 仍 200,
+      # 依 common/health 设计不因依赖抖动误杀容器, 依赖级故障由 components 明细暴露).
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8083/api/readyz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -695,7 +697,9 @@ services:
       - "${NOTICE_SERVICE_PORT:-8085}:8085"
     networks: [onepark]
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8085 && exit 0 || exit 1"]
+      # P1: TCP 探活升级为 HTTP 就绪探针(复用统一 common/health; degraded 仍 200,
+      # 依 common/health 设计不因依赖抖动误杀容器, 依赖级故障由 components 明细暴露).
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8085/api/readyz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
