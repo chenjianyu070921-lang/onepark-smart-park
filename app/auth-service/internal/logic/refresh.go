@@ -70,9 +70,12 @@ func (l *RefreshLogic) Refresh(req *types.RefreshReq) (resp *types.LoginResp, er
 	if nc, nerr := jwt.Parse(l.svcCtx.JwtSecret, refresh); nerr == nil {
 		if ac, aerr := jwt.Parse(l.svcCtx.JwtSecret, access); aerr == nil {
 			_ = tokenblk.LinkPair(l.ctx, l.svcCtx.Redis, ac.ID, nc.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second)
+			// 同步维护反向索引 refresh→access(双向配对), 供 refresh 注销连带吊销新 access.
+			_ = tokenblk.LinkRefreshAccess(l.ctx, l.svcCtx.Redis, nc.ID, ac.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second)
 		}
 		_ = tokenblk.StoreRefresh(l.ctx, l.svcCtx.Redis, nc.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second) // 先登记新
 		_ = tokenblk.RevokeRefresh(l.ctx, l.svcCtx.Redis, claims.ID)                                            // 后吊销旧
+		_ = tokenblk.UnlinkRefreshPair(l.ctx, l.svcCtx.Redis, claims.ID)                                        // 清旧 refresh 的反向索引残留
 	}
 
 	return &types.LoginResp{

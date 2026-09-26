@@ -66,6 +66,8 @@ func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err erro
 		// 记录 access↔refresh 配对, 供"用 access 注销"时连带吊销 refresh(真正结束会话).
 		if ac, aerr := jwt.Parse(l.svcCtx.JwtSecret, access); aerr == nil {
 			_ = tokenblk.LinkPair(l.ctx, l.svcCtx.Redis, ac.ID, rc.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second)
+			// 同步维护反向索引 refresh→access, 供"用 refresh 注销"时也连带吊销 access(双向闭环).
+			_ = tokenblk.LinkRefreshAccess(l.ctx, l.svcCtx.Redis, rc.ID, ac.ID, time.Duration(l.svcCtx.JwtRefresh)*time.Second)
 		}
 	}
 

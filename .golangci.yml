@@ -1,0 +1,29 @@
+# golangci-lint 配置(onepark 多模块 go.work 工作区).
+# 启用一组常用且误报较低的 linter; 存量问题可通过 `golangci-lint run` 本地排查.
+run:
+  timeout: 5m
+  # 工作区多模块: 逐模块 lint(默认即按各模块 go.mod 处理).
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck      # 未处理的错误返回
+    - gosimple      # 可简化的代码
+    - govet         # go vet 增强
+    - ineffassign   # 无效赋值
+    - staticcheck   # 静态分析(SA 系列)
+    - unused        # 未使用的代码
+    - misspell      # 拼写错误
+    - revive        # 代码风格/可维护性(gofmt 之外)
+
+issues:
+  # 测试文件中允许忽略错误返回(常见于 mock/t.Assert 周边).
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - revive
+  # 提高单行复杂度阈值, 避免对业务 handler 过度告警.
+  max-issues-per-linter: 0
+  max-same-issues: 0

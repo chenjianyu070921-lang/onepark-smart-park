@@ -40,6 +40,11 @@ func (l *LogoutLogic) Logout(req *types.LogoutReq) error {
 			l.Errorf("注销 refresh 令牌失败: %v", err)
 			return errorx.NewError(errorx.ErrInternal, "注销失败")
 		}
+		// 双向联动: 连带吊销配套 access(仅黑 refresh 不够, 否则配对 access 仍有效至自然过期, 会话未彻底结束).
+		if pa := tokenblk.PairedAccess(l.ctx, l.svcCtx.Redis, claims.ID); pa != "" {
+			_ = tokenblk.Revoke(l.ctx, l.svcCtx.Redis, pa, time.Duration(l.svcCtx.JwtExpire)*time.Second)
+			_ = tokenblk.UnlinkRefreshPair(l.ctx, l.svcCtx.Redis, claims.ID)
+		}
 		return nil
 	}
 	// 注销 access 令牌: 加入黑名单(原逻辑), TTL 为令牌剩余有效期.
@@ -55,9 +60,9 @@ func (l *LogoutLogic) Logout(req *types.LogoutReq) error {
 		return errorx.NewError(errorx.ErrInternal, "注销失败")
 	}
 	// 连带吊销配套 refresh 令牌(白名单): 仅黑 access 不够, 否则 7d refresh 仍可换发新 access, 注销未真正生效.
+	// 用 TxPipeline 原子删除 refresh 登记表 + 双向配对记录, 避免两步独立写导致的配对残留.
 	if pr := tokenblk.PairedRefresh(l.ctx, l.svcCtx.Redis, claims.ID); pr != "" {
-		_ = tokenblk.RevokeRefresh(l.ctx, l.svcCtx.Redis, pr)
-		_ = tokenblk.UnlinkPair(l.ctx, l.svcCtx.Redis, claims.ID)
+		_ = tokenblk.RevokePairedRefresh(l.ctx, l.svcCtx.Redis, claims.ID, pr)
 	}
 	return nil
 }

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>工作日报 · 徐家祥 · 2026-09-23</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f5f5; padding: 30px; }
+  .report { max-width: 900px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  .title-bar { background: #1e3a5f; color: #fff; text-align: center; padding: 20px; font-size: 28px; font-weight: 700; letter-spacing: 8px; }
+  .info-bar { display: flex; justify-content: space-between; padding: 14px 24px; font-size: 14px; color: #333; border-bottom: 1px solid #e0e0e0; }
+  table { width: 100%; border-collapse: collapse; }
+  td { border: 1px solid #4caf50; padding: 14px 18px; font-size: 14px; line-height: 1.8; vertical-align: top; }
+  .label { width: 120px; background: #e8f5e9; font-weight: 700; text-align: center; color: #2e7d32; vertical-align: middle; }
+  .content { color: #333; }
+</style>
+</head>
+<body>
+<div class="report">
+  <div class="title-bar">工作日报</div>
+  <div class="info-bar">
+    <span>汇报人：徐家祥</span>
+    <span>日期：2026 年 9 月 23 日</span>
+  </div>
+  <table>
+    <tr>
+      <td class="label">工作内容</td>
+      <td class="content">
+        <div>设计：设计 tokenblk 与 auth 登出集成验证测试方案，覆盖 access 注销连带吊销 refresh 的完整闭环。</div>
+        <div>研发：在 auth-service 新增端到端测试函数 TestLogoutAccessBlocksPairedRefreshRoundTrip，验证用 access 令牌注销后，配套 refresh 令牌去刷新必须返回未授权错误，确保注销真正结束会话。</div>
+        <div>测试：全量编译验证 19 个服务 go build ./... 全部通过，确认昨日 alarm 和 parking 两个编译错误已修复。扫描各服务文件数和 TODO，TODO 全部清零。</div>
+        <div>优化：安全复查 billing-api.yaml 明文密码问题，确认其余 22 个配置文件已正确使用环境变量占位符，仅 billing 遗漏。</div>
+        <div>部署：确认 M2 黑名单和缓存修复已合入，M5 每日维护用例改断言口径已合入。</div>
+      </td>
+    </tr>
+    <tr>
+      <td class="label">工作中遇到的问题</td>
+      <td class="content">
+        <div>billing-api.yaml 明文数据库密码连续五天未修复，安全风险持续暴露。</div>
+        <div>tokenblk 登出集成只补了单测，业务代码本身尚未实现完整的 access 连带吊销 refresh 逻辑。</div>
+        <div>video-service 新增 6 个文件功能未确认，无法判断是否编译完整、接口可调。</div>
+        <div>管理后台前端已提交但未联调，登录和工单列表接口对接未开始。</div>
+      </td>
+    </tr>
+    <tr>
+      <td class="label">建议及措施</td>
+      <td class="content">
+        <div>billing-api.yaml 改为环境变量占位符，立即修改数据库密码，清理 git 历史。</div>
+        <div>完善 tokenblk 登出业务逻辑：登出时不仅吊销 access，还要连带吊销配套的 refresh 令牌。</div>
+        <div>验证 video-service 新增功能：确认编译通过、HTTP 接口可调、数据落库正常。</div>
+        <div>管理后台前端联调：登录接口对接、工单列表数据渲染、双 Token 自动续期验证。</div>
+      </td>
+    </tr>
+    <tr>
+      <td class="label">小结</td>
+      <td class="content">
+        <div>今日完成 tokenblk 与 auth 登出集成测试补充，用端到端用例固化了"注销真正结束会话"的语义。全量编译 19 服务全绿，TODO 清零。下一步重点是 billing 密码修复（连续五天）、登出业务逻辑完善、管理后台前端联调。</div>
+      </td>
+    </tr>
+    <tr>
+      <td class="label">明日工作计划</td>
+      <td class="content">
+        <div>1. 修复 billing-api.yaml 明文密码，对齐 .env.example 环境变量。</div>
+        <div>2. 完善 tokenblk 登出业务逻辑：access 注销连带吊销配套 refresh。</div>
+        <div>3. 管理后台前端联调：登录/布局/工单列表接口对接。</div>
+        <div>4. 全量编译绿保持验证，每日早晚各跑一次 build。</div>
+        <div>5. 追踪 video-service 新增功能验证结果。</div>
+      </td>
+    </tr>
+    <tr>
+      <td class="label">备注</td>
+      <td class="content">
+        <div>AI 仅作为开发辅助工具，深耕业务与技术基础知识才是能力提升核心，关键设计与代码需自行把关。</div>
+      </td>
+    </tr>
+  </table>
+</div>
+</body>
+</html>

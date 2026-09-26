@@ -15,7 +15,7 @@
 - **Q5 边界（threshold=0 / cooldown=0 分别）**：用户答——threshold=0 → `failCount++>=0` 第一次失败即触发熔断；cooldown=0 → `now-openedAt>=0` 每次 allow 立刻半开放行探测，熔断 Open/HalfOpen 高频震荡、保护失效。→ PASS
 - **Q6 降级/回滚（原子性+取舍）**：用户答——Reload 中途 err 属整体更新失败，保留旧路由、新配置不生效、不部分生效（先建局部副本、全量校验后 atomic 交换、失败丢弃半成品）；调用方不处理 err → 沿用旧路由静默失效无提示；all-or-nothing 代价=单条非法阻塞全部更新，好处=路由整体一致不混杂脏状态。→ PASS
 
-### 二、学情诊断
+### 二、学情诊断[study-profile.md](study-profile.md)
 
 #### 主要问题（薄弱点）
 1. **设计倾向过度改动**：第一反应想改 `newBreaker` 签名承载路由维度，需引导到「配置驱动 + 复用构造函数」的最小改动思路。

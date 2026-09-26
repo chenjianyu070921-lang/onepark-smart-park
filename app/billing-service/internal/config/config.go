@@ -27,5 +27,5 @@ type Config struct {
 // MonthlyCronConf 月度自动出账配置.
 type MonthlyCronConf struct {
 	Enabled bool   `json:",default=false"`     // 默认关闭, 部署时显式开启
-	Spec    string `json:",default=0 2 1 * *"` // 每月 1 日 02:02 出上月账
+	Spec    string `json:"spec"` // 每月 1 日 02:02 出上月账; 留空时由 cron.go 用 monthlySpec 兜底
 }

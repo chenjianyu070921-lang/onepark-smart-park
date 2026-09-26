@@ -219,3 +219,44 @@ func TestLogoutAccessBlocksPairedRefreshRoundTrip(t *testing.T) {
 	}
 }
 
+// TestLogoutRefreshRevokesPairedAccess 固化"用 refresh 令牌注销也连带吊销配套 access"(双向联动):
+// 模拟登录(登记 refresh 白名单 + 双向配对) -> 用 refresh 注销 -> 配套 access 应被拉黑,
+// 否则会话未彻底结束(access 仍可用于鉴权直到自然过期).
+func TestLogoutRefreshRevokesPairedAccess(t *testing.T) {
+	rdb := mustRedis(t)
+	ctx := newTestCtxWithRedis(t, rdb)
+	at := mustToken(t, 42, "1,2", 7, jwt.TypeAccess, 3600)
+	rt := mustToken(t, 42, "1,2", 7, jwt.TypeRefresh, 86400)
+
+	ac, err := jwt.Parse(testSecret, at)
+	if err != nil {
+		t.Fatalf("解析 access 失败: %v", err)
+	}
+	rc, err := jwt.Parse(testSecret, rt)
+	if err != nil {
+		t.Fatalf("解析 refresh 失败: %v", err)
+	}
+	if err := tokenblk.StoreRefresh(context.Background(), rdb, rc.ID, 86400*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := tokenblk.LinkPair(context.Background(), rdb, ac.ID, rc.ID, 86400*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := tokenblk.LinkRefreshAccess(context.Background(), rdb, rc.ID, ac.ID, 86400*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	// 用 refresh 令牌注销.
+	if err := NewLogoutLogic(context.Background(), ctx).Logout(&types.LogoutReq{Token: rt}); err != nil {
+		t.Fatalf("注销失败: %v", err)
+	}
+	// refresh 应被吊销.
+	if tokenblk.RefreshExists(context.Background(), rdb, rc.ID) {
+		t.Fatal("注销后 refresh 应被吊销")
+	}
+	// 配套 access 也应被拉黑(Verify 失效).
+	if resp, err := NewVerifyLogic(context.Background(), ctx).Verify(&types.VerifyReq{Token: at}); err != nil || resp.Valid {
+		t.Fatal("注销 refresh 应连带使配套 access 失效")
+	}
+}
+

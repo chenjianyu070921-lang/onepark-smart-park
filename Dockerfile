@@ -27,8 +27,11 @@ WORKDIR /src
 # 复制整个仓库(经根 .dockerignore 排除 .git/docs/deploy 等非构建文件), 保证 go.work 完整可解析.
 COPY . .
 WORKDIR /src/${SVC_DIR}
-RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/app ${MAIN}
+# cache mount: 模块下载与编译缓存跨服务共享(各服务 WORKDIR 不同导致层缓存键不同,
+# 否则每个服务都全量重新 go mod download + 编译, 20 服务串行构建慢 10 倍以上).
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/app ${MAIN}
 
 # 运行阶段: 精简 alpine, busybox 自带 wget 用于健康检查.
 # 注意: 每个 FROM 阶段都要重新 ARG 声明, 跨阶段不会自动传递.
