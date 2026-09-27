@@ -70,8 +70,13 @@ type Resolver struct {
 	cache  map[string]cacheEntry
 }
 
-// NewResolver 构造缓存解析器; reader 为 nil 时表示未配置 MySQL,
-// 一律零值放行(保持"未配置即降级启动"的仓库约定).
+// ErrReaderNotConfigured nil reader 触达的哨兵错误:
+// 未配置档案库却构造了 Resolver 属于接线错误, 显式报错而非零值放行,
+// 避免与"设备不存在(ok=false)"语义混淆; 误接线的消息将按"档案查询失败"进 DLQ.
+var ErrReaderNotConfigured = errors.New("archive: reader 未配置(ArchiveRequired=false 降级模式不应构造 Resolver)")
+
+// NewResolver 构造缓存解析器; reader 为 nil 仅用于单测,
+// Resolve 将返回 ErrReaderNotConfigured, 不再零值放行.
 func NewResolver(reader Reader, ttl time.Duration) *Resolver {
 	if ttl <= 0 {
 		ttl = 30 * time.Second
@@ -82,7 +87,7 @@ func NewResolver(reader Reader, ttl time.Duration) *Resolver {
 // Resolve 查询设备档案; ok=false 表示设备不存在, err 非 nil 表示查询失败.
 func (r *Resolver) Resolve(ctx context.Context, deviceID string) (Profile, bool, error) {
 	if r.reader == nil {
-		return Profile{}, false, nil
+		return Profile{}, false, ErrReaderNotConfigured
 	}
 
 	r.mu.RLock()

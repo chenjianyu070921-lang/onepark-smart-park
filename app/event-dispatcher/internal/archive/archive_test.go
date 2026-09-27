@@ -68,11 +68,11 @@ func TestResolverDBError(t *testing.T) {
 	}
 }
 
-// TestResolverNilReader 未配置 MySQL 时零值放行(向后兼容: 消息不带租户也照常转发).
+// TestResolverNilReader nil reader 返回显式错误, 不再与"设备不存在"混淆.
 func TestResolverNilReader(t *testing.T) {
 	r := NewResolver(nil, time.Minute)
-	p, ok, err := r.Resolve(context.Background(), "d1")
-	if err != nil || ok || p.TenantID != 0 || p.ZoneID != "" {
-		t.Fatalf("nil reader 应零值放行: p=%+v ok=%v err=%v", p, ok, err)
+	_, ok, err := r.Resolve(context.Background(), "d1")
+	if !errors.Is(err, ErrReaderNotConfigured) || ok {
+		t.Fatalf("nil reader 应返回 ErrReaderNotConfigured: ok=%v err=%v", ok, err)
 	}
 }
