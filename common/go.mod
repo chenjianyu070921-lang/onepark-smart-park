@@ -7,6 +7,7 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/minio/minio-go/v7 v7.3.0
+	github.com/mochi-mqtt/server/v2 v2.7.9
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/segmentio/kafka-go v0.4.51
 	github.com/zeromicro/go-zero v1.10.3
@@ -29,7 +30,6 @@ require (
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
-	github.com/kr/pretty v0.3.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
