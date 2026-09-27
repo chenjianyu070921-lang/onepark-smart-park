@@ -29,7 +29,7 @@ func main() {
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
 	// 网关注入的租户/操作人身份写入 context(远程开门需要 operator_id 落审计)
-	server.Use(middleware.ContextMiddleware)
+	server.Use(middleware.IdentityFromHeader)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)

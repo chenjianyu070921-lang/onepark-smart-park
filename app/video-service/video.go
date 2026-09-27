@@ -30,7 +30,7 @@ func main() {
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
 	// 网关注入的租户/操作人身份写入 context(摄像头数据按租户隔离)
-	server.Use(middleware.ContextMiddleware)
+	server.Use(middleware.IdentityFromHeader)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)

@@ -31,8 +31,8 @@ func main() {
 	// 全链路 RequestId 透传 + 开发环境跨域
 	server.Use(middleware.RequestIdMiddleware)
 	server.Use(middleware.Cors)
-	// 网关注入的租户/操作人身份写入 context (见 middleware.ContextMiddleware 安全前提)
-	server.Use(middleware.ContextMiddleware)
+	// 网关注入的租户/操作人身份写入 context (见 middleware.IdentityFromHeader 安全前提)
+	server.Use(middleware.IdentityFromHeader)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
