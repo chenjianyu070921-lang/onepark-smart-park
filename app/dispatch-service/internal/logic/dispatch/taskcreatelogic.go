@@ -66,20 +66,37 @@ func (l *TaskCreateLogic) TaskCreate(req *types.TaskCreateReq) (*types.TaskCreat
 		Description:   req.Description,
 	}
 
-	if err := l.svcCtx.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(task).Error; err != nil {
-			return err
+	// 单号撞号(跨实例并发)时**换号重试**, 而不是把失败抛给用户。
+	// NewTaskNo 已保证同进程内每秒 1000 张以内不重复, 这层只兜跨实例/超量的极小概率 ——
+	// 但必须有: 撞了就返回 500, 用户会看到"建单失败", 而其实只差换一个号。
+	const maxTaskNoAttempts = 3
+	var createErr error
+	for attempt := 1; attempt <= maxTaskNoAttempts; attempt++ {
+		task.Id = 0 // 上一轮失败不留残值
+		createErr = l.svcCtx.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(task).Error; err != nil {
+				return err
+			}
+			return tx.Create(&model.DispatchTaskLog{
+				TaskId:     task.Id,
+				FromStatus: 0,
+				ToStatus:   model.StatusPendingAssign,
+				Action:     state.ActionCreate,
+				Remark:     "人工创建",
+				OperatorId: ctxdata.GetUserId(l.ctx),
+			}).Error
+		})
+		if createErr == nil {
+			break
 		}
-		return tx.Create(&model.DispatchTaskLog{
-			TaskId:     task.Id,
-			FromStatus: 0,
-			ToStatus:   model.StatusPendingAssign,
-			Action:     state.ActionCreate,
-			Remark:     "人工创建",
-			OperatorId: ctxdata.GetUserId(l.ctx),
-		}).Error
-	}); err != nil {
-		l.Errorf("[dispatch] create task failed: %v", err)
+		if !model.IsDuplicateKeyOn(createErr, "uk_task_no") {
+			break
+		}
+		l.Errorf("[dispatch] 单号撞号, 换号重试(第 %d/%d 次): %s", attempt, maxTaskNoAttempts, task.TaskNo)
+		task.TaskNo = model.NewTaskNo()
+	}
+	if createErr != nil {
+		l.Errorf("[dispatch] create task failed: %v", createErr)
 		return nil, errorx.NewError(errorx.ErrInternal, "创建调度工单失败")
 	}
 
