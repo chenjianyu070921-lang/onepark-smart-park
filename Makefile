@@ -169,10 +169,15 @@ build-all:
 	@echo "== all 22 modules built OK =="
 
 # 全量测试: 同 build-all, 逐 module 执行(根目录无 go.mod, 不能直接 go test ./...).
+#
+# -p 1 是必需的(2026-09-24 实证): 同一 module 内的多个包若并行跑,
+# 会共享同一个测试库(如 alarm-service 的 model 与 svc 都写 alarm_db),
+# 而部分集成用例按"全表/按租户统计"断言 —— 并行写入会让彼此的计数断言随机失败,
+# 单跑却全绿。现象极像代码回归, 实为测试隔离问题。
 test:
 	@set -e; for d in common proto gateway app/*; do \
 		printf 'testing  %-40s' "$$d"; \
-		( cd $$d && go test ./... ); \
+		( cd $$d && go test -p 1 ./... ); \
 		echo 'OK'; \
 	done
 

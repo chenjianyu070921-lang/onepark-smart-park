@@ -66,11 +66,20 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 	rds := redisx.NewClient(&c.Redis)
 
+	hubOpts := []ws.Option{ws.WithAuth(unresolvedToEmpty(c.WS.AuthSecret), c.WS.AllowedOrigins)}
 	svcCtx := &ServiceContext{
 		Config: c,
-		Hub:    ws.NewHub(),
+		Hub:    ws.NewHub(hubOpts...),
 		DB:     db,
 		Redis:  rds,
+	}
+	// 未启用鉴权必须显式留痕: 此时任意来源、任意租户号都能连上 WS 收告警,
+	// 静默不启用会让"没配密钥"与"已启用但令牌不对"在现象上难以区分。
+	if svcCtx.Hub.Auth == nil {
+		log.Printf("[warn] alarm-service ws auth disabled (WS.AuthSecret empty): " +
+			"tenant from query tenant_id, any client can subscribe any tenant's alarms")
+	} else {
+		log.Printf("[info] alarm-service ws auth enabled, allowed origins=%d", len(c.WS.AllowedOrigins))
 	}
 	if db != nil {
 		svcCtx.Alarms = model.NewAlarmModel(db)
