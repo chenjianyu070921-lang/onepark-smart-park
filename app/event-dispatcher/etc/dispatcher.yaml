@@ -3,5 +3,7 @@ EMQXBroker: ${EMQX_BROKER}
 EMQXClientId: ${EMQX_CLIENT}
 KafkaBrokers: ${KAFKA_BROKERS}
 # 设备档案只读连接(指向 device_db): 投递 Kafka 前充入 tenant_id/zone_id;
-# 不配置则消息零值放行(降级约定), 本地调试可留空, 联调/部署必须配置.
+# 默认 fail-closed: DSN 为空时拒绝启动(ArchiveRequired 默认 true), 联调/部署必须配置;
+# 仅本地调试可设环境变量 ARCHIVE_REQUIRED=false(零值放行, 会打 WARN 日志).
+# 注意: 此处不写 ArchiveRequired 字段行, 避免 ${ARCHIVE_REQUIRED} 空展开覆盖 default=true.
 MySQLDSN: ${DISPATCHER_MYSQL_DSN}
