@@ -1,0 +1,26 @@
+Name: accesscontrol-rpc
+ListenOn: 0.0.0.0:9010
+
+# MySQL 连接配置 (access_db, DSN 由环境变量注入)
+# 未配置时权限校验返回 Unavailable 拒绝(fail-closed), 服务仍可启动供探活联调.
+MySQL:
+  DataSource: ${ACCESS_MYSQL_DSN}
+
+# Redis 连接配置 (远程开门幂等键)
+Redis:
+  Host: ${REDIS_ADDR}
+  Type: node
+  Pass: ${REDIS_PASS}
+
+# 远程开门设备白名单 (与 HTTP 侧同一份语义: 列表为空 = 拒绝一切远程开门)
+RemoteOpen:
+  AllowedDeviceIds:
+    - door-01
+    - door-02
+
+# M1 device-service gRPC 客户端 (远程开门下发 open_door 命令)
+# 未配置时远程开门直接报错而非降级静默 —— 开门失败必须让调用方知道.
+DeviceRPC:
+  Endpoints:
+    - ${DEVICE_RPC_ENDPOINTS}
+  Timeout: 1000 # ms, 略大于 logic 内 800ms 短超时, 避免客户端先于业务超时

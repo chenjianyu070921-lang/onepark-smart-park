@@ -11,6 +11,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	common "onepark/proto/common"
 	reflect "reflect"
+	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -21,22 +22,341 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type CheckPermissionReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      int64                  `protobuf:"varint,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"` // 租户ID(必填): 权限按租户隔离, 缺失即拒绝
+	PersonId      int64                  `protobuf:"varint,2,opt,name=person_id,json=personId,proto3" json:"person_id,omitempty"` // 人员ID(必填)
+	DeviceId      string                 `protobuf:"bytes,3,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`  // 门禁设备ID(必填)
+	At            int64                  `protobuf:"varint,4,opt,name=at,proto3" json:"at,omitempty"`                             // 校验时刻(Unix 秒); 0 表示"当前时刻"
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckPermissionReq) Reset() {
+	*x = CheckPermissionReq{}
+	mi := &file_access_access_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckPermissionReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckPermissionReq) ProtoMessage() {}
+
+func (x *CheckPermissionReq) ProtoReflect() protoreflect.Message {
+	mi := &file_access_access_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckPermissionReq.ProtoReflect.Descriptor instead.
+func (*CheckPermissionReq) Descriptor() ([]byte, []int) {
+	return file_access_access_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *CheckPermissionReq) GetTenantId() int64 {
+	if x != nil {
+		return x.TenantId
+	}
+	return 0
+}
+
+func (x *CheckPermissionReq) GetPersonId() int64 {
+	if x != nil {
+		return x.PersonId
+	}
+	return 0
+}
+
+func (x *CheckPermissionReq) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *CheckPermissionReq) GetAt() int64 {
+	if x != nil {
+		return x.At
+	}
+	return 0
+}
+
+type CheckPermissionResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"`                   // 是否放行
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`                      // 不放行的原因(放行时为空); 用于上游提示与审计
+	ExpireAt      int64                  `protobuf:"varint,3,opt,name=expire_at,json=expireAt,proto3" json:"expire_at,omitempty"` // 该授权的有效期截止(Unix 秒); 0 表示长期有效
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckPermissionResp) Reset() {
+	*x = CheckPermissionResp{}
+	mi := &file_access_access_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckPermissionResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckPermissionResp) ProtoMessage() {}
+
+func (x *CheckPermissionResp) ProtoReflect() protoreflect.Message {
+	mi := &file_access_access_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckPermissionResp.ProtoReflect.Descriptor instead.
+func (*CheckPermissionResp) Descriptor() ([]byte, []int) {
+	return file_access_access_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CheckPermissionResp) GetAllowed() bool {
+	if x != nil {
+		return x.Allowed
+	}
+	return false
+}
+
+func (x *CheckPermissionResp) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *CheckPermissionResp) GetExpireAt() int64 {
+	if x != nil {
+		return x.ExpireAt
+	}
+	return 0
+}
+
+type RemoteOpenReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      int64                  `protobuf:"varint,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`       // 租户ID(必填)
+	DeviceId      string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`        // 门禁设备ID(必填)
+	OperatorId    int64                  `protobuf:"varint,3,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"` // 操作人(必填, 落审计; 由调用方透传, gRPC 侧无网关注入)
+	Reason        string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`                            // 开门缘由(可选), 写入审计
+	RequestId     string                 `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`     // 幂等键(可选): 缺失时按 device_id + 时间戳生成
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoteOpenReq) Reset() {
+	*x = RemoteOpenReq{}
+	mi := &file_access_access_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteOpenReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteOpenReq) ProtoMessage() {}
+
+func (x *RemoteOpenReq) ProtoReflect() protoreflect.Message {
+	mi := &file_access_access_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteOpenReq.ProtoReflect.Descriptor instead.
+func (*RemoteOpenReq) Descriptor() ([]byte, []int) {
+	return file_access_access_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RemoteOpenReq) GetTenantId() int64 {
+	if x != nil {
+		return x.TenantId
+	}
+	return 0
+}
+
+func (x *RemoteOpenReq) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *RemoteOpenReq) GetOperatorId() int64 {
+	if x != nil {
+		return x.OperatorId
+	}
+	return 0
+}
+
+func (x *RemoteOpenReq) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *RemoteOpenReq) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+type RemoteOpenResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`                     // 命令是否下发成功(设备侧已确认)
+	DeviceId      string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`    // 实际下发命令的设备ID
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`                      // M1/设备返回信息, 或"重复请求已忽略"等说明
+	RequestId     string                 `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"` // 回显调用方传入的 request_id(未传即为空); 便于调用方对齐审计记录
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoteOpenResp) Reset() {
+	*x = RemoteOpenResp{}
+	mi := &file_access_access_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteOpenResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteOpenResp) ProtoMessage() {}
+
+func (x *RemoteOpenResp) ProtoReflect() protoreflect.Message {
+	mi := &file_access_access_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteOpenResp.ProtoReflect.Descriptor instead.
+func (*RemoteOpenResp) Descriptor() ([]byte, []int) {
+	return file_access_access_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RemoteOpenResp) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RemoteOpenResp) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *RemoteOpenResp) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *RemoteOpenResp) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
 var File_access_access_proto protoreflect.FileDescriptor
 
 const file_access_access_proto_rawDesc = "" +
 	"\n" +
-	"\x13access/access.proto\x12\x0eonepark.access\x1a\x13common/common.proto2L\n" +
+	"\x13access/access.proto\x12\x0eonepark.access\x1a\x13common/common.proto\"{\n" +
+	"\x12CheckPermissionReq\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\x03R\btenantId\x12\x1b\n" +
+	"\tperson_id\x18\x02 \x01(\x03R\bpersonId\x12\x1b\n" +
+	"\tdevice_id\x18\x03 \x01(\tR\bdeviceId\x12\x0e\n" +
+	"\x02at\x18\x04 \x01(\x03R\x02at\"d\n" +
+	"\x13CheckPermissionResp\x12\x18\n" +
+	"\aallowed\x18\x01 \x01(\bR\aallowed\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x1b\n" +
+	"\texpire_at\x18\x03 \x01(\x03R\bexpireAt\"\xa1\x01\n" +
+	"\rRemoteOpenReq\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\x03R\btenantId\x12\x1b\n" +
+	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x12\x1f\n" +
+	"\voperator_id\x18\x03 \x01(\x03R\n" +
+	"operatorId\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x05 \x01(\tR\trequestId\"\x80\x01\n" +
+	"\x0eRemoteOpenResp\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1b\n" +
+	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x04 \x01(\tR\trequestId2\xf5\x01\n" +
 	"\x14AccessControlService\x124\n" +
-	"\x04Ping\x12\x15.onepark.common.Empty\x1a\x15.onepark.common.EmptyB\x1fZ\x1donepark/proto/access;accesspbb\x06proto3"
+	"\x04Ping\x12\x15.onepark.common.Empty\x1a\x15.onepark.common.Empty\x12Z\n" +
+	"\x0fCheckPermission\x12\".onepark.access.CheckPermissionReq\x1a#.onepark.access.CheckPermissionResp\x12K\n" +
+	"\n" +
+	"RemoteOpen\x12\x1d.onepark.access.RemoteOpenReq\x1a\x1e.onepark.access.RemoteOpenRespB\x1fZ\x1donepark/proto/access;accesspbb\x06proto3"
 
+var (
+	file_access_access_proto_rawDescOnce sync.Once
+	file_access_access_proto_rawDescData []byte
+)
+
+func file_access_access_proto_rawDescGZIP() []byte {
+	file_access_access_proto_rawDescOnce.Do(func() {
+		file_access_access_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_access_access_proto_rawDesc), len(file_access_access_proto_rawDesc)))
+	})
+	return file_access_access_proto_rawDescData
+}
+
+var file_access_access_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_access_access_proto_goTypes = []any{
-	(*common.Empty)(nil), // 0: onepark.common.Empty
+	(*CheckPermissionReq)(nil),  // 0: onepark.access.CheckPermissionReq
+	(*CheckPermissionResp)(nil), // 1: onepark.access.CheckPermissionResp
+	(*RemoteOpenReq)(nil),       // 2: onepark.access.RemoteOpenReq
+	(*RemoteOpenResp)(nil),      // 3: onepark.access.RemoteOpenResp
+	(*common.Empty)(nil),        // 4: onepark.common.Empty
 }
 var file_access_access_proto_depIdxs = []int32{
-	0, // 0: onepark.access.AccessControlService.Ping:input_type -> onepark.common.Empty
-	0, // 1: onepark.access.AccessControlService.Ping:output_type -> onepark.common.Empty
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	4, // 0: onepark.access.AccessControlService.Ping:input_type -> onepark.common.Empty
+	0, // 1: onepark.access.AccessControlService.CheckPermission:input_type -> onepark.access.CheckPermissionReq
+	2, // 2: onepark.access.AccessControlService.RemoteOpen:input_type -> onepark.access.RemoteOpenReq
+	4, // 3: onepark.access.AccessControlService.Ping:output_type -> onepark.common.Empty
+	1, // 4: onepark.access.AccessControlService.CheckPermission:output_type -> onepark.access.CheckPermissionResp
+	3, // 5: onepark.access.AccessControlService.RemoteOpen:output_type -> onepark.access.RemoteOpenResp
+	3, // [3:6] is the sub-list for method output_type
+	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -53,12 +373,13 @@ func file_access_access_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_access_access_proto_rawDesc), len(file_access_access_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   0,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_access_access_proto_goTypes,
 		DependencyIndexes: file_access_access_proto_depIdxs,
+		MessageInfos:      file_access_access_proto_msgTypes,
 	}.Build()
 	File_access_access_proto = out.File
 	file_access_access_proto_goTypes = nil
