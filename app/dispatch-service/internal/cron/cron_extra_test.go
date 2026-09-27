@@ -37,9 +37,10 @@ func mkExpiredTask(t *testing.T, ctx context.Context, no string, status int8,
 		bg := context.Background()
 		db.WithContext(bg).Where("task_id = ?", task.Id).Delete(&model.DispatchTaskLog{})
 		db.WithContext(bg).Delete(&model.DispatchTask{}, task.Id)
-		// ⚠️ 必须释放重派锁: RunReassignOnce 加锁后**不自己解锁**(靠 TTL 过期),
-		//    每个调用方都要收尾。漏掉这句, 后续用例的扫描会被锁挡在门外 ——
-		//    表现为 Reassigned=0, 极难定位(第一次写本文件时就踩了这个)。
+		// ⚠️ 测试里必须手工清锁。注意 RunReassignOnce **本身是会释放锁的**
+		//    (defer + Lua 比对 token 再删), 这里清的是"它没释放成功"的那次:
+		//    用例 cancel 掉 ctx 后 defer 的 Lua 删除会静默失败, 锁留到 TTL 才过期,
+		//    后续用例的扫描就被挡在门外 —— 表现为 Reassigned=0 且无审计, 极难定位。
 		_ = rdb.Del(bg, reassignLockKey).Err()
 	})
 	return task
