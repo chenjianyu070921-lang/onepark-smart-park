@@ -39,6 +39,14 @@ Notify:
 # 留空则退化为单实例内存广播(仅在单副本/本地开发时可接受).
 WS:
   BroadcastChannel: alarm:ws:broadcast
+  # 握手鉴权密钥: 必须与 auth-service 的 JWT_SECRET / 网关 AUTH_SECRET 一致(同一把钥匙)。
+  # 留空(或环境变量未注入)**不启用鉴权** —— 退回 query ?tenant_id=, 仅内网/网关后部署可接受,
+  # 且启动日志会打 WARN; 启用后握手必须带有效 access token, 租户一律取自令牌。
+  AuthSecret: ${AUTH_SECRET}
+  # Origin 白名单: 留空不校验来源(本地联调 / 服务端客户端); 配置后严格比对,
+  # 非白名单来源(含不带 Origin 的请求)拒绝握手。
+  #AllowedOrigins:
+  #  - https://ops.onepark.com
 
 # 规则引擎开关 (docs/m3/07 §4)
 # DisableLegacyFallback=true 时, 引擎无启用规则将不再回退硬编码门禁规则, 而是丢弃事件并打 WARN.
@@ -46,6 +54,16 @@ WS:
 # 默认 false(未配置该项时保持回退), 保证规则中心不可用时安防主链路不失效.
 Rule:
   DisableLegacyFallback: false
+
+# 租户归属策略 (2026-09-24 与 M1 联调约定: 主链路必须带真实 tenant_id)
+# MissingPolicy:
+#   dlq (默认) —— 事件未带 tenant_id 视为坏消息, 入死信台账待重放, 不再落 tenant_id=0。
+#                 落 0 的告警在任何按租户过滤的视图(后台列表 / 大屏 / WS 推送)里都看不见,
+#                 且不报错, 现象与"设备没上报"无法区分; 入台账则可查可重放, 消息不丢。
+#   zero       —— 旧行为(落 0 + WARN), 仅在 M1 改造尚未上线时临时回退用。
+# 验收口径: alarm 表 tenant_id 必须为真实租户(验收标准第 3 条), 故默认 dlq。
+Tenant:
+  MissingPolicy: dlq
 
 # Elasticsearch (历史告警检索 #41 / 告警双写 #44)
 # 未注入 ALARM_ES_URL 时该值为 ${ALARM_ES_URL} 字面量, 服务视其为"未配置 ES":

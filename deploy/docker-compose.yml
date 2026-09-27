@@ -459,11 +459,16 @@ services:
       kafka:
         condition: service_healthy
     environment:
-      ALARM_MYSQL_DSN: ${ALARM_MYSQL_DSN}
-      REDIS_ADDR: ${REDIS_ADDR}
-      REDIS_PASS: ${REDIS_PASS}
-      KAFKA_BROKERS: ${KAFKA_BROKERS}
-      ALARM_KAFKA_GROUP: ${ALARM_KAFKA_GROUP}
+      # 2026-09-24: 5 个 M3 变量在 .env 缺失时曾导致服务"降级运行"(远程开门不可用 / 心跳不落库),
+      # 且降级只打一行 WARN, 现象与"没配置这个功能"无法区分。故统一给容器内默认值兜底:
+      # .env 未注入时仍按 compose 网络内的标准地址启动, 缺失不再是静默降级。
+      ALARM_MYSQL_DSN: ${ALARM_MYSQL_DSN:-root:onepark123@tcp(mysql:3306)/alarm_db?charset=utf8mb4&parseTime=True&loc=Local}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      REDIS_PASS: ${REDIS_PASS:-onepark123}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      ALARM_KAFKA_GROUP: ${ALARM_KAFKA_GROUP:-alarm-service}
+      # WS 握手鉴权: 必须与 auth-service 的 JWT_SECRET 同源, 否则告警推送收不到合法令牌校验。
+      AUTH_SECRET: ${JWT_SECRET}
     ports:
       - "${ALARM_SERVICE_PORT:-8009}:8009"
     networks: [onepark]
@@ -728,10 +733,12 @@ services:
       device-service:
         condition: service_healthy
     environment:
-      ACCESS_MYSQL_DSN: ${ACCESS_MYSQL_DSN}
-      REDIS_ADDR: ${REDIS_ADDR}
-      REDIS_PASS: ${REDIS_PASS}
-      DEVICE_RPC_ENDPOINTS: ${DEVICE_RPC_ENDPOINTS}
+      # 默认值兜底(见 alarm-service 同款注释): ACCESS_MYSQL_DSN 缺失会让整库读写失效,
+      # DEVICE_RPC_ENDPOINTS 缺失会让远程开门直接不可用(gRPC 目标为空)。
+      ACCESS_MYSQL_DSN: ${ACCESS_MYSQL_DSN:-root:onepark123@tcp(mysql:3306)/access_db?charset=utf8mb4&parseTime=True&loc=Local}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      REDIS_PASS: ${REDIS_PASS:-onepark123}
+      DEVICE_RPC_ENDPOINTS: ${DEVICE_RPC_ENDPOINTS:-device-service:9001}
     ports:
       - "${ACCESS_SERVICE_PORT:-8010}:8010"
     networks: [onepark]
@@ -828,12 +835,15 @@ services:
       kafka:
         condition: service_healthy
     environment:
-      VIDEO_MYSQL_DSN: ${VIDEO_MYSQL_DSN}
-      REDIS_ADDR: ${REDIS_ADDR}
-      REDIS_PASS: ${REDIS_PASS}
-      KAFKA_BROKERS: ${KAFKA_BROKERS}
-      VIDEO_FLV_BASE_URL: ${VIDEO_FLV_BASE_URL}
-      VIDEO_STREAM_SIGN_SECRET: ${VIDEO_STREAM_SIGN_SECRET}
+      # 默认值兜底(见 alarm-service 同款注释): VIDEO_MYSQL_DSN 缺失会让心跳不落库。
+      # FLV 基址与签名密钥**刻意不设默认值** —— 留空即"仅下发 RTSP / 关闭签名",
+      # 给一个假的默认值会让"取流签名未启用"伪装成"已启用"。
+      VIDEO_MYSQL_DSN: ${VIDEO_MYSQL_DSN:-root:onepark123@tcp(mysql:3306)/video_db?charset=utf8mb4&parseTime=True&loc=Local}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      REDIS_PASS: ${REDIS_PASS:-onepark123}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      VIDEO_FLV_BASE_URL: ${VIDEO_FLV_BASE_URL:-}
+      VIDEO_STREAM_SIGN_SECRET: ${VIDEO_STREAM_SIGN_SECRET:-}
     ports:
       - "${VIDEO_SERVICE_PORT:-8011}:8011"
     networks: [onepark]
