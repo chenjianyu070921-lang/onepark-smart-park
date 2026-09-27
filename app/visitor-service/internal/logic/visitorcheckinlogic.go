@@ -2,6 +2,7 @@ package logic
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"onepark/app/visitor-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/redisx"
 	commonpb "onepark/proto/common"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -126,7 +128,18 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "二维码已被核销")
 	}
 
-	// 1) 核销并置为已签入(RBAC 隔离: 带 tenant_id 条件, CAS 防并发重复开门).
+	// 2) Redis SETNX 防重放/防并发双扫(在 DB CAS 之前的第一道闸, 与 DB CAS 形成双保险, 验证报告 F1).
+	// key 按访客记录ID维度隔离, TTL 覆盖至二维码过期(无过期兜底 24h);
+	// SETNX 成功=本请求获得核销权; 失败=窗口内已被核销(并发/重放), 直接拒绝.
+	// Redis 不可达时降级跳过此闸, 退回 DB CAS 单一防护(与原行为一致), 不误伤正常签入.
+	redeemKey := redeemLockKey(rec.ID)
+	claimed, rErr := l.svcCtx.Redis.SetNX(l.ctx, redeemKey, "1", redeemTTL(rec.ExpireTime)).Result()
+	if rErr == nil && !claimed {
+		l.Infof("visitor redeem lock conflict, already redeemed rec_id=%d", rec.ID)
+		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "二维码已被核销")
+	}
+
+	// 3) 核销并置为已签入(RBAC 隔离: 带 tenant_id 条件, CAS 防并发重复开门).
 	res := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).
 		Where("id=? AND tenant_id=? AND status=?", rec.ID, tenantID, model.VisitorStatusPending).
 		Updates(map[string]interface{}{
@@ -135,14 +148,18 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 			"updated_at": now,
 		})
 	if e := res.Error; e != nil {
+		// 核销失败: 释放 Redis 闸, 避免残留锁误伤后续正常签入.
+		releaseRedeemLock(l.svcCtx.Redis, redeemKey)
 		l.Errorf("visitor checkin failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrVisitorCheckinFailed, "签入失败")
 	}
 	if res.RowsAffected == 0 {
-		// 并发下第二次扫码走到这里: 返回"已核销"而不是成功, 绝不重复开门.
+		// 并发下第二次扫码走到这里: 释放本 goroutine 的锁, 返回"已核销", 绝不重复开门.
+		releaseRedeemLock(l.svcCtx.Redis, redeemKey)
 		l.Infof("visitor checkin skipped, already consumed rec_id=%d", rec.ID)
 		return nil, errorx.NewError(errorx.ErrVisitorQRCodeUsed, "二维码已被核销")
 	}
+	// 核销成功: 保留 redeemKey(TTL 内阻止同码重放), 进入开门流程.
 
 	// 2) 调 M1 开门并把开门设备ID回填 visitor_record.device_id(失败降级, 不阻断签入).
 	deviceID, openMsg := l.openDoor(rec.ID, tenantID)
@@ -219,13 +236,17 @@ func checkBlocked(ctx context.Context, svcCtx *svc.ServiceContext, tenantID int6
 // openDoorResult 开门降级提示语(场景3 验收口径): 无论 M1 是否开门成功, 签入均不阻断,
 // 降级时明确提示"请联系前台人工开门", 由前台兜底放行.
 const (
-	openMsgSuccess  = "开门成功"
+	// openMsgSuccess 开门指令已下发提示.
+	// 注意: device-service 的 SendCommand 为异步 MQTT 下行, 返回的 Success 仅表示"指令已受理下发",
+	// 不代表物理门已开; 故文案由"开门成功"改为"开门指令已下发", 避免向前台/访客虚高确认(验证报告 F2).
+	openMsgSuccess  = "开门指令已下发"
 	openMsgDegrade  = "门禁未响应，签入已记录，请联系前台人工开门"
 	openMsgNoConfig = "门禁未配置，签入已记录，请联系前台人工开门"
 )
 
 // openDoorMsg 开门结果提示语构造(纯函数, 便于降级策略单测).
-// 入参: configured M1 开门链路是否已配置(DeviceRPC+门岗设备); opened 开门是否实际成功.
+// 入参: configured M1 开门链路是否已配置(DeviceRPC+门岗设备); opened 是否成功下发开门指令.
+// 说明: opened 仅代表"开门指令已下发(device-service 受理)", 不等同物理门已开(异步 MQTT, 见 F2).
 func openDoorMsg(configured, opened bool) string {
 	switch {
 	case opened:
@@ -234,6 +255,35 @@ func openDoorMsg(configured, opened bool) string {
 		return openMsgNoConfig
 	default:
 		return openMsgDegrade
+	}
+}
+
+// redeemLockKey 访客核销防重放 Redis 锁 key(按记录ID维度隔离, 与 DB CAS 的 tenant_id 隔离互补).
+func redeemLockKey(recID int64) string {
+	return fmt.Sprintf("visitor:redeem:%d", recID)
+}
+
+// redeemTTL 核销锁有效期: 覆盖至二维码过期时间(无过期则兜底 24h),
+// 既保证一次有效访问窗口内不可重放, 也避免过期后残留锁误伤后续同ID记录.
+func redeemTTL(expire *time.Time) time.Duration {
+	const fallback = 24 * time.Hour
+	if expire == nil {
+		return fallback
+	}
+	if d := time.Until(*expire); d > 0 {
+		return d
+	}
+	return fallback
+}
+
+// releaseRedeemLock 释放核销锁(尽力而为: 失败仅记日志, 不影响主流程返回).
+// 仅在 DB 核销失败/被并发抢先时调用, 防止 Redis 残留锁误伤正常访客.
+func releaseRedeemLock(rdb *redisx.Client, key string) {
+	if rdb == nil {
+		return
+	}
+	if err := rdb.Del(context.Background(), key).Err(); err != nil {
+		logx.Errorf("release visitor redeem lock failed, key=%s: %v", key, err)
 	}
 }
 

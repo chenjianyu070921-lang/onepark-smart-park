@@ -47,6 +47,30 @@ func (s *WorkorderServer) scoped(ctx context.Context, tenantId int64) *gormx.DB 
 	return q
 }
 
+// statusFilter 解析 gRPC 状态筛选约定(与 HTTP ListWorkOrders 对齐, 修复审查问题1):
+// status < 0 表示不限(默认); status >= 0 表示按该状态筛选, 其中 0 = 待派单.
+// 原约定 status=0 为"不限"与 HTTP 的"0=待派单"冲突, 会导致 M5 大屏按待派单筛选时拿到全量.
+// 抽为纯函数便于单测, 且不依赖 DB.
+func statusFilter(req *workorderpb.ListWorkOrdersReq) (apply bool, status int32) {
+	if req.Status < 0 {
+		return false, 0
+	}
+	return true, req.Status
+}
+
+// deriveCompletionRate 由原始计数派生完成率(百分数).
+// 口径: (已完成(状态3) + 已关闭(状态4)) / 工单总数 * 100, 与 HTTP 看板对齐(审查问题9).
+// total<=0 时返回 0, 避免空园区除零(空园区"完成率"本身无业务含义).
+//
+// 抽为纯函数便于 DB-free 单测: 真正的 SUM/COUNT/AVG 聚合在 ListWorkOrders 的 SQL 中,
+// 仅这一步除法+零值保护可被无依赖地覆盖.
+func deriveCompletionRate(done, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(done) / float64(total) * 100
+}
+
 // WorkOrderStats ListWorkOrders 聚合统计的扫描载体.
 // 单次聚合查询同时算出全部指标, 替代原先 5 次 COUNT + 1 次 AVG 的串行扫描;
 // 大屏高频轮询场景下统计查询开销降为原来的 1/6.
@@ -60,7 +84,7 @@ type WorkOrderStats struct {
 }
 
 // ListWorkOrders 供 M5 大屏聚合查询工单摘要列表、总数与待处理数.
-// 入参: tenant_id 园区过滤(0 不限), status 状态过滤(0 不限), page/page_size 分页.
+// 入参: tenant_id 园区过滤(0 不限), status 状态过滤(<0 不限, 0=待派单, 与 HTTP 对齐), page/page_size 分页.
 // 返回: 摘要列表 + 符合条件总数 + 待处理(待派单+处理中)工单总数 +
 // 今日新建/今日完成/平均处理时长/完成率等聚合指标.
 func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.ListWorkOrdersReq) (*workorderpb.ListWorkOrdersResp, error) {
@@ -105,10 +129,8 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	resp.CompletedToday = stats.CompletedToday
 	resp.AvgProcessMinutes = stats.AvgProcessMin
 
-	// 完成率: 已完成(状态3)/总数 * 100.
-	if stats.Total > 0 {
-		resp.CompletionRate = float64(stats.Done) / float64(stats.Total) * 100
-	}
+	// 完成率: (已完成(状态3) + 已关闭(状态4)) / 总数 * 100; 含"已关闭"终态, 与 HTTP 看板口径一致(审查问题9).
+	resp.CompletionRate = deriveCompletionRate(stats.Done, stats.Total)
 
 	// 分页摘要列表. 单页上限与 HTTP 列表(maxPageSize)口径一致, 防止大屏误传超大 page_size 深翻页拖库(审查问题10).
 	page, size := req.Page, req.PageSize
@@ -122,8 +144,8 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 		size = maxPageSize
 	}
 	listQ := s.scoped(ctx, tenant)
-	if req.Status != 0 {
-		listQ = listQ.Where("status = ?", int8(req.Status))
+	if apply, st := statusFilter(req); apply {
+		listQ = listQ.Where("status = ?", int8(st))
 	}
 	var list []model.WorkOrder
 	if err := listQ.Order("id DESC").

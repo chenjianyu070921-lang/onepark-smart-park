@@ -26,7 +26,7 @@ const (
 type ListWorkOrdersReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TenantId      int64                  `protobuf:"varint,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"` // 园区ID(RBAC 隔离), 0 表示不限
-	Status        int32                  `protobuf:"varint,2,opt,name=status,proto3" json:"status,omitempty"`                     // 状态过滤: 0不限, 其它见 work_order.status 取值
+	Status        int32                  `protobuf:"varint,2,opt,name=status,proto3" json:"status,omitempty"`                     // 状态过滤: <0 表示不限(默认), 0=待派单, 其它见 work_order.status 取值(与 HTTP 对齐)
 	Page          int64                  `protobuf:"varint,3,opt,name=page,proto3" json:"page,omitempty"`                         // 页码(从1开始)
 	PageSize      int64                  `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"` // 每页大小
 	unknownFields protoimpl.UnknownFields

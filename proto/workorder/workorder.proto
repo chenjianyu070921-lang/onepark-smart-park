@@ -18,7 +18,7 @@ service WorkorderService {
 // ListWorkOrdersReq 工单列表查询请求
 message ListWorkOrdersReq {
   int64 tenant_id = 1; // 园区ID(RBAC 隔离), 0 表示不限
-  int32 status    = 2; // 状态过滤: 0不限, 其它见 work_order.status 取值
+  int32 status    = 2; // 状态过滤: <0 表示不限(默认), 0=待派单, 其它见 work_order.status 取值(与 HTTP 对齐)
   int64 page      = 3; // 页码(从1开始)
   int64 page_size = 4; // 每页大小
 }

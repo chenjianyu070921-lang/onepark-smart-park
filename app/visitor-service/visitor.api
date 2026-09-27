@@ -2,7 +2,9 @@ syntax = "v1"
 
 // visitor-service 访客通行服务 API 契约
 // 对齐 docs/M2物业管理服务模块设计文档(V1.1) 第三节 / 第十一节.
-// 核心: 业主/物业发起邀请生成二维码, 访客扫码签入(核销+调M1开门), 签出, 记录分页.
+// 注: 该 M2 设计文档当前未纳入仓库(仅 docs/design/coap-integration-plan.md 存在),
+//     链路实现以本契约+代码为准, 详见 docs/visitor/访客管理全链路验证报告.md(验证报告 F3).
+// 核心: 业主/物业发起邀请生成二维码, 访客扫码签入(Redis SETNX + DB CAS 双保险核销, 调M1开门), 签出, 记录分页.
 // 说明: returns 类型均为 data 载荷, 由 handler 经 response.Ok/Fail 包装为统一响应体.
 // VisitorInviteReq 发起访客邀请请求
 type VisitorInviteReq {
@@ -38,8 +40,8 @@ type VisitorCheckinResp {
 	Id        int64  `json:"id"`
 	Status    int8   `json:"status"` // 1待使用 2已签入 3已签出 4已过期
 	CheckinAt int64  `json:"checkin_at"` // 签入时间(秒级时间戳)
-	DeviceID  string `json:"device_id,optional"` // 开门设备ID(M1 开门成功回填)
-	OpenMsg   string `json:"open_msg,optional"` // 开门结果提示(M1 降级时提示"请联系前台人工开门", 不阻断签入)
+	DeviceID  string `json:"device_id,optional"` // 开门设备ID(M1 受理开门指令后回填, 不代表物理门已开)
+	OpenMsg   string `json:"open_msg,optional"` // 开门结果提示(M1 开门成功=指令已下发; 降级提示"请联系前台人工开门"; 不阻断签入)
 }
 
 // VisitorCheckoutReq 访客签出请求(按Id或二维码)
