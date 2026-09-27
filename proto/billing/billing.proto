@@ -7,6 +7,83 @@ option go_package = "onepark/proto/billing;billingpb";
 import "common/common.proto";
 
 service BillingService {
-  // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
   rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
+
+  // 计费规则列表(对应 HTTP GET /api/billing/rules)
+  rpc GetBillRules(GetBillRulesRequest) returns (GetBillRulesResponse);
+  // 账单列表(对应 HTTP GET /api/billing/bills)
+  rpc GetBills(GetBillsRequest) returns (GetBillsResponse);
+  // 按区域+账期生成账单(对应 HTTP POST /api/billing/generate)
+  rpc CalculateBill(CalculateBillRequest) returns (CalculateBillResponse);
+}
+
+message GetBillRulesRequest {
+  string zoneId = 1;
+  string status = 2; // 1启用 0停用, 不传查全部
+}
+
+message BillRuleItem {
+  int64 id = 1;
+  string name = 2;
+  string zoneId = 3;
+  int64 ruleType = 4;
+  string config = 5;     // RuleConfig 的 JSON 字符串
+  int64 status = 6;
+  string createdAt = 7;
+}
+
+message GetBillRulesResponse {
+  int64 total = 1;
+  repeated BillRuleItem list = 2;
+}
+
+message GetBillsRequest {
+  string zoneId = 1;
+  string status = 2;     // 1待缴 2已缴 3作废
+  int64 page = 3;
+  int64 pageSize = 4;
+}
+
+message BillItem {
+  string billNo = 1;
+  string zoneId = 2;
+  int64 ruleId = 3;
+  string periodStart = 4;
+  string periodEnd = 5;
+  double usageKwh = 6;
+  double amount = 7;
+  int64 status = 8;
+  string createdAt = 9;
+}
+
+message GetBillsResponse {
+  int64 total = 1;
+  int64 page = 2;
+  int64 pageSize = 3;
+  repeated BillItem list = 4;
+}
+
+message CalculateBillRequest {
+  string zoneId = 1;
+  string period = 2;     // 账期, 如 2026-09; 不传默认本月
+  int64 ruleId = 3;      // 指定规则; 不传自动选区域/全园区启用规则
+}
+
+message BillDetailItem {
+  string name = 1;
+  double usage = 2;
+  double price = 3;
+  double amount = 4;
+}
+
+message CalculateBillResponse {
+  string billNo = 1;
+  string zoneId = 2;
+  string periodStart = 3;
+  string periodEnd = 4;
+  int64 ruleId = 5;
+  string ruleName = 6;
+  double usageKwh = 7;
+  double amount = 8;
+  repeated BillDetailItem detail = 9;
 }

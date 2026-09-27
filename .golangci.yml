@@ -24,6 +24,11 @@ issues:
       linters:
         - errcheck
         - revive
+    # go-zero 自定义 json struct tag(`,env=XXX`/`,default=XXX`)非标准 encoding/json 选项,
+    # staticcheck SA5008 会整体误报; 这些 tag 由 go-zero 自行解析, 排除以免淹没真实问题.
+    - linters:
+        - staticcheck
+      text: "SA5008"
   # 提高单行复杂度阈值, 避免对业务 handler 过度告警.
   max-issues-per-linter: 0
   max-same-issues: 0

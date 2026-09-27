@@ -4,15 +4,23 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
+	"net"
 
 	"onepark/app/billing-service/internal/config"
 	"onepark/app/billing-service/internal/cron"
 	"onepark/app/billing-service/internal/handler"
+	grpcserver "onepark/app/billing-service/internal/server"
 	"onepark/app/billing-service/internal/svc"
 	cmw "onepark/common/middleware"
 
 	"github.com/zeromicro/go-zero/core/conf"
+	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/rest"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
+
+	billingpb "onepark/proto/billing"
 )
 
 var configFile = flag.String("f", "etc/billing-api.yaml", "the config file")
@@ -39,6 +47,29 @@ func main() {
 	stopCron := cron.Start(context.Background(), ctx)
 	defer stopCron()
 
-	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
-	server.Start()
+	// 双模: 未配置 Grpc.ListenOn 时保持纯 HTTP(网关行为不变); 配置后同进程额外起 gRPC server.
+	if c.Grpc.ListenOn == "" {
+		fmt.Printf("Starting HTTP server at %s:%d...\n", c.Host, c.Port)
+		server.Start()
+		return
+	}
+
+	go func() {
+		fmt.Printf("Starting HTTP server at %s:%d...\n", c.Host, c.Port)
+		server.Start()
+	}()
+
+	lis, err := net.Listen("tcp", c.Grpc.ListenOn)
+	if err != nil {
+		log.Fatalf("billing-service: 启动 gRPC 监听 %s 失败: %v", c.Grpc.ListenOn, err)
+	}
+	gs := grpc.NewServer()
+	billingpb.RegisterBillingServiceServer(gs, grpcserver.NewBillingServer(ctx))
+	if c.Mode == service.DevMode || c.Mode == service.TestMode {
+		reflection.Register(gs)
+	}
+	fmt.Printf("Starting gRPC server at %s...\n", c.Grpc.ListenOn)
+	if err := gs.Serve(lis); err != nil {
+		log.Fatalf("billing-service: gRPC server 异常退出: %v", err)
+	}
 }

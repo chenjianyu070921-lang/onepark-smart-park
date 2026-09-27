@@ -20,3 +20,9 @@ DefaultTenantId: 1
 MonthlyCron:
   Enabled: true
   Spec: "0 2 1 * *"
+
+# gRPC 双模入口(与 REST 同进程): 补齐原"仅 Ping"死契约的业务 rpc,
+# 供内部服务/网关调用计费规则、账单与出账能力.
+# 留空则不启动 gRPC(纯 HTTP); 生产/联调建议启用.
+Grpc:
+  ListenOn: ${BILLING_GRPC_LISTEN} # 如 0.0.0.0:18063

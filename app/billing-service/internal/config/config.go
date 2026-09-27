@@ -22,6 +22,11 @@ type Config struct {
 
 	// MonthlyCron 月度自动出账定时任务.
 	MonthlyCron MonthlyCronConf
+
+	// Grpc 双模 gRPC 监听地址(可选). 为空则仅暴露 HTTP(网关行为不变), 不启 gRPC server.
+	Grpc struct {
+		ListenOn string `json:",optional"`
+	} `json:",optional"`
 }
 
 // MonthlyCronConf 月度自动出账配置.

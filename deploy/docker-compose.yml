@@ -596,8 +596,12 @@ services:
     environment:
       REDIS_ADDR: ${REDIS_ADDR}
       REDIS_PASS: ${REDIS_PASS}
+      # 双模 gRPC 监听地址: 配置后同进程起 gRPC server(补齐计费业务 rpc);
+      # 容器内 .env 默认 billing-service:18063, 留空则仅 HTTP.
+      BILLING_GRPC_LISTEN: ${BILLING_GRPC_LISTEN}
     ports:
       - "${BILLING_SERVICE_PORT:-8063}:8063"
+      - "18063:18063"
     networks: [onepark]
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8063 && exit 0 || exit 1"]

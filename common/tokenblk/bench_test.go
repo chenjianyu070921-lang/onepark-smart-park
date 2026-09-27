@@ -97,3 +97,20 @@ func BenchmarkRevokeRefresh(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkRevokePairedRefresh 基准"用 access 注销时原子连带吊销 refresh"的开销:
+// RevokePairedRefresh 经 TxPipeline 一次性删除 refresh 登记表 + 双向配对记录(access→refresh 与 refresh→access),
+// 每轮使用独立 jti 避免键复用失真(键不存在时 Del 为 O(1) 空操作, 贴近 access 已自然过期的常见路径).
+func BenchmarkRevokePairedRefresh(b *testing.B) {
+	rdb := benchRedis(b)
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ajti := fmt.Sprintf("ajti-%d", i)
+		rjti := fmt.Sprintf("rjti-%d", i)
+		if err := RevokePairedRefresh(ctx, rdb, ajti, rjti); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

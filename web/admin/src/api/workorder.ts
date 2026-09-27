@@ -97,7 +97,7 @@ export function createWorkOrder(data: {
 export function assignWorkOrder(id: number, data: { assignee_id: number; department_id?: number }) {
   return request<{ id: number; order_no: string; status: number }>({
     url: `/workorder/${id}/assign`,
-    method: 'post',
+    method: 'put',
     data,
   })
 }
@@ -106,7 +106,7 @@ export function assignWorkOrder(id: number, data: { assignee_id: number; departm
 export function updateWorkOrderStatus(id: number, action: string, remark?: string) {
   return request<{ id: number; order_no: string; status: number }>({
     url: `/workorder/${id}/status`,
-    method: 'post',
+    method: 'put',
     data: { action, remark },
   })
 }
