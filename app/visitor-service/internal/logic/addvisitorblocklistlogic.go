@@ -10,6 +10,7 @@ import (
 	"onepark/app/visitor-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/gormx"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -89,10 +90,49 @@ func (l *AddVisitorBlocklistLogic) AddVisitorBlocklist(req *types.AddVisitorBloc
 	}
 
 	if e := l.svcCtx.DB.WithContext(l.ctx).Create(bl).Error; e != nil {
+		if gormx.IsDuplicateKey(e) {
+			// 并发竞态: 另一条请求已抢先插入同维度生效记录, 被唯一索引(uk_blocklist_phone/uk_blocklist_idno)
+			// 拦截. 改为刷新该记录(幂等), 避免产生重复生效记录(审查问题2).
+			return l.refreshExistingActive(tenantID, req, operatorID, now)
+		}
 		l.Errorf("create visitor blocklist failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "新增黑名单失败")
 	}
 	return &types.AddVisitorBlocklistResp{Id: bl.ID}, nil
+}
+
+// refreshExistingActive 刷新同租户下已生效且命中维度的黑名单记录.
+// 仅用于"并发插入被唯一索引拦截"的幂等回退: 找到引发冲突的生效记录(同 phone 或同 id_no), 刷新其字段.
+// 极端时序下若该记录恰在查询前被解除(status=2, 生成列为 NULL 释放槽位), 视为无生效记录可刷新, 返回成功.
+func (l *AddVisitorBlocklistLogic) refreshExistingActive(tenantID int64, req *types.AddVisitorBlocklistReq, operatorID int64, now time.Time) (*types.AddVisitorBlocklistResp, error) {
+	var exist model.VisitorBlocklist
+	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorBlocklist{}).
+		Where("tenant_id=? AND status=?", tenantID, model.BlocklistStatusActive)
+	where, args := buildBlocklistDedupWhere(req)
+	q = q.Where(where, args...)
+	if e := q.First(&exist).Error; e != nil {
+		if e == gorm.ErrRecordNotFound {
+			return &types.AddVisitorBlocklistResp{Id: 0}, nil
+		}
+		l.Errorf("refresh visitor blocklist failed: %v", e)
+		return nil, errorx.NewError(errorx.ErrM2Internal, "更新黑名单失败")
+	}
+	if e := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorBlocklist{}).
+		Where("id=? AND tenant_id=?", exist.ID, tenantID).
+		Updates(map[string]interface{}{
+			"visitor_name":   req.VisitorName,
+			"phone":          req.Phone,
+			"id_no":          req.IdNo,
+			"reason":         req.Reason,
+			"effective_from": unixPtrBL(req.EffectiveFrom),
+			"effective_to":   unixPtrBL(req.EffectiveTo),
+			"status":         model.BlocklistStatusActive,
+			"operator_id":    operatorID,
+			"updated_at":     now,
+		}).Error; e != nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "更新黑名单失败")
+	}
+	return &types.AddVisitorBlocklistResp{Id: exist.ID}, nil
 }
 
 // unixPtrBL 秒级时间戳转 *time.Time, 0 返回 nil(用于黑名单生效时间窗).

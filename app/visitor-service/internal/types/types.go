@@ -23,8 +23,8 @@ type VisitorCheckinResp struct {
 	Id        int64  `json:"id"`                 // 访客记录ID
 	Status    int8   `json:"status"`             // 1待使用 2已签入 3已签出 4已过期
 	CheckinAt int64  `json:"checkin_at"`         // 签入时间(秒级时间戳)
-	DeviceID  string `json:"device_id,optional"` // 开门设备ID(M1 开门成功回填)
-	OpenMsg   string `json:"open_msg,optional"`  // 开门结果提示(M1 降级时提示"请联系前台人工开门", 不阻断签入)
+	DeviceID  string `json:"device_id,optional"` // 开门设备ID(M1 受理开门指令后回填, 不代表物理门已开)
+	OpenMsg   string `json:"open_msg,optional"`  // 开门结果提示(M1 开门成功=指令已下发; 降级提示"请联系前台人工开门"; 不阻断签入)
 }
 
 // VisitorCheckoutReq 访客签出请求(按Id或二维码, 二选一).

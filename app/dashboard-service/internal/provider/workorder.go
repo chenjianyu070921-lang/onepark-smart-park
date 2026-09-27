@@ -24,13 +24,15 @@ func NewWorkOrder(client workorderpb.WorkorderServiceClient) *WorkOrder {
 // today_count/pending_count/avg_process_minutes/completion_rate 全部指标,
 // 本端单次调用直采, 不再自行拉列表数数 —— 消除两个口径漂移:
 //  1. 旧实现自算今日新增(受 pageSize=500 截断, 超过后偏小) vs M2 服务端精确聚合;
-//  2. 旧实现完成率 = (已完成+已关闭)/总数, 与 M2 的 已完成/总数 口径不一致;
+//  2. 旧实现自算完成率=已完成/总数, 与 M2 服务端(含已关闭终态)口径不一致;
 //     以 M2(数据归属方)为准, 本端只做 0-100 → 0-1 的单位换算.
 func (p *WorkOrder) Stat(ctx context.Context, tenantId int64) (WorkOrderStat, error) {
 	// PageSize=1: 只消费聚合指标字段, 不需要列表数据.
+	// Status=-1: 显式表达"不限状态"意图(服务端 statusFilter 约定 status<0 为不限);
+	// 聚合统计不受 status 影响, 此处仅声明意图, 避免误读为"只筛待派单".
 	all, err := p.client.ListWorkOrders(ctx, &workorderpb.ListWorkOrdersReq{
 		TenantId: tenantId,
-		Status:   0,
+		Status:   -1,
 		Page:     1,
 		PageSize: 1,
 	})
