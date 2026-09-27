@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,6 +18,7 @@ import (
 	"onepark/app/device-service/internal/mq"
 	"onepark/app/device-service/internal/server"
 	"onepark/app/device-service/internal/svc"
+	"onepark/common/health"
 	"onepark/common/middleware"
 	devicepb "onepark/proto/device"
 
@@ -49,6 +51,15 @@ func main() {
 	restServer.Use(middleware.RequestIdMiddleware)
 
 	handler.RegisterHandlers(restServer, ctx)
+
+	// /health 健康检查: 不写入 device.api, 程序化注册而非放进 routes.go —
+	// goctl 重生成会无条件覆盖 routes.go(RegisterHandlers), 放在这里重生成不丢.
+	// 注意: go-zero 的 Use 中间件不作用于 AddRoute 路由, 健康检查无需身份/请求ID, 可接受.
+	restServer.AddRoute(rest.Route{
+		Method:  http.MethodGet,
+		Path:    "/health",
+		Handler: health.Handler(ctx.DB, nil),
+	})
 
 	rpcServer := zrpc.MustNewServer(c.Rpc, func(grpcServer *grpc.Server) {
 		devicepb.RegisterDeviceServiceServer(grpcServer, server.NewDeviceServer(ctx))
