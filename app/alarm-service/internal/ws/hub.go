@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -111,11 +112,31 @@ type Hub struct {
 	mu      sync.RWMutex
 	clients map[*Client]struct{}
 	relay   Relay
+	// Auth WS 握手鉴权器; nil 表示未启用(退回 query tenant_id 的既有行为).
+	// 由 ServiceContext 按 WS.AuthSecret 装配 —— Hub 自己不读配置, 便于单测直接注入.
+	Auth *Authenticator
+}
+
+// Option 是 NewHub 的可选配置.
+type Option func(*Hub)
+
+// WithAuth 启用 WS 握手鉴权(令牌校验租户)并可附带来源白名单.
+// 不传即零配置: 保持未启用鉴权的既有行为, 便于本地联调与既有单测.
+func WithAuth(secret string, origins []string) Option {
+	return func(h *Hub) {
+		if strings.TrimSpace(secret) != "" {
+			h.Auth = NewAuthenticator(secret, origins)
+		}
+	}
 }
 
 // NewHub 创建 Hub.
-func NewHub() *Hub {
-	return &Hub{clients: make(map[*Client]struct{})}
+func NewHub(opts ...Option) *Hub {
+	h := &Hub{clients: make(map[*Client]struct{})}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 // Register 注册连接并启动读写两个泵.

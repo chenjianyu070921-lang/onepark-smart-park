@@ -35,6 +35,11 @@ func NewVisitorCheckoutLogic(ctx context.Context, svcCtx *svc.ServiceContext) *V
 func (l *VisitorCheckoutLogic) VisitorCheckout(req *types.VisitorCheckoutReq) (resp *types.VisitorCheckoutResp, err error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 
+	// 防御: 未配置 MySQL 时 svcCtx.DB 为 nil, 提前返回明确错误避免空指针 panic(审查问题12).
+	if l.svcCtx.DB == nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
+	}
+
 	q := l.svcCtx.DB.WithContext(l.ctx).Where("tenant_id=?", tenantID)
 	switch {
 	case req.Id != 0:

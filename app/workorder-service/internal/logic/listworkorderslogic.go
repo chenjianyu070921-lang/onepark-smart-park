@@ -59,8 +59,10 @@ func (l *ListWorkOrdersLogic) ListWorkOrders(req *types.ListWorkOrderReq) (resp 
 		}
 	}
 
-	if req.Status != 0 {
-		q = q.Where("status=?", req.Status)
+	// Status 为指针: nil 表示"未传筛选"(返回全部), 非 nil 按指针对应的合法状态精确筛选,
+	// 含 status=0(待派单) —— 修复此前用 0 当哨兵导致待派单无法筛选的问题.
+	if req.Status != nil {
+		q = q.Where("status=?", *req.Status)
 	}
 	if req.Type != 0 {
 		q = q.Where("type=?", req.Type)

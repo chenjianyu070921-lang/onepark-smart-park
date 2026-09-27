@@ -41,8 +41,7 @@ func (s *DeviceServer) Ping(ctx context.Context, in *commonpb.Empty) (*commonpb.
 	return &commonpb.Empty{}, nil
 }
 
-// SendCommand 指令下发, 复用 HTTP 指令接口同一套落库逻辑, 返回 requestId.
-// 当前仅落 command_log(status=0), MQTT 下行 Publish 为 P2.
+// SendCommand 指令下发, 复用 HTTP 指令接口同一套 落库(command_log) + MQTT 下行 逻辑, 返回 requestId.
 func (s *DeviceServer) SendCommand(ctx context.Context, in *commonpb.DeviceCommand) (*commonpb.CommandResult, error) {
 	if in.GetDeviceId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "device_id 不能为空")

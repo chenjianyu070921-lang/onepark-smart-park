@@ -26,8 +26,10 @@ type IdReq struct {
 }
 
 // ListWorkOrderReq 工单列表查询请求.
+// 注意: Status 使用指针类型(*int8), 以 nil 区分"未传状态筛选"与"筛选待派单(status=0)".
+// 原 int8 零值 0 与合法态"待派单"冲突, 导致无法按待派单精确筛选(审查问题2).
 type ListWorkOrderReq struct {
-	Status     int8  `form:"status,optional"`      // 状态筛选(可选)
+	Status     *int8 `form:"status,optional"`      // 状态筛选(可选, nil 表示不限; 0=待派单)
 	Type       int8  `form:"type,optional"`        // 类型筛选(可选)
 	AssigneeID int64 `form:"assignee_id,optional"` // 处理人筛选(可选)
 	Page       int64 `form:"page"`                 // 页码(从1开始)

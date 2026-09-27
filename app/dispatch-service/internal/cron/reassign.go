@@ -70,7 +70,7 @@ func decideReassign(t *model.DispatchTask, pool []assign.Candidate, maxReassign 
 //  1. Redis SET NX 锁 + Lua 比对释放 —— 挡住多实例
 //  2. 更新条件带 status + version —— 数据库层兜底, 锁失效也不会重复改派
 //  3. 审计流水仅在 RowsAffected>0 时写 —— 一张单一次改派只留一条流水
-func RunReassignOnce(ctx context.Context, db *gormx.DB, rdb *redisx.Client, maxReassign int64) (ReassignResult, error) {
+func RunReassignOnce(ctx context.Context, db *gormx.DB, rdb *redisx.Client, maxReassign int64, lockTTL time.Duration) (ReassignResult, error) {
 	var res ReassignResult
 	if db == nil {
 		return res, fmt.Errorf("数据库未初始化")
@@ -81,12 +81,16 @@ func RunReassignOnce(ctx context.Context, db *gormx.DB, rdb *redisx.Client, maxR
 	if maxReassign <= 0 {
 		maxReassign = model.MaxReassignDefault
 	}
+	if lockTTL <= 0 {
+		// 兜底: 由扫描周期推导(见 ReassignLockTTL), 传 0 时不至于拿一把"永不过期"的锁
+		lockTTL = ReassignLockTTL(defaultIntervalSec)
+	}
 
 	token, err := newLockToken()
 	if err != nil {
 		return res, fmt.Errorf("生成锁标识失败: %w", err)
 	}
-	ok, err := rdb.SetNX(ctx, reassignLockKey, token, reassignLockTTL).Result()
+	ok, err := rdb.SetNX(ctx, reassignLockKey, token, lockTTL).Result()
 	if err != nil {
 		return res, fmt.Errorf("获取分布式锁失败: %w", err)
 	}
@@ -187,7 +191,7 @@ func reassignTask(ctx context.Context, db *gormx.DB, t *model.DispatchTask, to a
 		return false, nil
 	}
 
-	writeLog(ctx, db, t.Id, model.StatusAssigned, model.StatusAssigned, state.ActionAssign,
+	writeLog(ctx, db, t.Id, t.TenantID, model.StatusAssigned, model.StatusAssigned, state.ActionAssign,
 		fmt.Sprintf("指派超时自动改派: %s -> %s", t.AssigneeName, to.AssigneeName))
 	return true, nil
 }
@@ -219,7 +223,7 @@ func releaseTask(ctx context.Context, db *gormx.DB, t *model.DispatchTask, reaso
 	logx.WithContext(ctx).Infof("[cron] 工单释放回待指派: taskId=%d, 原处理人=%d(%s), 原因=%s",
 		t.Id, t.AssigneeId, t.AssigneeName, reason)
 
-	writeLog(ctx, db, t.Id, model.StatusAssigned, to, state.ActionRelease, reason)
+	writeLog(ctx, db, t.Id, t.TenantID, model.StatusAssigned, to, state.ActionRelease, reason)
 	return true, nil
 }
 
@@ -227,8 +231,10 @@ func releaseTask(ctx context.Context, db *gormx.DB, t *model.DispatchTask, reaso
 //
 // 刻意不与状态更新放同一事务: 状态变更是主流程, 审计失败只记日志不回滚 ——
 // 「改了但没留痕」比「留了痕但没改」危害小得多, 也不会让定时任务整体失败。
-func writeLog(ctx context.Context, db *gormx.DB, taskId int64, from, to int8, action, remark string) {
+func writeLog(ctx context.Context, db *gormx.DB, taskId, tenantID int64, from, to int8, action, remark string) {
 	if err := db.WithContext(ctx).Create(&model.DispatchTaskLog{
+		// 租户由调用方传入: cron 的 ctx 里没有租户(它不是请求), 只能取工单自己的
+		TenantID:   tenantID,
 		TaskId:     taskId,
 		FromStatus: from,
 		ToStatus:   to,

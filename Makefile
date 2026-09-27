@@ -123,6 +123,10 @@ run-shadow:
 run-alarm-grpc:
 	go run .\app\alarm-service\grpcserver\main.go -f .\app\alarm-service\etc\alarm-grpc.yaml
 
+# access-control gRPC(9010), 门禁控制面: CheckPermission / RemoteOpen
+run-accesscontrol-grpc:
+	go run .\app\access-control-service\grpcserver\main.go -f .\app\access-control-service\etc\accesscontrol-grpc.yaml
+
 # ============ 设备网关与后台进程启动命令 ============
 run-gateway-service:
 	go run .\app\gateway-service\gateway.go -f .\app\gateway-service\etc\gateway.yaml
@@ -165,10 +169,15 @@ build-all:
 	@echo "== all 22 modules built OK =="
 
 # 全量测试: 同 build-all, 逐 module 执行(根目录无 go.mod, 不能直接 go test ./...).
+#
+# -p 1 是必需的(2026-09-24 实证): 同一 module 内的多个包若并行跑,
+# 会共享同一个测试库(如 alarm-service 的 model 与 svc 都写 alarm_db),
+# 而部分集成用例按"全表/按租户统计"断言 —— 并行写入会让彼此的计数断言随机失败,
+# 单跑却全绿。现象极像代码回归, 实为测试隔离问题。
 test:
 	@set -e; for d in common proto gateway app/*; do \
 		printf 'testing  %-40s' "$$d"; \
-		( cd $$d && go test ./... ); \
+		( cd $$d && go test -p 1 ./... ); \
 		echo 'OK'; \
 	done
 
@@ -181,7 +190,7 @@ down:
 clean:
 	rm -rf bin/
 
-.PHONY: device-goctl workorder-goctl visitor-goctl parking-goctl notice-goctl alarm-goctl accesscontrol-goctl video-goctl energydata-goctl energyanalysis-goctl billing-goctl leasing-goctl dashboard-goctl dispatch-goctl auth-goctl usermanage-goctl apigateway-goctl shadow-goctl run-device run-workorder run-visitor run-parking run-notice run-alarm run-accesscontrol run-video run-energydata run-energyanalysis run-billing run-leasing run-dashboard run-dispatch run-auth run-usermanage run-apigateway run-shadow run-alarm-grpc run-gateway-service run-event-dispatcher install-tools genproto build build-all test up down clean
+.PHONY: device-goctl workorder-goctl visitor-goctl parking-goctl notice-goctl alarm-goctl accesscontrol-goctl video-goctl energydata-goctl energyanalysis-goctl billing-goctl leasing-goctl dashboard-goctl dispatch-goctl auth-goctl usermanage-goctl apigateway-goctl shadow-goctl run-device run-workorder run-visitor run-parking run-notice run-alarm run-accesscontrol run-video run-energydata run-energyanalysis run-billing run-leasing run-dashboard run-dispatch run-auth run-usermanage run-apigateway run-shadow run-alarm-grpc run-accesscontrol-grpc run-gateway-service run-event-dispatcher install-tools genproto build build-all test up down clean
 
 
 

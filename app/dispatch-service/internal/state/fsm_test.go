@@ -103,6 +103,21 @@ func TestNext_NonTerminalNotTerminal(t *testing.T) {
 	}
 }
 
+// IsValid 判断状态码是否合法(防脏数据).
+//
+// 2026-09-27 从 fsm.go 挪到本文件: 它在**生产代码里没有任何调用点**(写入路径一律过
+// Next() 校验转移合法性, 见各 logic 与 cron), 只在测试里用来断言"状态常量都落在合法集合内"。
+// 生产包里留一个没人调用的导出函数, 只会让人误以为"状态写入都过它校验了" —— 那是反的。
+// 挪进测试文件后: 断言照旧生效、调用点一处不用改(同包同名), 生产代码少一个幽灵 API。
+func IsValid(status int8) bool {
+	switch status {
+	case model.StatusPendingAssign, model.StatusAssigned, model.StatusProcessing,
+		model.StatusCompleted, model.StatusClosed:
+		return true
+	}
+	return false
+}
+
 // TestIsValid 状态码合法性(防脏数据).
 func TestIsValid(t *testing.T) {
 	valid := []int8{

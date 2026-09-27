@@ -3,7 +3,6 @@ package consumer
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/zeromicro/go-zero/core/logx"
 
@@ -65,16 +64,39 @@ func (h *AlarmHandler) Handle(ctx context.Context, value []byte) error {
 		Description:   draft.Description,
 	}
 
-	if err := h.db.WithContext(ctx).Create(task).Error; err != nil {
-		if isDuplicateEntry(err) {
+	// ⚠️ 两种 1062 必须分开处置(2026-09-27 修):
+	//
+	//	uk_alarm_id 冲突 = 告警重投/多实例 -> 幂等跳过是对的
+	//	uk_task_no  冲突 = 单号撞号 -> 若也当成"已建单"跳过, 真实告警就**建不出工单而无人察觉**
+	//	                (消息位移已提交, 不会重投)。所以这里必须换号重试。
+	//
+	// 这个 Bug 是演示 seed 脚本连建 5 张单挂了 1 张才暴露出来的 —— 单号旧实现同秒只有
+	// 1000 种取值, 告警爆发时必然踩到。
+	const maxTaskNoAttempts = 3
+	var createErr error
+	for attempt := 1; attempt <= maxTaskNoAttempts; attempt++ {
+		task.Id = 0 // 上一轮失败不留残值
+		createErr = h.db.WithContext(ctx).Create(task).Error
+		if createErr == nil {
+			break
+		}
+		if model.IsDuplicateKeyOn(createErr, "uk_alarm_id") {
 			// 重复告警是正常现象(重投/多实例), 按幂等处理而不是报错。
 			h.Infof("[consumer] 告警已建单, 幂等跳过: alarmId=%s", draft.AlarmID)
 			return nil
 		}
-		return fmt.Errorf("创建调度工单失败: %w", err)
+		if !model.IsDuplicateKeyOn(createErr, "uk_task_no") {
+			break
+		}
+		h.Errorf("[consumer] 单号撞号, 换号重试(第 %d/%d 次): %s", attempt, maxTaskNoAttempts, task.TaskNo)
+		task.TaskNo = model.NewTaskNo()
+	}
+	if createErr != nil {
+		return fmt.Errorf("创建调度工单失败: %w", createErr)
 	}
 
 	if err := h.db.WithContext(ctx).Create(&model.DispatchTaskLog{
+		TenantID:   task.TenantID, // 审计也写租户(与主表同源)
 		TaskId:     task.Id,
 		FromStatus: 0,
 		ToStatus:   model.StatusPendingAssign,
@@ -90,12 +112,4 @@ func (h *AlarmHandler) Handle(ctx context.Context, value []byte) error {
 	return nil
 }
 
-// isDuplicateEntry 判断是否唯一键冲突(MySQL 1062)。
-// 用错误信息匹配而非引入 mysql 驱动包, 避免为一次判断新增直接依赖。
-func isDuplicateEntry(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "1062") || strings.Contains(msg, "Duplicate entry")
-}
+

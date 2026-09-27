@@ -3,8 +3,9 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Avatar, Badge, Dropdown, Layout, Menu, Popover, List, Spin, theme } from 'antd'
 import type { MenuProps } from 'antd'
 import { BellOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons'
-import { menuConfig } from '../router/menu'
+import { useVisibleMenus } from '../hooks/useVisibleMenus'
 import { useAuthStore } from '../stores/auth'
+import ErrorBoundary from '../components/ErrorBoundary'
 import { getUnreadNoticeCount, listNotices, type NoticeItem } from '../api/notice'
 import { logout as apiLogout } from '../api/auth'
 
@@ -22,7 +23,7 @@ function NoticeBell() {
     const tick = () =>
       getUnreadNoticeCount()
         .then((d) => {
-          if (alive) setUnread(typeof d.count === 'number' ? d.count : Number(d) || 0)
+          if (alive) setUnread(d.unread_count ?? 0)
         })
         .catch(() => undefined)
     tick()
@@ -36,8 +37,8 @@ function NoticeBell() {
   const loadNotices = async () => {
     setLoading(true)
     try {
-      const d = await listNotices()
-      setNotices(Array.isArray(d) ? d : (d?.list ?? []))
+      const d = await listNotices({ status: 2, page: 1, page_size: 5 })
+      setNotices(d.list ?? [])
     } catch {
       setNotices([])
     } finally {
@@ -86,21 +87,24 @@ export default function AdminLayout() {
   const { token } = theme.useToken()
   const { nickname, token: accessToken, logout } = useAuthStore()
 
+  // 后端 sys_menu 驱动的可见菜单; 权限服务不可用时内部已降级为全量.
+  const menus = useVisibleMenus()
+
   const selectedKey =
-    menuConfig
+    menus
       .flatMap((m) => [m, ...(m.children ?? [])])
       .filter((m) => m.path)
       .sort((a, b) => (b.path ?? '').length - (a.path ?? '').length)
       .find((m) => location.pathname.startsWith(m.path ?? '\u0000'))?.key ?? 'home'
 
-  const items: MenuProps['items'] = menuConfig.map((m) =>
+  const items: MenuProps['items'] = menus.map((m) =>
     m.children
       ? { key: m.key, label: m.label, icon: m.icon, children: m.children.map((c) => ({ key: c.key, label: c.label })) }
       : { key: m.key, label: m.label, icon: m.icon },
   )
 
   const onMenuClick: MenuProps['onClick'] = ({ key }) => {
-    const node = menuConfig.flatMap((m) => [m, ...(m.children ?? [])]).find((m) => m.key === key)
+    const node = menus.flatMap((m) => [m, ...(m.children ?? [])]).find((m) => m.key === key)
     if (node?.path) navigate(node.path)
   }
 
@@ -171,7 +175,10 @@ export default function AdminLayout() {
           />
         </Sider>
         <Content style={{ padding: 24, background: '#f5f5f5' }}>
-          <Outlet />
+          {/* 页面级异常兜底: 单个页面渲染失败时不整站白屏 */}
+          <ErrorBoundary name="页面">
+            <Outlet />
+          </ErrorBoundary>
         </Content>
       </Layout>
     </Layout>

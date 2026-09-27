@@ -6,7 +6,58 @@ option go_package = "onepark/proto/access;accesspb";
 
 import "common/common.proto";
 
+// 门禁服务对外 gRPC 契约(服务间调用; HTTP 接口见 accesscontrol.api).
+//
+// 与 HTTP 的分工: HTTP 面向前端/BFF(带 JWT 与网关注入的租户身份),
+// gRPC 面向服务间调用, 只暴露"控制面"两个动作 —— 权限校验与远程开门。
+// 查询类(通行记录 #48 / 授权 #45 / 撤权 #46)仍走 HTTP, 不在此处重复定义。
+//
+// ⚠️ 调用方前提: 本服务 gRPC 未挂鉴权(与 alarm-service gRPC 一致), 仅容器内网络可达。
+// 远程开门是不可逆的物理动作, 部署上必须保证 9009 不对集群外暴露。
 service AccessControlService {
-  // TODO: 业务接口由各服务负责人按 OpenViking 记忆中的接口清单补充
+  // Ping 探活.
   rpc Ping(onepark.common.Empty) returns (onepark.common.Empty);
+
+  // CheckPermission 判定某人在指定时刻能否通过某扇门(只读, 无副作用).
+  // 与 #45 授权时的校验口径完全一致(见 logic.PermissionAllowed):
+  // 无记录 / 已失效 / 已过期 / 不在时间段内 均返回 allowed=false 并给出 reason。
+  rpc CheckPermission(CheckPermissionReq) returns (CheckPermissionResp);
+
+  // RemoteOpen 远程开门(#47).
+  //
+  // 语义与 HTTP #47 一致且刻意保持同步: 复用同一份 logic, 不在此处重写一遍判定 ——
+  // 两套实现必然在某天漂移成两套口径(一边放行另一边拒绝), 而门禁的后果不可逆。
+  //
+  // success=true 表示"命令已下发且设备确认"; 设备不在同一条调用链上给出最终结果,
+  // 超时/失败按错误码返回, 但审计表 access_operate_log 仍会留下记录。
+  // request_id 为幂等键: 同一 request_id 重复调用只下发一次; 被拒/失败会释放该键, 可带同一 request_id 重试。
+  rpc RemoteOpen(RemoteOpenReq) returns (RemoteOpenResp);
+}
+
+message CheckPermissionReq {
+  int64 tenant_id = 1;  // 租户ID(必填): 权限按租户隔离, 缺失即拒绝
+  int64 person_id = 2;  // 人员ID(必填)
+  string device_id = 3; // 门禁设备ID(必填)
+  int64 at = 4;         // 校验时刻(Unix 秒); 0 表示"当前时刻"
+}
+
+message CheckPermissionResp {
+  bool allowed = 1;    // 是否放行
+  string reason = 2;   // 不放行的原因(放行时为空); 用于上游提示与审计
+  int64 expire_at = 3; // 该授权的有效期截止(Unix 秒); 0 表示长期有效
+}
+
+message RemoteOpenReq {
+  int64 tenant_id = 1;   // 租户ID(必填)
+  string device_id = 2;  // 门禁设备ID(必填)
+  int64 operator_id = 3; // 操作人(必填, 落审计; 由调用方透传, gRPC 侧无网关注入)
+  string reason = 4;     // 开门缘由(可选), 写入审计
+  string request_id = 5; // 幂等键(可选): 缺失时按 device_id + 时间戳生成
+}
+
+message RemoteOpenResp {
+  bool success = 1;      // 命令是否下发成功(设备侧已确认)
+  string device_id = 2;  // 实际下发命令的设备ID
+  string message = 3;    // M1/设备返回信息, 或"重复请求已忽略"等说明
+  string request_id = 4; // 回显调用方传入的 request_id(未传即为空); 便于调用方对齐审计记录
 }

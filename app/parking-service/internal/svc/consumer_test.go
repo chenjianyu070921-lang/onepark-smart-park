@@ -20,7 +20,7 @@ func TestCalcFee(t *testing.T) {
 	// 跨天场景: 23:00 入场, 次日 07:00 出场 = 480 分钟 → 8 小时(覆盖看板"跨天计费").
 	overnightEntry := time.Date(2026, 9, 18, 23, 0, 0, 0, time.Local)
 	overnightExit := overnightEntry.Add(8 * time.Hour)
-	// 免费时长截断边界: 15 分 59 秒按 int 分钟截断为 15, 仍免费.
+	// 计费分钟向上取整: 15 分 59 秒计为 16 分钟(>15 免费阈值), 应收费而非免单(修复旧 int 截断误免单).
 	truncExit := entry.Add(15*time.Minute + 59*time.Second)
 
 	cases := []struct {
@@ -34,7 +34,7 @@ func TestCalcFee(t *testing.T) {
 		{"VIP免费", &entry, at(120), model.VehicleTypeVIP, 0},
 		{"时间缺失兜底0", nil, nil, model.VehicleTypeTemp, 0},
 		{"临时车15分钟内免费", &entry, at(15), model.VehicleTypeTemp, 0},
-		{"临时车15分59秒截断仍免费", &entry, &truncExit, model.VehicleTypeTemp, 0},
+		{"临时车15分59秒应收费(>15分钟)", &entry, &truncExit, model.VehicleTypeTemp, 5},
 		{"临时车16分钟按1小时", &entry, at(16), model.VehicleTypeTemp, 5},
 		{"临时车61分钟按2小时", &entry, at(61), model.VehicleTypeTemp, 10},
 		{"临时车120分钟整2小时", &entry, at(120), model.VehicleTypeTemp, 10},

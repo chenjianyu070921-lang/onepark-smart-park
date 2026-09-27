@@ -40,6 +40,11 @@ func (l *AddVisitorBlocklistLogic) AddVisitorBlocklist(req *types.AddVisitorBloc
 		return nil, errorx.NewError(errorx.ErrBadRequest, "手机号或身份证至少提供一个拉黑维度")
 	}
 
+	// 防御: 未配置 MySQL 时 svcCtx.DB 为 nil, 提前返回明确错误避免空指针 panic(审查问题12).
+	if l.svcCtx.DB == nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
+	}
+
 	now := time.Now()
 	bl := &model.VisitorBlocklist{
 		VisitorName:   req.VisitorName,
@@ -59,7 +64,7 @@ func (l *AddVisitorBlocklistLogic) AddVisitorBlocklist(req *types.AddVisitorBloc
 	var exist model.VisitorBlocklist
 	q := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorBlocklist{}).
 		Where("tenant_id=? AND status=?", tenantID, model.BlocklistStatusActive)
-	where, args := buildBlocklistDedupWhere(req)
+	where, args := l.resolveBlocklistDims(tenantID, req)
 	q = q.Where(where, args...)
 	if e := q.First(&exist).Error; e == nil {
 		if e := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorBlocklist{}).
@@ -117,4 +122,54 @@ func buildBlocklistDedupWhere(req *types.AddVisitorBlocklistReq) (string, []inte
 		return "1=0", nil
 	}
 	return strings.Join(conds, " OR "), args
+}
+
+// resolveBlocklistDims 在 buildBlocklistDedupWhere 基础上做跨维度去重补齐(审查问题13):
+// 仅提供手机号时, 查同租户已生效记录取回其登记身份证; 仅提供身份证时, 取回其登记手机号.
+// 使"同一被拉黑人换维度(手机号↔身份证)再次拉黑"也能命中已有记录并刷新, 避免生成重复生效记录.
+func (l *AddVisitorBlocklistLogic) resolveBlocklistDims(tenantID int64, req *types.AddVisitorBlocklistReq) (string, []interface{}) {
+	baseWhere, baseArgs := buildBlocklistDedupWhere(req)
+	if baseWhere == "1=0" {
+		return baseWhere, baseArgs
+	}
+	extraConds := []string{}
+	extraArgs := []interface{}{}
+	if req.Phone != "" && req.IdNo == "" {
+		if r, ok := l.loadActiveBlocklistByPhone(tenantID, req.Phone); ok && r.IdNo != "" {
+			extraConds = append(extraConds, "id_no = ?")
+			extraArgs = append(extraArgs, r.IdNo)
+		}
+	}
+	if req.IdNo != "" && req.Phone == "" {
+		if r, ok := l.loadActiveBlocklistByIdNo(tenantID, req.IdNo); ok && r.Phone != "" {
+			extraConds = append(extraConds, "phone = ?")
+			extraArgs = append(extraArgs, r.Phone)
+		}
+	}
+	if len(extraConds) == 0 {
+		return baseWhere, baseArgs
+	}
+	return "(" + baseWhere + ") OR " + strings.Join(extraConds, " OR "), append(baseArgs, extraArgs...)
+}
+
+// loadActiveBlocklistByPhone 查同租户已生效黑名单记录(按手机号), 用于跨维度去重补齐.
+func (l *AddVisitorBlocklistLogic) loadActiveBlocklistByPhone(tenantID int64, phone string) (model.VisitorBlocklist, bool) {
+	var r model.VisitorBlocklist
+	if e := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorBlocklist{}).
+		Where("tenant_id=? AND status=? AND phone=?", tenantID, model.BlocklistStatusActive, phone).
+		First(&r).Error; e == nil {
+		return r, true
+	}
+	return r, false
+}
+
+// loadActiveBlocklistByIdNo 查同租户已生效黑名单记录(按身份证), 用于跨维度去重补齐.
+func (l *AddVisitorBlocklistLogic) loadActiveBlocklistByIdNo(tenantID int64, idNo string) (model.VisitorBlocklist, bool) {
+	var r model.VisitorBlocklist
+	if e := l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorBlocklist{}).
+		Where("tenant_id=? AND status=? AND id_no=?", tenantID, model.BlocklistStatusActive, idNo).
+		First(&r).Error; e == nil {
+		return r, true
+	}
+	return r, false
 }

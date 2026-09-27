@@ -54,6 +54,9 @@ func (l *TaskListLogic) TaskList(req *types.TaskListReq) (*types.TaskListResp, e
 		if req.Priority != 0 {
 			db = db.Where("priority = ?", req.Priority)
 		}
+		if req.ZoneCode != "" {
+			db = db.Where("zone_code = ?", req.ZoneCode)
+		}
 		return db
 	}
 

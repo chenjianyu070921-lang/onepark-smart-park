@@ -162,8 +162,14 @@ type ExpiringContract struct {
 	NeedNotice  bool   `json:"need_notice"`
 }
 
+// OccupancyReq 入驻率查询请求。
+//
+// 刻意**没有** tenant_id 参数: 租户只从网关注入的身份头取(见 occupancylogic.go 的
+// ctxdata.GetTenantId)。允许请求方自报租户 = 开一个跨租户读取的口子 ——
+// 2026-09-21 修掉的「账单三接口租户越权」正是这一类; 跨租户查看属 RBAC 数据范围,
+// 由网关的 x-data-scope 收口, 不由业务参数承担。
+// (gRPC 侧不经过网关, 由 rpcserver 把调用方声明的租户注入 ctx —— 见 GetOccupancy。)
 type OccupancyReq struct {
-	TenantId int64 `form:"tenant_id,default=0"`
 }
 
 type OccupancyResp struct {

@@ -46,13 +46,27 @@ type (
 	TaskDetailReq {
 		Id int64 `path:"id"`
 	}
+	// TaskLog 工单状态流转审计 —— 详情页时间线的一格
+	TaskLog {
+		Id         int64  `json:"id"`
+		FromStatus int32  `json:"from_status"` // 0 = 「不存在」, 即建单那一刻
+		ToStatus   int32  `json:"to_status"`
+		Action     string `json:"action"` // create/assign/release/start/finish/close
+		Remark     string `json:"remark"`
+		OperatorId int64  `json:"operator_id"` // 0 = 系统操作(cron 重派 / 告警自动建单)
+		CreatedAt  int64  `json:"created_at"` // 秒级时间戳
+	}
 	TaskDetailResp {
 		Task DispatchTask `json:"task"`
+		// Logs 状态流转时间线, 按发生顺序(id 升序)返回, 前端顺序渲染即可。
+		// 已被删除的审计不会补位 —— 时间线允许有缺口, 不允许乱序。
+		Logs []TaskLog `json:"logs"`
 	}
 	// ==================== 工单分页列表 ====================
 	TaskListReq {
 		Status   int32 `form:"status,default=0"` // 0 表示不限
 		Priority int32 `form:"priority,default=0"` // 0 表示不限
+		ZoneCode string `form:"zone_code,optional"` // 事发区域精确匹配; 空 = 不限(答辩演示按园区筛工单用这个)
 		Page     int64 `form:"page,default=1"`
 		PageSize int64 `form:"page_size,default=10"`
 	}

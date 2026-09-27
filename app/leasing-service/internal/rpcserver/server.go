@@ -70,8 +70,21 @@ func (s *LeasingServer) GetContract(ctx context.Context, req *leasingpb.GetContr
 
 // GetOccupancy 查询园区入驻率.
 func (s *LeasingServer) GetOccupancy(ctx context.Context, req *leasingpb.GetOccupancyReq) (*leasingpb.GetOccupancyResp, error) {
+	// 与 GetContract 同一条规矩: 把调用方**声明**的租户注入 ctx。
+	//
+	// 2026-09-27 修: 这里原先只把 tenant_id 塞进 OccupancyReq, 而那片字段下层**从来不读**
+	// （Occupancy() 读的是 ctx 租户), 又没注入 ctx —— 于是恒定按 tenant=0 过滤,
+	// 对任何非 0 租户的「已租面积」都返回 0(入驻率恒 0), 调用方完全看不出来。
+	// 断言见 occupancy_tenant_test.go: TestGetOccupancy_TenantScoped。
+	//
+	// req.TenantId = 0 时保持 ctx 无租户, 下层按 0 过滤 —— 与 GetContract 一致的 fail-closed:
+	// 「没声明租户」不等于「可以看所有租户」。
+	if tid := req.GetTenantId(); tid != 0 {
+		ctx = ctxdata.SetTenantId(ctx, tid)
+	}
+
 	resp, err := lease.NewOccupancyLogic(ctx, s.svcCtx).
-		Occupancy(&types.OccupancyReq{TenantId: req.GetTenantId()})
+		Occupancy(&types.OccupancyReq{})
 	if err != nil {
 		return nil, err
 	}

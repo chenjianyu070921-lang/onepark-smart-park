@@ -46,6 +46,15 @@ func (l *CreateWorkOrderLogic) CreateWorkOrder(req *types.CreateWorkOrderReq) (r
 		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
 	}
 
+	// 枚举合法性校验: Type/Priority 为受控枚举(见 model.ValidType/ValidPriority),
+	// 此前建单直接透传, 非法值(如 0/99)会落库导致看板聚合与前端展示出现无法识别的类型/优先级.
+	if !model.ValidType(req.Type) {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "工单类型不合法(1报修 2投诉 3巡检 4保洁 5装修 6搬运 7其他)")
+	}
+	if !model.ValidPriority(req.Priority) {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "工单优先级不合法(1紧急 2普通 3低)")
+	}
+
 	now := time.Now()
 	wo := &model.WorkOrder{
 		OrderNo:     "", // 事务内生成, 与撞号重试配合
