@@ -202,7 +202,7 @@ func TestRunReassignOnce_ReassignAndSkip(t *testing.T) {
 		_ = rdb.Del(ctx, reassignLockKey).Err()
 	})
 
-	res, err := RunReassignOnce(ctx, db, rdb, 3)
+	res, err := RunReassignOnce(ctx, db, rdb, 3, ReassignLockTTL(defaultIntervalSec))
 	if err != nil {
 		t.Fatalf("RunReassignOnce 失败: %v", err)
 	}

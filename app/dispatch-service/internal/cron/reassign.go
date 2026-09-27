@@ -70,7 +70,7 @@ func decideReassign(t *model.DispatchTask, pool []assign.Candidate, maxReassign 
 //  1. Redis SET NX 锁 + Lua 比对释放 —— 挡住多实例
 //  2. 更新条件带 status + version —— 数据库层兜底, 锁失效也不会重复改派
 //  3. 审计流水仅在 RowsAffected>0 时写 —— 一张单一次改派只留一条流水
-func RunReassignOnce(ctx context.Context, db *gormx.DB, rdb *redisx.Client, maxReassign int64) (ReassignResult, error) {
+func RunReassignOnce(ctx context.Context, db *gormx.DB, rdb *redisx.Client, maxReassign int64, lockTTL time.Duration) (ReassignResult, error) {
 	var res ReassignResult
 	if db == nil {
 		return res, fmt.Errorf("数据库未初始化")
@@ -81,12 +81,16 @@ func RunReassignOnce(ctx context.Context, db *gormx.DB, rdb *redisx.Client, maxR
 	if maxReassign <= 0 {
 		maxReassign = model.MaxReassignDefault
 	}
+	if lockTTL <= 0 {
+		// 兜底: 由扫描周期推导(见 ReassignLockTTL), 传 0 时不至于拿一把"永不过期"的锁
+		lockTTL = ReassignLockTTL(defaultIntervalSec)
+	}
 
 	token, err := newLockToken()
 	if err != nil {
 		return res, fmt.Errorf("生成锁标识失败: %w", err)
 	}
-	ok, err := rdb.SetNX(ctx, reassignLockKey, token, reassignLockTTL).Result()
+	ok, err := rdb.SetNX(ctx, reassignLockKey, token, lockTTL).Result()
 	if err != nil {
 		return res, fmt.Errorf("获取分布式锁失败: %w", err)
 	}

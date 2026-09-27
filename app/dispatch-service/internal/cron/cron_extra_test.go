@@ -58,7 +58,7 @@ func TestRunReassignOnce_ReleasesAtLimit(t *testing.T) {
 	task := mkExpiredTask(t, ctx, fmt.Sprintf("DT-REL-%d", suffix),
 		model.StatusAssigned, 880100, maxReassign)
 
-	if _, err := RunReassignOnce(ctx, db, rdb, maxReassign); err != nil {
+	if _, err := RunReassignOnce(ctx, db, rdb, maxReassign, ReassignLockTTL(defaultIntervalSec)); err != nil {
 		t.Fatalf("RunReassignOnce 失败: %v", err)
 	}
 
@@ -112,7 +112,7 @@ func TestRunReassignOnce_ProcessingUntouched(t *testing.T) {
 		model.StatusProcessing, 880101, 0)
 	before := task.AssigneeId
 
-	if _, err := RunReassignOnce(ctx, db, rdb, 3); err != nil {
+	if _, err := RunReassignOnce(ctx, db, rdb, 3, ReassignLockTTL(defaultIntervalSec)); err != nil {
 		t.Fatalf("RunReassignOnce 失败: %v", err)
 	}
 

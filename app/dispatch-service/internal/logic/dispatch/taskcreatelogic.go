@@ -50,6 +50,13 @@ func (l *TaskCreateLogic) TaskCreate(req *types.TaskCreateReq) (*types.TaskCreat
 		return nil, errorx.NewError(errorx.ErrBadRequest, "告警来源工单由消费者自动创建, 不支持人工指定")
 	}
 
+	// 初始状态由状态机给出(0=不存在 --create--> 待指派), 不在业务代码里硬编码:
+	// 与下面审计流水的 ToStatus 必须同源, 否则两处一旦写得不一样就是静默的状态漂移。
+	initialStatus, ok := state.Next(0, state.ActionCreate)
+	if !ok {
+		return nil, errorx.NewError(errorx.ErrInternal, "状态机缺少建单起点")
+	}
+
 	task := &model.DispatchTask{
 		TaskNo: model.NewTaskNo(),
 		Title:  req.Title,
@@ -62,7 +69,7 @@ func (l *TaskCreateLogic) TaskCreate(req *types.TaskCreateReq) (*types.TaskCreat
 		// 归一化技能标签, 保证与人员池中的写法能匹配上(大小写/空格/重复都抹平)
 		RequiredSkill: model.NormalizeSkills(req.RequiredSkill),
 		Priority:      int8(req.Priority),
-		Status:        model.StatusPendingAssign,
+		Status:        initialStatus,
 		Description:   req.Description,
 	}
 
@@ -79,8 +86,8 @@ func (l *TaskCreateLogic) TaskCreate(req *types.TaskCreateReq) (*types.TaskCreat
 			}
 			return tx.Create(&model.DispatchTaskLog{
 				TaskId:     task.Id,
-				FromStatus: 0,
-				ToStatus:   model.StatusPendingAssign,
+				FromStatus: 0, // 「不存在」: 与状态机的建单起点一致
+				ToStatus:   initialStatus,
 				Action:     state.ActionCreate,
 				Remark:     "人工创建",
 				OperatorId: ctxdata.GetUserId(l.ctx),
