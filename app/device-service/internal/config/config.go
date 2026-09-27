@@ -33,6 +33,10 @@ type Config struct {
 	// JwtSecret HTTP 接口鉴权密钥; 为空时放行(M6 认证服务就绪前保持可联调)
 	JwtSecret string `json:",env=JWT_SECRET,optional"`
 
+	// ShadowRpc 影子服务(shadow-service)直连客户端配置;
+	// Target 为空时注册链路仅写本地 shadow 表(device_db), 不同步 shadow_db(降级约定)
+	ShadowRpc zrpc.RpcClientConf `json:",optional"`
+
 	// CommandTimeoutSec 指令超时时间(秒), 超时后由定时任务置为超时状态
 	CommandTimeoutSec int `json:",default=30"`
 	// TimeoutScanIntervalSec 超时扫描周期(秒)

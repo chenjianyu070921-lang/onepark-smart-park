@@ -58,5 +58,9 @@ func (l *MarkNoticeReadLogic) MarkNoticeRead(req *types.MarkNoticeReadReq) (resp
 		return nil, errorx.NewError(errorx.ErrM2Internal, "回填已读失败")
 	}
 
+	// 已读回填成功 → 主动失效未读计数缓存, 保证"用户读完立即减一"
+	// (仅 res.RowsAffected>0 才可能变化, 但多删一次幂等无害, 统一失效逻辑更简单).
+	invalidateUnreadCache(l.ctx, l.svcCtx.Redis, tenantID, uid)
+
 	return &types.MarkNoticeReadResp{Updated: res.RowsAffected}, nil
 }

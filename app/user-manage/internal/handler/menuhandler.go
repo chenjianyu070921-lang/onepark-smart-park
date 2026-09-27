@@ -28,6 +28,22 @@ func MenuCreateHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	}
 }
 
+func MenuListHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req types.MenuListReq
+		if err := httpx.Parse(r, &req); err != nil {
+			response.Fail(w, errorx.NewError(errorx.ErrBadRequest, err.Error()))
+			return
+		}
+		resp, err := logic.NewMenuListLogic(r.Context(), svcCtx).MenuList(&req)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		httpx.OkJsonCtx(r.Context(), w, resp)
+	}
+}
+
 func RoleMenuAssignHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req types.AssignMenuReq

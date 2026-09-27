@@ -19,6 +19,9 @@ import (
 // 显式返回错误而非静默空数据, 避免 M5 大屏误把 0 当成"真实统计".
 var ErrDBUninitialized = errors.New("workorder db not initialized")
 
+// maxPageSize 分页查询单页上限, 与 HTTP 列表口径一致, 防止深翻页拖库.
+const maxPageSize = 200
+
 // WorkorderServer 工单 gRPC 服务实现.
 type WorkorderServer struct {
 	workorderpb.UnimplementedWorkorderServiceServer
@@ -78,16 +81,20 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	// 状态值用 state 常量参数化, 不在 SQL 中硬编码; SUM/AVG 空表返回 NULL, 用 COALESCE 归零避免扫描报错.
 	// 统计查询统一检查错误: 失败返回错误, 让上游(dashboard)走降级而非拿到静默的 0.
 	var stats WorkOrderStats
+	// 完成率/今日完成计入终态"已关闭"(status=4), 与 HTTP 看板口径一致(审查问题9).
 	if err := s.scoped(ctx, tenant).Select(
 		"COUNT(*) AS total, "+
 			"COALESCE(SUM(status IN (?,?)), 0) AS pending, "+
 			"COALESCE(SUM(created_at >= ?), 0) AS today_new, "+
-			"COALESCE(SUM(status = ? AND finished_at >= ?), 0) AS completed_today, "+
-			"COALESCE(SUM(status = ?), 0) AS done, "+
-			"COALESCE(AVG(CASE WHEN status = ? AND finished_at IS NOT NULL THEN "+
+			"COALESCE(SUM(status IN (?,?) AND finished_at >= ?), 0) AS completed_today, "+
+			"COALESCE(SUM(status IN (?,?)), 0) AS done, "+
+			"COALESCE(AVG(CASE WHEN status IN (?,?) AND finished_at IS NOT NULL THEN "+
 			"TIMESTAMPDIFF(MINUTE, created_at, finished_at) END), 0) AS avg_process_min",
 		state.StatusPendingDispatch, state.StatusProcessing,
-		startOfDay, state.StatusCompleted, startOfDay, state.StatusCompleted, state.StatusCompleted,
+		startOfDay,
+		state.StatusCompleted, state.StatusClosed, startOfDay,
+		state.StatusCompleted, state.StatusClosed,
+		state.StatusCompleted, state.StatusClosed,
 	).Scan(&stats).Error; err != nil {
 		return nil, errorx.NewError(errorx.ErrM2Internal, "工单聚合统计查询失败")
 	}
@@ -103,13 +110,16 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 		resp.CompletionRate = float64(stats.Done) / float64(stats.Total) * 100
 	}
 
-	// 分页摘要列表.
+	// 分页摘要列表. 单页上限与 HTTP 列表(maxPageSize)口径一致, 防止大屏误传超大 page_size 深翻页拖库(审查问题10).
 	page, size := req.Page, req.PageSize
 	if page < 1 {
 		page = 1
 	}
 	if size < 1 {
 		size = 10
+	}
+	if size > maxPageSize {
+		size = maxPageSize
 	}
 	listQ := s.scoped(ctx, tenant)
 	if req.Status != 0 {

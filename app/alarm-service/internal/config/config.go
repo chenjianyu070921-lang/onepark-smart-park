@@ -20,7 +20,38 @@ type Config struct {
 	// Dispatch 告警等级 → M5 工单优先级的映射配置(运营可按园区调整派单紧急度)
 	Dispatch DispatchConf
 	Rule     RuleConf  // 规则引擎相关开关
-	Nacos    NacosConf // 注册/配置中心(可选)
+	// Tenant 租户归属策略(主链路 tenant_id 贯通, 2026-09-24 与 M1 联调约定)
+	Tenant TenantConf
+	Nacos  NacosConf // 注册/配置中心(可选)
+}
+
+// 事件未携带 tenant_id 时的处置策略取值.
+const (
+	// TenantPolicyDLQ 视"无归属事件"为不可重试的坏消息: 入死信台账, 待 M1 补齐后重放(默认).
+	TenantPolicyDLQ = "dlq"
+	// TenantPolicyZero 旧行为: 以 tenant_id=0 落库并打 WARN.
+	// 仅作为 M1 改造未上线时的临时回退开关保留, 验收口径要求落库 tenant_id != 0.
+	TenantPolicyZero = "zero"
+)
+
+// TenantConf 租户归属策略.
+//
+// 背景: M1 的两条上报通道(event-dispatcher / device-service)曾长期不带 tenant_id,
+// 告警以 tenant_id=0 落库 —— 后台列表与大屏按租户查不到它, WS 广播也因
+// "宁可不推也不推错园区"而跳过。现象不是报错, 而是"告警产生了却没人看得到"。
+type TenantConf struct {
+	// MissingPolicy 事件未携带 tenant_id(<=0)时的处置策略, 取值见 TenantPolicyDLQ / TenantPolicyZero.
+	//
+	// 默认 dlq(Go 零值 "" 同样按 dlq 处理 —— 与 yaml 的 default=dlq 保持同一语义):
+	// 本服务不维护设备主数据, 无法反查租户, 也不允许臆造; 落 0 等于把一条真实告警
+	// 变成"任何租户视图都看不见"的数据, 比拒收更难发现。入台账则可被查询/重放,
+	// M1 补齐 tenant_id 后重放即可恢复, 不丢消息。
+	MissingPolicy string `json:",options=dlq|zero,default=dlq"`
+}
+
+// RejectMissingTenant 返回"未携带 tenant_id 的事件是否应被拒收(入死信)而非以 0 落库".
+func (t TenantConf) RejectMissingTenant() bool {
+	return t.MissingPolicy != TenantPolicyZero
 }
 
 // DispatchConf M3 → M5 派单衔接配置.
@@ -64,6 +95,20 @@ type WSConf struct {
 	// 留空 = 关闭跨实例广播, Hub 退化为单实例内存广播(本地开发可不配);
 	// 多副本部署必须配置 —— 否则产生告警的实例无法推送到连接在其他实例上的大屏.
 	BroadcastChannel string `json:",optional"`
+
+	// AuthSecret WS 握手鉴权密钥, 必须与 auth-service 的 JWT_SECRET / 网关 AUTH_SECRET 一致.
+	//
+	// 留空 = **不启用鉴权**, 退回 query ?tenant_id= 的既有行为(仅内网/网关后部署可接受);
+	// 启用后握手必须携带有效 access token, **租户一律取自令牌**, 不再信任 query。
+	//
+	// 用"密钥非空即启用"而不是布尔开关: 少一个开关就少一种"开关开了但密钥没配"的
+	// 半启用状态; 且启动日志会按启用与否分别留痕, 未启用不会被误认为已启用。
+	AuthSecret string `json:",optional"`
+
+	// AllowedOrigins Origin 白名单(如 ["https://ops.onepark.com"])。
+	// 留空 = 不校验来源(本地联调 / 服务端客户端); 一旦配置即严格比对,
+	// 非白名单来源(含不带 Origin 的请求)一律拒绝握手。
+	AllowedOrigins []string `json:",optional"`
 }
 
 // KafkaConf Kafka 消费配置.

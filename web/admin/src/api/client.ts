@@ -73,6 +73,12 @@ instance.interceptors.response.use(
   async (resp): Promise<any> => {
     const body = resp.data as ApiBody
 
+    // 容错: 少数后端服务尚未注册 response.Init(), 直接返回裸业务对象而非 {code,msg,data}.
+    // 此时按统一响应体去取 body.code 会误判为失败并弹错, 这里直接透传原数据.
+    if (body === null || typeof body !== 'object' || typeof body.code !== 'string') {
+      return body
+    }
+
     if (body.code === 'M6-E-0002' || resp.status === 401) {
       const retried = await tryRefreshAndRetry(resp.config)
       if (retried !== null) return retried

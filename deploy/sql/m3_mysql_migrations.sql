@@ -43,3 +43,43 @@ UPDATE `alarm_rule`
  WHERE `id` = 1
    AND `tenant_id` = 0
    AND `level` = 2;
+
+-- ---------- 2026-09-24 历史「无租户告警」(tenant_id=0) 的处理方案 ----------
+-- 背景: 2026-09-24 起消费链路默认不再落 tenant_id=0 的告警(Tenant.MissingPolicy=dlq),
+--       但**此前已经落库的历史数据仍然是 0**。这些告警在任何按租户过滤的视图
+--       (后台列表 / 大屏聚合 / WS 推送)里都看不见, 属于"产生了却没人看得到"的存量。
+--
+-- 处置前提: alarm-service 不维护设备主数据, 且约定禁止跨库 JOIN,
+--       因此**设备 -> 租户的映射必须由 M1 提供**(device_db.device 表), 本脚本不臆造归属。
+--
+-- 两个可选动作, 按现场情况二选一(都不需要停机):
+--   A. 回填(推荐): 由 M1 导出 device_id -> tenant_id 映射, 按下面的模板批量 UPDATE。
+--   B. 归档: 确认无需保留的历史脏数据, 直接删除(见文件末尾的注释化 DELETE)。
+--
+-- 先建一个可随时查询的待回填视图(幂等, 无副作用, 两种动作都能用它核对进度):
+CREATE OR REPLACE VIEW `v_alarm_orphan_tenant` AS
+SELECT `id`, `alarm_no`, `device_id`, `event_type`, `level`, `status`, `created_at`
+  FROM `alarm`
+ WHERE `tenant_id` = 0;
+
+-- 核对当前待回填量(回填/归档后应为 0):
+--   SELECT COUNT(*) AS orphan_count FROM `v_alarm_orphan_tenant`;
+
+-- === 动作 A 回填模板(把映射落到临时表后执行, 幂等且可重复执行) ===
+-- CREATE TEMPORARY TABLE `tmp_device_tenant` (
+--   `device_id` VARCHAR(64) NOT NULL PRIMARY KEY,
+--   `tenant_id` BIGINT      NOT NULL
+-- );
+-- -- 由 M1 提供的映射逐行灌入(示例):
+-- -- INSERT IGNORE INTO `tmp_device_tenant` VALUES ('door-01', 1), ('cam-02', 1);
+-- UPDATE `alarm` a
+--   JOIN `tmp_device_tenant` t ON t.`device_id` = a.`device_id`
+--    SET a.`tenant_id` = t.`tenant_id`
+--  WHERE a.`tenant_id` = 0;
+
+-- === 动作 B 归档模板(确认无需保留时) ===
+-- DELETE FROM `alarm` WHERE `tenant_id` = 0;
+
+-- 说明: 因"缺 tenant_id"被拒收而进入 alarm_dlq 的消息, 不需要本脚本处理 ——
+--       M1 补齐上报后, 用 POST /api/alarm/dlq/:id/replay 重放即可补回告警,
+--       重放走的是原始报文, 补齐后的报文会带真实租户。

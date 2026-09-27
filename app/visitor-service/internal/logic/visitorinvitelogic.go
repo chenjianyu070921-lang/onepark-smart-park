@@ -46,6 +46,11 @@ func (l *VisitorInviteLogic) VisitorInvite(req *types.VisitorInviteReq) (resp *t
 		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
 	}
 
+	// 防御: 未配置 MySQL 时 svcCtx.DB 为 nil, 提前返回明确错误避免空指针 panic(审查问题12).
+	if l.svcCtx.DB == nil {
+		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
+	}
+
 	// 黑名单实时拦截(P2): 邀请阶段即按手机号/身份证拦截被拉黑人员, 禁止生成通行码.
 	// 安全设计: 查询异常 fail-closed(拒绝邀请), 防止 DB 抖动期间黑名单被绕过.
 	blocked, e := checkBlocked(l.ctx, l.svcCtx, tenantID, req.VisitorPhone, req.IdNo)

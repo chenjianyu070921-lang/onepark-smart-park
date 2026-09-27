@@ -220,15 +220,34 @@ func (s *ServiceContext) HandleDeviceEvent(ctx context.Context, msg kafkago.Mess
 		// logx 无 Warn 级别, Slowf 即 WARN.
 		log.Slowf("alarm device event missing request_id, fallback to fingerprint device_id=%s", ev.DeviceID)
 	}
-	if ev.TenantID == 0 {
-		// M1 的两条上报通道(event-dispatcher / device-service)目前都不带 tenant_id,
-		// 告警会以 tenant_id=0 落库: 后台列表与大屏按租户查不到它, WS 广播也会因
-		// "宁可不推也不推错园区"而跳过(见 broadcastAlarmCreated)。
-		// 本服务不维护设备主数据, **无法反查租户, 也不允许臆造** —— 所以这里只能留痕:
-		// 这条日志是"告警产生了却没人看得到"的唯一线索, 静默吞掉等于安防主链路黑盒化。
-		// 彻底解决依赖 P0-13(M1 明确 DeviceEvent v1 必填 tenant_id)。
-		log.Slowf("alarm device event missing tenant_id, alarm will be invisible to tenant-scoped queries device_id=%s event_type=%s",
-			ev.DeviceID, ev.EventType)
+	if ev.TenantID <= 0 {
+		// 归属未定的事件: 默认不再以 tenant_id=0 落库, 而是作为**不可重试的坏消息**进死信台账。
+		//
+		// 为什么不落 0: 后台列表与大屏都按租户过滤, WS 广播也因"宁可不推也不推错园区"跳过
+		// (见 broadcastAlarmCreated)—— 落 0 的告警在任何租户视图里都看不见, 且不报任何错。
+		// 它的现象与"设备没上报"完全一致, 无法区分, 是整条主链路里最难发现的一种丢失。
+		//
+		// 为什么入台账而不是丢弃: 台账可查可重放(GET /api/alarm/dlq + replay),
+		// M1 补齐 tenant_id 后重放即可补回告警, 消息不丢; 直接丢弃则永远找不回来。
+		// 用 ErrMalformedEvent 包装是刻意的 —— 消息内容不会因为重试而改变, 重试无意义,
+		// 应当立刻入台账而不是白跑 3 次退避。
+		if s.Config.Tenant.RejectMissingTenant() && s.DeadLetters != nil {
+			log.Slowf("alarm device event missing tenant_id, send to dead letter for replay device_id=%s event_type=%s request_id=%s",
+				ev.DeviceID, ev.EventType, id)
+			return fmt.Errorf("%w: missing tenant_id device_id=%s event_type=%s request_id=%s",
+				ErrMalformedEvent, ev.DeviceID, ev.EventType, id)
+		}
+		if s.Config.Tenant.RejectMissingTenant() {
+			// 台账不可用(MySQL 未配置): 此时入不了台账, 但也不能静默丢消息 ——
+			// 若返回 error 消费端会一直重投, 最终既没台账又卡住分区(毒丸)。
+			// 保留落 0 这条保命路径, 并用 ERROR 明确它不是"正常处理"。
+			log.Errorf("alarm device event missing tenant_id and dead letter store unavailable, degraded to tenant_id=0 device_id=%s event_type=%s request_id=%s",
+				ev.DeviceID, ev.EventType, id)
+		} else {
+			// 显式回退开关(Tenant.MissingPolicy=zero): 仅用于 M1 改造未上线时的临时过渡.
+			log.Slowf("alarm device event missing tenant_id, policy=zero, alarm will be invisible to tenant-scoped queries device_id=%s event_type=%s",
+				ev.DeviceID, ev.EventType)
+		}
 	}
 
 	// L1 消息级幂等: Redis 不可用必须返回 error, 由消费端重投, 不降级放行.

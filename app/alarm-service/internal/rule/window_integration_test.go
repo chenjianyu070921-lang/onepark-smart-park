@@ -245,23 +245,7 @@ func TestIntegration_EngineTimeWindowWithRealRedis(t *testing.T) {
 	}
 }
 
-// fakeStore 是 rule.Store 的内存替身: 直接返回预置规则, 不依赖 MySQL.
-// 该定义本应随 rule 包测试文件入库, 但被 .gitignore 的 **/*_test.go 规则漏掉,
-// 这里在集成用例所在文件补齐, 使 NewEngine(store, ...) 能正常构造.
-type fakeStore struct {
-	rules []Rule
-}
-
-func (s *fakeStore) ListEnabled(_ context.Context) ([]Rule, error) {
-	return s.rules, nil
-}
-
-// mustSpec 按 json 解析并归一化规则条件, 失败直接 Fatalf; 该辅助同样因 .gitignore 漏提交, 这里补齐。
-func mustSpec(t *testing.T, raw string) *NormalizedSpec {
-	t.Helper()
-	s, err := ParseSpec(raw)
-	if err != nil {
-		t.Fatalf("parse spec failed: %v", err)
-	}
-	return s
-}
+// fakeStore / mustSpec 原在此处补齐(因 .gitignore 的 **/*_test.go 导致 rule_test.go 未入库)。
+// 2026-09-21 已用 git add -f 将 rule 包测试文件纳入版本库, 此处补丁定义随之移除,
+// 避免与 rule_test.go 中的正式定义重复声明(重复会让整个包编译失败)。
+// 同包内符号共享, 本文件继续使用 rule_test.go 里的 fakeStore / mustSpec。

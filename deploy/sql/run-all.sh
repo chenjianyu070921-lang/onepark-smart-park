@@ -52,6 +52,9 @@ run_one m2_notice_tables.sql          # notice_db
 run_one m2_energy_reading.sql         # billing_db (energy_reading)
 run_one billing_tables.sql            # billing_db (billing_rule/bill)
 run_one m2_parking_visitor_tables.sql # parking_db / visitor_db
+run_one m2_p2_monthly_card.sql        # parking_db (monthly_card, 月卡; P0 补缺, 代码已上线)
+run_one m2_p2_visitor_blocklist.sql   # visitor_db (visitor_blocklist, 黑名单; 幂等 CREATE, 代码已上线)
+run_one m2_p2_visitor_verify.sql      # visitor_db (visitor_record 多方式核验列, P2 落地; 幂等 ALTER, 代码已上线)
 run_one m3_mysql_tables.sql           # alarm_db
 run_one m3_access_mysql_tables.sql    # access_db
 run_one m3_video_mysql_tables.sql     # video_db

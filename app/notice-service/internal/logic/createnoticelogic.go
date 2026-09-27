@@ -11,6 +11,7 @@ import (
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 	"onepark/common/kafka"
+	"onepark/common/rbac"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -39,6 +40,13 @@ func (l *CreateNoticeLogic) CreateNotice(req *types.CreateNoticeReq) (resp *type
 	publisherID := ctxdata.GetUserId(l.ctx)
 	if tenantID == 0 {
 		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
+	}
+
+	// RBAC: 仅系统管理员/园区管理员/物业客服可发布公告(见 common/rbac 角色约定),
+	// 原实现任意登录用户均可发布租户级公告(审查问题8). 业主等受限角色无发布权限.
+	roles := rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))
+	if !rbac.HasRole(roles, rbac.RoleSystemAdmin) && !rbac.HasRole(roles, rbac.RoleParkAdmin) && !rbac.HasRole(roles, rbac.RoleService) {
+		return nil, errorx.NewError(errorx.ErrForbidden, "无权限发布公告")
 	}
 
 	now := time.Now()
