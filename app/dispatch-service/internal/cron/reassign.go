@@ -191,7 +191,7 @@ func reassignTask(ctx context.Context, db *gormx.DB, t *model.DispatchTask, to a
 		return false, nil
 	}
 
-	writeLog(ctx, db, t.Id, model.StatusAssigned, model.StatusAssigned, state.ActionAssign,
+	writeLog(ctx, db, t.Id, t.TenantID, model.StatusAssigned, model.StatusAssigned, state.ActionAssign,
 		fmt.Sprintf("指派超时自动改派: %s -> %s", t.AssigneeName, to.AssigneeName))
 	return true, nil
 }
@@ -223,7 +223,7 @@ func releaseTask(ctx context.Context, db *gormx.DB, t *model.DispatchTask, reaso
 	logx.WithContext(ctx).Infof("[cron] 工单释放回待指派: taskId=%d, 原处理人=%d(%s), 原因=%s",
 		t.Id, t.AssigneeId, t.AssigneeName, reason)
 
-	writeLog(ctx, db, t.Id, model.StatusAssigned, to, state.ActionRelease, reason)
+	writeLog(ctx, db, t.Id, t.TenantID, model.StatusAssigned, to, state.ActionRelease, reason)
 	return true, nil
 }
 
@@ -231,8 +231,10 @@ func releaseTask(ctx context.Context, db *gormx.DB, t *model.DispatchTask, reaso
 //
 // 刻意不与状态更新放同一事务: 状态变更是主流程, 审计失败只记日志不回滚 ——
 // 「改了但没留痕」比「留了痕但没改」危害小得多, 也不会让定时任务整体失败。
-func writeLog(ctx context.Context, db *gormx.DB, taskId int64, from, to int8, action, remark string) {
+func writeLog(ctx context.Context, db *gormx.DB, taskId, tenantID int64, from, to int8, action, remark string) {
 	if err := db.WithContext(ctx).Create(&model.DispatchTaskLog{
+		// 租户由调用方传入: cron 的 ctx 里没有租户(它不是请求), 只能取工单自己的
+		TenantID:   tenantID,
 		TaskId:     taskId,
 		FromStatus: from,
 		ToStatus:   to,

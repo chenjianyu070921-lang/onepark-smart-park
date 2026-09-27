@@ -85,6 +85,7 @@ func (l *TaskCreateLogic) TaskCreate(req *types.TaskCreateReq) (*types.TaskCreat
 				return err
 			}
 			return tx.Create(&model.DispatchTaskLog{
+				TenantID:   task.TenantID, // 审计也写租户: 与主表同源, 便于按租户查流水
 				TaskId:     task.Id,
 				FromStatus: 0, // 「不存在」: 与状态机的建单起点一致
 				ToStatus:   initialStatus,

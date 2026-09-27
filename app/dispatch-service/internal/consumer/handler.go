@@ -96,6 +96,7 @@ func (h *AlarmHandler) Handle(ctx context.Context, value []byte) error {
 	}
 
 	if err := h.db.WithContext(ctx).Create(&model.DispatchTaskLog{
+		TenantID:   task.TenantID, // 审计也写租户(与主表同源)
 		TaskId:     task.Id,
 		FromStatus: 0,
 		ToStatus:   model.StatusPendingAssign,
