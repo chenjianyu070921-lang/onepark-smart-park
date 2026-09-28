@@ -11,6 +11,7 @@ import AlarmCenterPage from '../pages/alarm/AlarmCenter'
 import ContractListPage from '../pages/leasing/ContractList'
 import OccupancyPage from '../pages/leasing/Occupancy'
 import RentBillListPage from '../pages/billing/RentBillList'
+import DispatchListPage from '../pages/dispatch/DispatchList'
 import EnergyAnalysisPage from '../pages/energy/EnergyAnalysis'
 import UsersPage from '../pages/system/Users'
 import RolesPage from '../pages/system/Roles'
@@ -38,7 +39,7 @@ export const routes: RouteObject[] = [
       { path: 'home', element: <HomePage /> },
       { path: 'workorder', element: <WorkorderListPage /> },
       // 尚未实现的模块统一走占位页, 菜单可见但提示建设中.
-      { path: 'dispatch', element: <PlaceholderPage title="调度任务" /> },
+      { path: 'dispatch', element: <DispatchListPage /> },
       { path: 'visitor', element: <VisitorListPage /> },
       { path: 'parking', element: <ParkingPage /> },
       { path: 'notice', element: <NoticeListPage /> },
