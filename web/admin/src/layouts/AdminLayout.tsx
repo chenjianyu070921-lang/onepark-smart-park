@@ -23,7 +23,7 @@ function NoticeBell() {
     const tick = () =>
       getUnreadNoticeCount()
         .then((d) => {
-          if (alive) setUnread(d.unread_count ?? 0)
+          if (alive) setUnread(typeof d.unread_count === 'number' ? d.unread_count : 0)
         })
         .catch(() => undefined)
     tick()
@@ -38,7 +38,7 @@ function NoticeBell() {
     setLoading(true)
     try {
       const d = await listNotices({ status: 2, page: 1, page_size: 5 })
-      setNotices(d.list ?? [])
+      setNotices(d?.list ?? [])
     } catch {
       setNotices([])
     } finally {

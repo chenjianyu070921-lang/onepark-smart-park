@@ -6,11 +6,12 @@ syntax = "v1"
 // 说明: 以下 returns 类型均为 data 载荷, 由 handler 二次包装为统一响应体.
 // CreateWorkOrderReq 创建工单请求(报修/投诉/巡检/保洁/装修/搬运/其他)
 type CreateWorkOrderReq {
-	Type        int8   `json:"type"` // 工单类型: 1报修 2投诉 3巡检 4保洁 5装修 6搬运 7其他
-	Title       string `json:"title"` // 标题
-	Description string `json:"description"` // 详细描述
-	Priority    int8   `json:"priority"` // 优先级: 1紧急 2普通 3低
-	Location    string `json:"location"` // 位置/楼栋房号
+	Type           int8   `json:"type"` // 工单类型: 1报修 2投诉 3巡检 4保洁 5装修 6搬运 7其他
+	Title          string `json:"title"` // 标题
+	Description    string `json:"description"` // 详细描述
+	Priority       int8   `json:"priority"` // 优先级: 1紧急 2普通 3低
+	Location       string `json:"location"` // 位置/楼栋房号
+	IdempotencyKey string `json:"idempotency_key,optional"` // 可选幂等键: 相同 key 在 24h 内重复提交返回首次结果, 防重复落库
 }
 
 // AssignWorkOrderReq 派单请求: 分配处理人与处理部门, 触发 待派单→处理中

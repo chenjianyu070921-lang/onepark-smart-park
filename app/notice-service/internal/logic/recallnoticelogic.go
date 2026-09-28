@@ -11,6 +11,7 @@ import (
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 	"onepark/common/kafka"
+	"onepark/common/rbac"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -35,6 +36,13 @@ func (l *RecallNoticeLogic) RecallNotice(id int64, req *types.RecallNoticeReq) (
 	tenantID := ctxdata.GetTenantId(l.ctx)
 	if tenantID == 0 {
 		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
+	}
+
+	// RBAC: 与发布公告(createnoticelogic.go)同口径, 仅系统管理员/园区管理员/物业客服可撤回,
+	// 防止任意同租户登录用户撤回他人发布的公告(越权, 审查问题②).
+	roles := rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))
+	if !rbac.HasRole(roles, rbac.RoleSystemAdmin) && !rbac.HasRole(roles, rbac.RoleParkAdmin) && !rbac.HasRole(roles, rbac.RoleService) {
+		return nil, errorx.NewError(errorx.ErrForbidden, "无权限撤回公告")
 	}
 
 	var notice model.Notice

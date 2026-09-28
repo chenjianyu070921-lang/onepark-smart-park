@@ -69,6 +69,10 @@ func (l *ListMonthlyCardsLogic) ListMonthlyCards(req *types.ListMonthlyCardsReq)
 	if size < 1 {
 		size = 10
 	}
+	// 单页上限, 防止超大 page_size 深翻页拖库(与 workorder/dispatch maxPageSize 口径一致).
+	if size > maxPageSize {
+		size = maxPageSize
+	}
 
 	var list []model.MonthlyCard
 	if e := q.Order("end_time ASC").Offset(int((page - 1) * size)).Limit(int(size)).Find(&list).Error; e != nil {

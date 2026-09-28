@@ -65,3 +65,13 @@ const (
 	NoticeTypeWaterStop int8 = 4 // 停水
 	NoticeTypePowerStop int8 = 5 // 停电
 )
+
+// ValidNoticeType 校验公告类型是否为受控枚举(1通知 2公告 3活动 4停水 5停电).
+// 用于发布入参校验(对齐接口文档 4.4.1「取值必须为 1~5」), 防止非法类型落库导致前端/看板无法识别.
+func ValidNoticeType(t int8) bool {
+	switch t {
+	case NoticeTypeNotify, NoticeTypeAnnounce, NoticeTypeActivity, NoticeTypeWaterStop, NoticeTypePowerStop:
+		return true
+	}
+	return false
+}

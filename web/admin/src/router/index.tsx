@@ -1,4 +1,5 @@
 import { Navigate, type RouteObject, useLocation } from 'react-router-dom'
+
 import { isLoggedIn } from '../stores/auth'
 import AdminLayout from '../layouts/AdminLayout'
 import LoginPage from '../pages/login/Login'
@@ -6,7 +7,7 @@ import HomePage from '../pages/home/Home'
 import WorkorderListPage from '../pages/workorder/WorkorderList'
 import NoticeListPage from '../pages/notice/NoticeList'
 import VisitorListPage from '../pages/visitor/VisitorList'
-import ParkingPage from '../pages/parking/Parking'
+import ParkingManagePage from '../pages/parking/ParkingManage'
 import AlarmCenterPage from '../pages/alarm/AlarmCenter'
 import ContractListPage from '../pages/leasing/ContractList'
 import OccupancyPage from '../pages/leasing/Occupancy'
@@ -41,7 +42,7 @@ export const routes: RouteObject[] = [
       // 尚未实现的模块统一走占位页, 菜单可见但提示建设中.
       { path: 'dispatch', element: <DispatchListPage /> },
       { path: 'visitor', element: <VisitorListPage /> },
-      { path: 'parking', element: <ParkingPage /> },
+      { path: 'parking', element: <ParkingManagePage /> },
       { path: 'notice', element: <NoticeListPage /> },
       { path: 'alarm', element: <AlarmCenterPage /> },
       { path: 'access', element: <PlaceholderPage title="门禁管理" /> },

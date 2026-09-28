@@ -70,8 +70,8 @@ func (l *UpdateWorkOrderStatusLogic) UpdateWorkOrderStatus(req *types.UpdateWork
 		"version":    gorm.Expr("version+1"),
 		"updated_at": now,
 	}
-	// 终态(已完成/已关闭)写入完成时间.
-	if next == state.StatusCompleted || next == state.StatusClosed {
+	// 终态(已完成/已关闭)写入完成时间(抽为纯函数便于单测, 见 TestUpdateStatusSetsFinishedAt).
+	if setsFinishedAt(next) {
 		updates["finished_at"] = now
 	}
 
@@ -121,4 +121,9 @@ func (l *UpdateWorkOrderStatusLogic) UpdateWorkOrderStatus(req *types.UpdateWork
 	})
 
 	return &types.WorkOrderResp{Id: wo.ID, OrderNo: wo.OrderNo, Status: next}, nil
+}
+
+// setsFinishedAt 判断流转目标状态是否需写入完成时间(终态: 已完成/已关闭).
+func setsFinishedAt(next int8) bool {
+	return next == state.StatusCompleted || next == state.StatusClosed
 }

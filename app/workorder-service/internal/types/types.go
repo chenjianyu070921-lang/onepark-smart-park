@@ -13,11 +13,12 @@ type AssignWorkOrderReq struct {
 
 // CreateWorkOrderReq 创建工单请求.
 type CreateWorkOrderReq struct {
-	Type        int8   `json:"type"`        // 工单类型: 1报修 2投诉 3巡检 4保洁 5装修 6搬运 7其他
-	Title       string `json:"title"`       // 标题
-	Description string `json:"description"` // 详细描述
-	Priority    int8   `json:"priority"`    // 优先级: 1紧急 2普通 3低
-	Location    string `json:"location"`    // 位置/楼栋房号
+	Type           int8   `json:"type"`                  // 工单类型: 1报修 2投诉 3巡检 4保洁 5装修 6搬运 7其他
+	Title          string `json:"title"`                 // 标题
+	Description    string `json:"description"`           // 详细描述
+	Priority       int8   `json:"priority"`              // 优先级: 1紧急 2普通 3低
+	Location       string `json:"location"`              // 位置/楼栋房号
+	IdempotencyKey string `json:"idempotency_key,optional"` // 可选幂等键: 相同 key 在 24h 内重复提交返回首次结果, 防重复落库
 }
 
 // IdReq 通用路径参数请求(仅含主键 id).

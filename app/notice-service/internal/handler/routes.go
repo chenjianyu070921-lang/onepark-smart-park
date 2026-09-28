@@ -54,6 +54,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/notice/:id/recall",
 				Handler: RecallNoticeHandler(serverCtx),
 			},
+			{
+				// 健康探针(K8s liveness/readiness 探活): 返回 200 {ok:true}
+				Method:  http.MethodGet,
+				Path:    "/ping",
+				Handler: PingHandler(serverCtx),
+			},
 			{Method: http.MethodGet, Path: "/health", Handler: health.Handler(serverCtx.DB, serverCtx.Redis)},
 		},
 	)

@@ -74,3 +74,8 @@ type RecallNoticeResp struct {
 	Id     int64 `json:"id"`     // 公告ID
 	Status int8  `json:"status"` // 撤回后状态(3已撤回)
 }
+
+// PingResp 健康探针响应(K8s liveness/readiness 探活).
+type PingResp struct {
+	Ok bool `json:"ok"` // 服务存活标记, 恒为 true
+}

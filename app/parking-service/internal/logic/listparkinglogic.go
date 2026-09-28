@@ -13,6 +13,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// maxPageSize 分页查询单页上限(停车/月卡列表共用), 防止超大 page_size 深翻页拖库.
+const maxPageSize = 200
+
 // ListParkingLogic 停车记录分页查询逻辑(支持状态/车牌筛选, 强制租户隔离).
 type ListParkingLogic struct {
 	logx.Logger
@@ -61,6 +64,10 @@ func (l *ListParkingLogic) query(page, pageSize int64, status int8, plate string
 	}
 	if pageSize < 1 {
 		pageSize = 10
+	}
+	// 单页上限, 防止超大 page_size 深翻页拖库(与 workorder/dispatch maxPageSize 口径一致).
+	if pageSize > maxPageSize {
+		pageSize = maxPageSize
 	}
 
 	var list []model.ParkingRecord

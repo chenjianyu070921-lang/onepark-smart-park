@@ -52,6 +52,7 @@ func (l *GetWorkOrderStatisticsLogic) GetWorkOrderStatistics() (*types.WorkOrder
 	if tenantID != 0 {
 		q = q.Where("tenant_id = ?", tenantID)
 	}
+	// 待处理 = 待派单(0)+处理中(1), 待验收(2)属验收环节不计入运营"待处理"看板(物业联调确认口径);
 	// 完成率/今日完成需计入终态"已关闭"(status=4): FSM 允许 3→4 close, 关闭后若只计 status=3
 	// 会让完成率随 close 回退、今日完成数下降(审查问题9). 故 done/completed_today/avg 均用 status IN (3,4).
 	if err := q.Select(

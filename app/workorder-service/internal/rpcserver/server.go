@@ -105,6 +105,7 @@ func (s *WorkorderServer) ListWorkOrders(ctx context.Context, req *workorderpb.L
 	// 状态值用 state 常量参数化, 不在 SQL 中硬编码; SUM/AVG 空表返回 NULL, 用 COALESCE 归零避免扫描报错.
 	// 统计查询统一检查错误: 失败返回错误, 让上游(dashboard)走降级而非拿到静默的 0.
 	var stats WorkOrderStats
+	// 待处理 = 待派单(0)+处理中(1), 待验收(2)属验收环节不计入运营"待处理"看板(物业联调确认口径);
 	// 完成率/今日完成计入终态"已关闭"(status=4), 与 HTTP 看板口径一致(审查问题9).
 	if err := s.scoped(ctx, tenant).Select(
 		"COUNT(*) AS total, "+

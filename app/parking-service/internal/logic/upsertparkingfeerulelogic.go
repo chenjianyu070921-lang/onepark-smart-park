@@ -10,6 +10,7 @@ import (
 	"onepark/app/parking-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/rbac"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -34,8 +35,26 @@ func (l *UpsertParkingFeeRuleLogic) UpsertParkingFeeRule(req *types.UpsertParkin
 	if tenantID == 0 {
 		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
 	}
+	// RBAC: 收费规则属停车管理员职责(设计文档第四章角色表), 与公告发布同口径做服务端兜底校验,
+	// 防止任意同租户用户篡改计费规则(审查问题⑦).
+	roles := rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))
+	if !rbac.HasRole(roles, rbac.RoleSystemAdmin) && !rbac.HasRole(roles, rbac.RoleParkAdmin) && !rbac.HasRole(roles, rbac.RoleParkingAdmin) {
+		return nil, errorx.NewError(errorx.ErrForbidden, "无权限配置计费规则")
+	}
 	if req.HourlyFee <= 0 {
 		return nil, errorx.NewError(errorx.ErrBadRequest, "每小时单价必须大于0")
+	}
+	// 数值边界校验: 免费时长/每日封顶不得为负 —— 负免费时长会使几乎所有停车都收费,
+	// 负封顶会使"cfg.DailyCap > 0"恒不成立而等同"不封顶", 均与配置意图相反(审查问题⑦).
+	if req.FreeMinutes < 0 {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "免费时长不能为负")
+	}
+	if req.DailyCap < 0 {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "每日封顶不能为负(0 表示不封顶)")
+	}
+	// 生效时间窗自洽: 两端都指定时, 生效止必须晚于生效起.
+	if req.EffectiveFrom > 0 && req.EffectiveTo > 0 && req.EffectiveFrom >= req.EffectiveTo {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "生效止必须晚于生效起")
 	}
 	// 规则以 JSON 持久化, 便于后续扩展阶梯/分车型费率而不改表结构.
 	cfg := model.ParkingFeeRuleConfig{FreeMinutes: req.FreeMinutes, HourlyFee: req.HourlyFee, DailyCap: req.DailyCap}

@@ -10,6 +10,7 @@ import (
 	"onepark/app/parking-service/internal/types"
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
+	"onepark/common/gormx"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -75,6 +76,11 @@ func (l *CreateMonthlyCardLogic) CreateMonthlyCard(req *types.CreateMonthlyCardR
 	card.CreatedAt = now
 	card.UpdatedAt = now
 	if e := l.svcCtx.DB.WithContext(l.ctx).Create(card).Error; e != nil {
+		if gormx.IsDuplicateKey(e) {
+			// 并发竞态: 同租户同车牌已存在生效月卡, 被唯一索引(uk_monthly_active_plate)拦截.
+			// 视为重复办理并给出与预检一致(请续费)的友好提示, 不抛 500(审查问题3).
+			return nil, errorx.NewError(errorx.ErrBadRequest, "该车牌已存在生效月卡, 请直接续费")
+		}
 		l.Errorf("create monthly card failed: %v", e)
 		return nil, errorx.NewError(errorx.ErrM2Internal, "创建月卡失败")
 	}
