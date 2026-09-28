@@ -54,16 +54,17 @@ func (l *CreateRuleLogic) CreateRule(req *types.CreateRuleReq) (*types.CreateRul
 		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "rule_type 仅支持 threshold/combination/time_window")
 	}
 	// 条件必须能被引擎解析: 创建期校验, 避免脏规则写库后被引擎静默跳过(#34 错误码 M3-E-1002).
-	if _, err := rule.ParseSpec(req.Conditions); err != nil {
+	spec, err := rule.ParseSpec(req.Conditions)
+	if err != nil {
 		return nil, errorx.NewError(errorx.ErrAlarmRuleCreate, "规则条件解析失败: "+err.Error())
+	}
+	// window_seconds 列此前是"死列"(只写不读), 2026-09-28 起引擎真正读取它, 校验必须同步跟上.
+	if err := checkWindowSeconds(normalizeRuleType(req.RuleType), spec, req.WindowSeconds); err != nil {
+		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, err.Error())
 	}
 	if req.Status != model.RuleStatusDisabled && req.Status != model.RuleStatusEnabled {
 		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "status 仅支持 0(禁用)/1(启用)")
 	}
-	if req.WindowSeconds < 0 {
-		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "window_seconds 不能为负数")
-	}
-
 	deviceType := strings.TrimSpace(req.DeviceType)
 	if len(deviceType) > maxDeviceTypeLen {
 		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid,
@@ -120,6 +121,33 @@ func normalizeRuleType(t string) string {
 	default:
 		return rule.RuleTypeThreshold
 	}
+}
+
+// checkWindowSeconds 校验时间窗口规则是否给出了窗口长度.
+//
+// 为什么要拦: 窗口长度两处都为空时, 引擎会静默落到 60s 默认窗口(engine.go#Evaluate)。
+// 运维在控制台把规则设成 time_window 却忘了填窗口, 看到的是"规则在跑、告警在来",
+// 只是阈值从"5 分钟 3 次"变成了"1 分钟 3 次" —— 误报量与排查难度都不成比例。
+// 宁可创建期报 400 让它填, 也不要留下一条"看起来配好了其实没配"的规则。
+//
+// declaredType 为归一化后的规则类型(未传则空); spec 为条件解析结果(未传条件则 nil);
+// windowSeconds 为列值(未传则 0)。三者都没提供时不校验 —— 增量更新里无法判断现存值。
+func checkWindowSeconds(declaredType string, spec *rule.NormalizedSpec, windowSeconds int) error {
+	if windowSeconds < 0 {
+		return fmt.Errorf("window_seconds 不能为负数")
+	}
+	isWindow := declaredType == rule.RuleTypeTimeWindow ||
+		(spec != nil && spec.Type == rule.RuleTypeTimeWindow)
+	if !isWindow {
+		return nil
+	}
+	if windowSeconds > 0 {
+		return nil
+	}
+	if spec != nil && spec.WindowSec > 0 {
+		return nil
+	}
+	return fmt.Errorf("time_window 规则必须指定窗口长度: 传 window_seconds, 或在 conditions 中声明 window_sec")
 }
 
 // UpdateRuleLogic 更新 / 启用禁用规则(#35): 仅更新请求中显式传入的字段.
@@ -180,22 +208,29 @@ func (l *UpdateRuleLogic) UpdateRule(req *types.UpdateRuleReq) (*types.UpdateRul
 		}
 		updates["status"] = *req.Status
 	}
+	// declaredType / parsedSpec 供窗口长度校验使用: 增量更新下三者都可能缺失,
+	// 故只在"本次请求确实把规则变成了时间窗口"时才校验(见 checkWindowSeconds).
+	declaredType := ""
 	if req.RuleType != "" {
 		if !rule.IsValidRuleType(req.RuleType) {
 			return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "rule_type 仅支持 threshold/combination/time_window")
 		}
-		updates["rule_type"] = normalizeRuleType(req.RuleType)
+		declaredType = normalizeRuleType(req.RuleType)
+		updates["rule_type"] = declaredType
 	}
+	var parsedSpec *rule.NormalizedSpec
 	if req.Conditions != "" {
-		if _, err := rule.ParseSpec(req.Conditions); err != nil {
+		spec, err := rule.ParseSpec(req.Conditions)
+		if err != nil {
 			return nil, errorx.NewError(errorx.ErrAlarmRuleCreate, "规则条件解析失败: "+err.Error())
 		}
+		parsedSpec = spec
 		updates["conditions"] = req.Conditions
 	}
+	if err := checkWindowSeconds(declaredType, parsedSpec, req.WindowSeconds); err != nil {
+		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, err.Error())
+	}
 	if req.WindowSeconds != 0 {
-		if req.WindowSeconds < 0 {
-			return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "window_seconds 不能为负数")
-		}
 		updates["window_seconds"] = req.WindowSeconds
 	}
 	if len(updates) == 0 {

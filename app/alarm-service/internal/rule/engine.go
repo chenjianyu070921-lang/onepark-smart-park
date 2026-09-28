@@ -13,14 +13,21 @@ import (
 // 适用范围由 DeviceType / DeviceID / AreaID / EventType 四个维度共同决定,
 // 空值表示该维度不限 —— 「设备类型 + 事件类型 → 告警等级」就是靠前两项配置出来的.
 type Rule struct {
-	ID         int64
-	Name       string
-	DeviceType string // 空表示不限设备类型
-	DeviceID   string // 空或 "*" 表示不限设备
-	AreaID     int64  // 0 表示不限区域
-	EventType  string // 空表示不限事件类型
-	Level      int8
-	Spec       *NormalizedSpec
+	ID       int64
+	Name     string
+	TenantID int64 // 0 表示平台级规则, 对所有园区生效
+	// RuleType 库表显式声明的规则类型(alarm_rule.rule_type).
+	// 与 Spec.Type(JSON 推断结果)可能不一致, 以本字段为准 —— 见 model#ListEnabled 的覆盖逻辑.
+	RuleType string
+	// WindowSeconds 库表显式声明的窗口长度(alarm_rule.window_seconds);
+	// Spec.WindowSec 为 0 时兜底使用, 两者都为 0 才落到引擎默认窗口.
+	WindowSeconds int
+	DeviceType    string // 空表示不限设备类型
+	DeviceID      string // 空或 "*" 表示不限设备
+	AreaID        int64  // 0 表示不限区域
+	EventType     string // 空表示不限事件类型
+	Level         int8
+	Spec          *NormalizedSpec
 }
 
 // Store 引擎获取启用规则的来源(由 model 层实现, 便于单测替换为内存实现).
@@ -126,7 +133,14 @@ func (e *Engine) Evaluate(ctx context.Context, f Fields, idempotentID string) ([
 					continue
 				}
 			}
-			window := time.Duration(r.Spec.WindowSec) * time.Second
+			// 窗口长度取值优先级: conditions 的 window_sec → 库表 window_seconds 列 → 默认 60s.
+			// 列是兜底而非覆盖: 运维在控制台改 window_seconds 时, JSON 里通常没写 window_sec,
+			// 此时必须认列; 两边都配时以 JSON 为准(它是规则作者显式写下的意图)。
+			windowSec := r.Spec.WindowSec
+			if windowSec <= 0 {
+				windowSec = r.WindowSeconds
+			}
+			window := time.Duration(windowSec) * time.Second
 			// 未配置窗口时给默认 60s, 否则 window=0 会让 ZREMRANGEBYSCORE 清掉全部成员.
 			if window <= 0 {
 				window = 60 * time.Second
@@ -178,8 +192,20 @@ func newDraft(r Rule, f Fields, hits int64) *Draft {
 //   - 真正的收敛靠配置: 事件带了 device_type 时严格比对 —— 摄像头上报的 intrusion
 //     不会再命中 device_type=access_control 的门禁规则。
 //
-// 待 P0-13(M1 明确 device_type 必填)闭环后, 可去掉这段兜底改为严格匹配.
+// 租户维度(2026-09-28 补齐): 规则的 tenant_id 为 0 表示平台级规则, 对所有园区生效
+// (种子规则即按此写入, 见 deploy/sql/m3_mysql_tables.sql §5); 非 0 时只对本园区事件生效。
+//
+// 为什么必须补: ListEnabled 是全表加载(status=1)不带租户条件, 而 AppliesTo 原本只比
+// 事件类型/设备/区域四个维度 —— A 园区配的启用规则会被 B 园区的设备事件命中并生成告警,
+// 且告警的 tenant_id 取自事件, 于是 B 园区看到一条"自己没配过的规则"产生的告警。
+// 这种串园不报错、不告警, 只能靠人工比对规则列表发现。
 func (r Rule) AppliesTo(f Fields) bool {
+	// 严格相等而不是"事件缺租户就放行": 归属未定的事件本就不该产生告警
+	// (消费链路已按 Tenant.MissingPolicy 把它挡在引擎之前或直接入死信),
+	// 引擎再放它命中园区规则, 只会生成一条 tenant_id=0、任何视图都看不见的告警。
+	if r.TenantID != 0 && r.TenantID != f.TenantID {
+		return false
+	}
 	if r.EventType != "" && r.EventType != f.EventType {
 		return false
 	}

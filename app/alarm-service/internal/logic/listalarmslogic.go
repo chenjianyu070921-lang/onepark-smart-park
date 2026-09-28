@@ -36,7 +36,8 @@ func NewListAlarmsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListAl
 func (l *ListAlarmsLogic) ListAlarms(req *types.ListAlarmsReq) (*types.AlarmListResp, error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 	if tenantID == 0 {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
+		// KI-2 同上: 漏传 x-tenant-id 是调用方问题, 必须返回 400 而不是 500.
+		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "缺少租户信息(x-tenant-id)")
 	}
 	// 参数校验早于依赖就绪检查: 非法入参不应被"存储未就绪"掩盖成 500(KI-2 同一原则).
 	level, err := validateLevel(req.Level)

@@ -13,11 +13,16 @@ import (
 // 校验方(网关 / 流媒体 hook)按此算法复算签名。
 const SignAlgorithm = "HMAC-SHA256"
 
-// QueryExpires / QuerySign 是签名参数在拉流地址上的查询串键名。
-// 形如 http://media/live/cam-1.flv?expires=1730000000&sign=ab12...
+// QueryCameraID / QueryExpires / QuerySign 是签名参数在拉流地址上的查询串键名。
+// 形如 http://media/live/cam-1.flv?camera_id=7&expires=1730000000&sign=ab12...
+//
+// camera_id 必须与 sign 一起出现在地址上(2026-09-28 补齐): 签名原文绑定的是摄像头主键,
+// 而地址路径上只有 device_id —— 校验方(网关 / 流媒体 hook)拿不到主键就无法复算签名,
+// 只能回查 M3 的摄像头接口。这既让每次拉流多一跳依赖, 又让"离线校验"在 M3 不可用时整体失效。
 const (
-	QueryExpires = "expires"
-	QuerySign    = "sign"
+	QueryCameraID = "camera_id"
+	QueryExpires  = "expires"
+	QuerySign     = "sign"
 )
 
 // streamSignPayload 拼接参与签名的原文。
@@ -105,6 +110,7 @@ func signedFlvURL(base string, cameraID, expiresAt int64, secret string) string 
 	if sign == "" {
 		return base
 	}
-	return base + "?" + QueryExpires + "=" + strconv.FormatInt(expiresAt, 10) +
+	return base + "?" + QueryCameraID + "=" + strconv.FormatInt(cameraID, 10) +
+		"&" + QueryExpires + "=" + strconv.FormatInt(expiresAt, 10) +
 		"&" + QuerySign + "=" + sign
 }

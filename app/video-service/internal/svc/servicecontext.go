@@ -31,11 +31,21 @@ type ServiceContext struct {
 // NewServiceContext 构造依赖.
 // MySQL 未配置时不初始化 DB(本地无中间件仍可启动); 已配置但连接失败则直接退出, 避免带病启动.
 func NewServiceContext(c config.Config) *ServiceContext {
-	svcCtx := &ServiceContext{
-		Config: c,
-		Redis:  redis.MustNewRedis(c.Redis),
+	svcCtx := &ServiceContext{Config: c}
+	// Redis 与 MySQL 一样走"未配置即降级", 不能直接用 MustNewRedis:
+	// 它在连不上时 log.Fatalf 退出进程, 而 yaml 里 ${REDIS_ADDR} 未展开(KI-12)时
+	// 拿到的就是字面量 "${REDIS_ADDR}" —— 现象是"服务起不来", 而报错指向 Redis,
+	// 真正的原因是环境变量没配, 排查方向完全跑偏。
+	// 本服务 Redis 只承载心跳缓存这一层加速(状态事实来源仍是 MySQL),
+	// 缺失时应按"缓存不可用"降级, 而不是让整个服务不启动。
+	if host := unresolvedToEmpty(c.Redis.Host); host != "" {
+		svcCtx.Redis = redis.MustNewRedis(c.Redis)
+	} else {
+		log.Printf("[warn] video-service redis host is empty, heartbeat status cache degraded (fallback to mysql status)")
 	}
 	// 心跳缓存 TTL 与离线判定阈值一致: 两者不一致会出现"缓存说在线、扫描判离线"的自我矛盾.
+	// Redis 为 nil 时同样构造缓存对象: 它的所有方法对 nil 连接返回零值,
+	// 调用方据此回退 MySQL 状态, 接口语义不变(见 StatusCache 注释).
 	svcCtx.StatusCache = NewStatusCache(svcCtx.Redis,
 		time.Duration(c.Heartbeat.OfflineAfterSeconds)*time.Second)
 

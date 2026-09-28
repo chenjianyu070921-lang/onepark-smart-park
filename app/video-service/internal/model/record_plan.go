@@ -87,6 +87,11 @@ type RecordPlanModel interface {
 	Update(ctx context.Context, tenantID, id int64, patch RecordPlanPatch) error
 	// Delete 按租户+主键删除计划.
 	Delete(ctx context.Context, tenantID, id int64) error
+	// DeleteByCamera 删除某摄像头下的全部计划, 返回删除条数.
+	// 供"下架摄像头"时级联清理: 摄像头被物理删除后, 挂在其上的计划会变成孤儿 ——
+	// 列表按 tenant_id + camera_id 过滤, 孤儿计划谁也看不见, 但数据还在库里,
+	// 下次有人注册一台拿到相同主键/同名的摄像头时会被莫名继承.
+	DeleteByCamera(ctx context.Context, tenantID, cameraID int64) (int64, error)
 	// List 分页查询, 按 id DESC 排序.
 	List(ctx context.Context, f RecordPlanListFilter) ([]*RecordPlan, int64, error)
 	// ListEnabledByCamera 查询某摄像头的全部启用计划(回放窗口推导的唯一数据来源),

@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"onepark/app/alarm-service/internal/model"
@@ -15,6 +16,13 @@ import (
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
+
+// maxRemarkLen 处理意见列宽(alarm_operate_log.remark VARCHAR(255)).
+//
+// 必须在入库前拦: 状态流转与流水写入在同一事务里, 超长会让整条 UPDATE 因列宽报错回滚,
+// 而上层把非 ErrNotFound 的错误统一转译成"确认告警失败" —— 用户看到的是"操作没生效",
+// 真正的"备注写太长"只在服务端日志里, 前端无法据此提示用户改短。
+const maxRemarkLen = 255
 
 // UpdateAlarmStatusLogic 告警状态流转逻辑: ack(未处理→已确认) / resolve(已确认→已解决).
 // 状态机禁止跨级流转(未处理不可直接解决), 并发冲突由 Update 的 RowsAffected 判定.
@@ -47,6 +55,10 @@ func (l *UpdateAlarmStatusLogic) UpdateAlarmStatus(req *types.UpdateAlarmStatusR
 	target, ok := actionTarget(req.Action)
 	if !ok {
 		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "action 仅支持 ack(确认) / resolve(解决)")
+	}
+	if len(req.Remark) > maxRemarkLen {
+		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid,
+			fmt.Sprintf("remark 长度不能超过 %d", maxRemarkLen))
 	}
 	if l.svcCtx.Alarms == nil {
 		return nil, errorx.NewError(errorx.ErrDepConnect, "告警存储未就绪(MySQL 未配置)")

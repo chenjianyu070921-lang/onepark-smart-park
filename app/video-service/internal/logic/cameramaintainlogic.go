@@ -139,7 +139,32 @@ func (l *DeleteCameraLogic) DeleteCamera(req *types.IdReq) (*types.DeleteCameraR
 		l.Errorf("delete camera failed id=%d: %v", req.Id, err)
 		return nil, errorx.NewError(errorx.ErrVideoCameraCreate, "删除摄像头失败")
 	}
+
+	// 级联清理该摄像头下的录像计划(2026-09-28 补齐): 摄像头是物理删除,
+	// 计划留下就成孤儿 —— 列表按 camera_id 过滤, 它不会出现在任何页面上,
+	// 但回放窗口推导(ListEnabledByCamera)仍可能把它算进去, 且数据一直占着库。
+	l.cleanupPlans(tenantID, req.Id)
 	return &types.DeleteCameraResp{Id: req.Id}, nil
+}
+
+// cleanupPlans 删除摄像头时清理其录像计划.
+//
+// 失败只记日志, 不回滚已完成的删除、不改变接口结果:
+//  1. 摄像头已经删掉了, 回滚不回一台"半删除"的设备, 反而让调用方以为失败可以重试;
+//  2. 孤儿计划的危害是"看不见的残留", 属于可异步补救的数据问题, 不是本次操作的成败条件;
+//  3. 把清理失败升级成接口错误, 会让"下架摄像头"这个高频运维动作被数据侧偶发故障卡住。
+func (l *DeleteCameraLogic) cleanupPlans(tenantID, cameraID int64) {
+	if l.svcCtx.RecordPlans == nil {
+		return
+	}
+	n, err := l.svcCtx.RecordPlans.DeleteByCamera(l.ctx, tenantID, cameraID)
+	if err != nil {
+		l.Errorf("delete record plans of camera failed camera_id=%d: %v", cameraID, err)
+		return
+	}
+	if n > 0 {
+		l.Infof("deleted %d orphan record plans with camera_id=%d", n, cameraID)
+	}
 }
 
 // cameraGuard 统一校验租户 / 主键 / 存储可用性, 三个维护接口共用,

@@ -34,7 +34,9 @@ func NewListActiveAlarmsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *
 func (l *ListActiveAlarmsLogic) ListActiveAlarms(req *types.ListActiveAlarmsReq) (*types.AlarmListResp, error) {
 	tenantID := ctxdata.GetTenantId(l.ctx)
 	if tenantID == 0 {
-		return nil, errorx.NewError(errorx.ErrBadRequest, "缺少租户信息(x-tenant-id)")
+		// KI-2: ErrBadRequest(M6-E-0001) 被 HttpStatus 映射成 500, 会把"调用方没传 header"
+		// 表达成服务端故障。2026-09-28 补齐 —— 与本服务其它接口统一为 M3-W-1001(400).
+		return nil, errorx.NewError(errorx.ErrAlarmParamInvalid, "缺少租户信息(x-tenant-id)")
 	}
 	level, err := validateLevel(req.Level)
 	if err != nil {
