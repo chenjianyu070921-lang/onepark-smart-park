@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"onepark/app/notice-service/internal/model"
@@ -47,6 +48,15 @@ func (l *CreateNoticeLogic) CreateNotice(req *types.CreateNoticeReq) (resp *type
 	roles := rbac.ParseRoleIds(ctxdata.GetRoleIds(l.ctx))
 	if !rbac.HasRole(roles, rbac.RoleSystemAdmin) && !rbac.HasRole(roles, rbac.RoleParkAdmin) && !rbac.HasRole(roles, rbac.RoleService) {
 		return nil, errorx.NewError(errorx.ErrForbidden, "无权限发布公告")
+	}
+
+	// 入参校验(对齐接口文档 4.4.1): title 必填、type 必须为受控枚举 1~5.
+	// 此前二者均未校验 —— title 为空会撞 DB not null 直接 500, 非法 type(0/99)会落库导致前端/看板无法识别(审查问题⑦).
+	if strings.TrimSpace(req.Title) == "" {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "公告标题不能为空")
+	}
+	if !model.ValidNoticeType(req.Type) {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "公告类型不合法(1通知 2公告 3活动 4停水 5停电)")
 	}
 
 	now := time.Now()

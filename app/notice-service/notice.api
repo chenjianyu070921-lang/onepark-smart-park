@@ -75,6 +75,11 @@ type RecallNoticeResp {
 	Status int8  `json:"status"` // 撤回后状态(3已撤回)
 }
 
+// PingResp 健康探针响应(K8s liveness/readiness 探活)
+type PingResp {
+	Ok bool `json:"ok"` // 服务存活标记, 恒为 true
+}
+
 service notice-api {
 	@handler CreateNotice
 	post /api/notice (CreateNoticeReq) returns (NoticeResp)
@@ -97,5 +102,9 @@ service notice-api {
 	// 公告撤回(P2): 仅已发布可撤回, 置已撤回 + 补偿事件
 	@handler RecallNotice
 	post /api/notice/:id/recall (RecallNoticeReq) returns (RecallNoticeResp)
+
+	// 健康探针(K8s liveness/readiness 探活): 返回 200 {ok:true}
+	@handler Ping
+	get /ping returns (PingResp)
 }
 

@@ -21,6 +21,13 @@ const instance = axios.create({
 instance.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // ⚠️ 演示专用: 直连 M2 服务时补注网关身份头(正常由 Gateway 从 JWT 注入), 联调前删除.
+  config.headers = {
+    ...config.headers,
+    'x-tenant-id': '1',
+    'x-user-id': '1',
+    'x-role-ids': '1',
+  }
   return config
 })
 

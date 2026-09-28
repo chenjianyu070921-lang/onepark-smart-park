@@ -127,6 +127,9 @@ const (
 	ErrVisitorBlacklisted   = "M2-E-2004" // 访客被拉黑, 禁止通行(邀请/签入实时拦截)
 	ErrVisitorVerifyChannel = "M2-E-2005" // 不支持的核验方式或凭证缺失/不匹配(多方式核验)
 	ErrVisitorNotFound      = "M2-E-2006" // 访客记录不存在
+	// 访客黑名单查询失败(fail-closed 拒绝通行): 与"命中拦截" M2-E-2004 区分,
+	// 便于排查 DB/查询异常而非拉黑命中(审查清单①可排查性要求).
+	ErrVisitorBlocklistCheckFailed = "M2-E-2007" // 访客黑名单查询异常, 已临时拒绝通行
 
 	// 停车域 3001~3999
 	ErrParkingRecordNotFound = "M2-E-3001" // 停车记录不存在

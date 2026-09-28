@@ -34,3 +34,17 @@ func TestMonthlyCardResp(t *testing.T) {
 		t.Errorf("月卡响应时间戳映射错误: start=%d end=%d", resp.StartTime, resp.EndTime)
 	}
 }
+
+// TestMonthlyCardRespDisabled 月卡停用态响应映射(对齐 disable 后 status=停用 的展示口径, 月卡收尾边界).
+func TestMonthlyCardRespDisabled(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
+	end := time.Date(2026, 6, 1, 0, 0, 0, 0, time.Local)
+	card := &model.MonthlyCard{PlateNo: "沪B22222", StartTime: start, EndTime: end, Status: model.MonthlyCardStatusDisabled}
+	resp := monthlyCardResp(card)
+	if resp.Status != model.MonthlyCardStatusDisabled {
+		t.Errorf("停用态月卡响应 status 期望 %d, 实际 %d", model.MonthlyCardStatusDisabled, resp.Status)
+	}
+	if resp.PlateNo != "沪B22222" {
+		t.Errorf("停用态月卡响应车牌映射错误: %s", resp.PlateNo)
+	}
+}

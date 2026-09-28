@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"onepark/app/parking-service/internal/model"
@@ -52,7 +53,9 @@ func (l *ParkingExitLogic) ParkingExit(req *types.ParkingExitReq) (resp *types.P
 	now := time.Now()
 	dur := 0
 	if rec.EntryTime != nil {
-		dur = int(now.Sub(*rec.EntryTime).Minutes())
+		// 时长与费用统一取整口径: 费用(CalcFee*)按分钟向上取整, 展示时长必须同口径,
+		// 否则"停 15 分 30 秒"展示 15 分钟却按 16 分钟(1 小时)计费, 口径不一致易生纠纷(审查问题①).
+		dur = int(math.Ceil(now.Sub(*rec.EntryTime).Minutes()))
 	}
 	// 计费: 优先采用当前生效的配置规则; 无配置/解析失败降级为内置默认(CalcFee).
 	fee := svc.CalcFee(rec.EntryTime, &now, rec.VehicleType)
@@ -84,17 +87,26 @@ func (l *ParkingExitLogic) ParkingExit(req *types.ParkingExitReq) (resp *types.P
 	}
 
 	// 发布离场事件 + 异常车辆告警.
+	// 事件为"尽力而为"语义(不影响已完成的离场结算), 但失败必须记日志, 不得静默吞错,
+	// 否则下游 M5 大屏/安防漏收离场与告警且无从排查(审查问题⑧).
 	if l.svcCtx.Producer != nil {
-		b, _ := json.Marshal(rec)
-		_ = l.svcCtx.Producer.Publish(l.ctx, kafka.TopicParkingExit, []byte(req.PlateNo), b)
+		if b, e := json.Marshal(rec); e != nil {
+			l.Errorf("marshal parking exit event failed: plate=%s err=%v", req.PlateNo, e)
+		} else if e := l.svcCtx.Producer.Publish(l.ctx, kafka.TopicParkingExit, []byte(req.PlateNo), b); e != nil {
+			l.Errorf("publish parking exit event failed: plate=%s err=%v", req.PlateNo, e)
+		}
 		if rec.VehicleType == model.VehicleTypeAbnormal {
-			alarm, _ := json.Marshal(map[string]interface{}{
+			alarm, e := json.Marshal(map[string]interface{}{
 				"device_id": req.DeviceIDOut,
 				"severity":  2,
 				"content":   fmt.Sprintf("异常车辆 %s 离场", req.PlateNo),
 				"timestamp": now.Unix(),
 			})
-			_ = l.svcCtx.Producer.Publish(l.ctx, kafka.TopicAlarm, []byte(req.PlateNo), alarm)
+			if e != nil {
+				l.Errorf("marshal parking alarm event failed: plate=%s err=%v", req.PlateNo, e)
+			} else if e := l.svcCtx.Producer.Publish(l.ctx, kafka.TopicAlarm, []byte(req.PlateNo), alarm); e != nil {
+				l.Errorf("publish parking alarm event failed: plate=%s err=%v", req.PlateNo, e)
+			}
 		}
 	}
 

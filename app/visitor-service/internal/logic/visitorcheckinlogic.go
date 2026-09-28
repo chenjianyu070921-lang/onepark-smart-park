@@ -85,9 +85,13 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 		if e != nil {
 			return nil, e
 		}
-		if e := l.svcCtx.DB.WithContext(l.ctx).Where(col+"=? AND tenant_id=?", req.Credential, tenantID).First(&rec).Error; e != nil {
+		// 仅匹配"待使用"且最近的一条记录(最近优先): 同凭证存在多条邀请(如重复邀请)时,
+		// 原 First(按主键升序)会误绑最早/已消费记录, 导致签入错绑或误报已核销(审查建议: 多方式签入 First 绑定歧义).
+		if e := l.svcCtx.DB.WithContext(l.ctx).
+			Where(col+"=? AND tenant_id=? AND status=?", req.Credential, tenantID, model.VisitorStatusPending).
+			Order("id DESC").First(&rec).Error; e != nil {
 			if e == gorm.ErrRecordNotFound {
-				return nil, errorx.NewError(errorx.ErrVisitorVerifyChannel, "凭证无效或未找到访客记录")
+				return nil, errorx.NewError(errorx.ErrVisitorVerifyChannel, "凭证无效或未找到待签到的访客记录")
 			}
 			l.Errorf("load visitor record failed: %v", e)
 			return nil, errorx.NewError(errorx.ErrM2Internal, "加载访客记录失败")
@@ -101,10 +105,21 @@ func (l *VisitorCheckinLogic) VisitorCheckin(req *types.VisitorCheckinReq) (resp
 	// 安全设计: 查询异常 fail-closed(拒绝通行), 防止 DB 抖动期间黑名单被绕过(典型 fail-open 漏洞).
 	blocked, e := checkBlocked(l.ctx, l.svcCtx, rec.TenantID, rec.VisitorPhone, rec.IdNo)
 	if e != nil {
-		l.Errorf("check blocklist failed, fail-closed deny (rec_id=%d): %v", rec.ID, e)
-		return nil, errorx.NewError(errorx.ErrVisitorBlacklisted, "风控校验暂不可用，已临时拒绝通行")
+		// 黑名单查询异常: fail-closed 拒绝通行, 防止 DB 抖动期间黑名单被绕过;
+		// 结构化日志带 tenant_id/visitor_id/手机号 上下文, 确保异常不被静默吞掉(审查清单①).
+		logx.Errorw("访客黑名单查询异常, fail-closed 拒绝通行",
+			logx.Field("tenant_id", tenantID),
+			logx.Field("visitor_id", rec.ID),
+			logx.Field("phone", rec.VisitorPhone),
+			logx.Field("err", e.Error()))
+		return nil, errorx.NewError(errorx.ErrVisitorBlocklistCheckFailed, "风控校验暂不可用，已临时拒绝通行")
 	}
 	if blocked {
+		// 命中黑名单: 结构化日志带上下文, 确保命中路径也不静默(审查清单①两条路径都不吞错).
+		logx.Infow("访客命中黑名单, 拒绝通行",
+			logx.Field("tenant_id", tenantID),
+			logx.Field("visitor_id", rec.ID),
+			logx.Field("phone", rec.VisitorPhone))
 		_ = l.svcCtx.DB.WithContext(l.ctx).Model(&model.VisitorRecord{}).
 			Where("id=? AND tenant_id=?", rec.ID, tenantID).
 			Updates(map[string]interface{}{"blacklisted": 1, "updated_at": time.Now()}).Error

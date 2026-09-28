@@ -7,7 +7,9 @@ Port: 8082
 # dashboard 的 WORKORDER_RPC_ENDPOINTS(部署编排为 workorder-service:9091)一致.
 Rpc:
   Name: workorder.rpc
-  ListenOn: 0.0.0.0:9091
+  # 注意: 本机 9091/9092 被 Windows WinNAT 动态保留导致无法监听, 本地演示临时改用 9093.
+  # 在能执行管理员命令(清除/保留 9091)的机器上, 请改回 0.0.0.0:9091 以对齐项目标准.
+  ListenOn: 0.0.0.0:9093
   Timeout: 3000
 
 # MySQL 连接配置 (DSN 由环境变量注入)

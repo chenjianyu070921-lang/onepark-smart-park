@@ -51,14 +51,40 @@ func (l *VisitorInviteLogic) VisitorInvite(req *types.VisitorInviteReq) (resp *t
 		return nil, errorx.NewError(errorx.ErrM2Internal, "数据库未初始化")
 	}
 
+	// 入参校验(对齐接口文档 4.2.1: visitor_name/visitor_phone/visit_time/expire_time 均必填且有效):
+	// 此前全量透传, 会产出无主通行码、格式错误手机号, 或 expire_time=0(永不过期)/过去时间(立即过期)的码(审查问题⑦).
+	if strings.TrimSpace(req.VisitorName) == "" {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "访客姓名不能为空")
+	}
+	if !validPhone(req.VisitorPhone) {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "访客手机号格式不正确")
+	}
+	if req.VisitTime <= 0 {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "预期到访时间必须为有效时间(>0)")
+	}
+	if req.ExpireTime <= time.Now().Unix() {
+		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "二维码过期时间必须晚于当前时间")
+	}
+
 	// 黑名单实时拦截(P2): 邀请阶段即按手机号/身份证拦截被拉黑人员, 禁止生成通行码.
 	// 安全设计: 查询异常 fail-closed(拒绝邀请), 防止 DB 抖动期间黑名单被绕过.
 	blocked, e := checkBlocked(l.ctx, l.svcCtx, tenantID, req.VisitorPhone, req.IdNo)
 	if e != nil {
-		l.Errorf("check blocklist failed, fail-closed deny (inviter=%d): %v", inviterID, e)
-		return nil, errorx.NewError(errorx.ErrVisitorBlacklisted, "风控校验暂不可用，已临时拒绝邀请")
+		// 黑名单查询异常: fail-closed 拒绝邀请, 防止 DB 抖动期间黑名单被绕过;
+		// 结构化日志带 tenant_id/inviter_id/手机号 上下文, 确保异常不被静默吞掉(审查清单①).
+		logx.Errorw("访客黑名单查询异常, fail-closed 拒绝邀请",
+			logx.Field("tenant_id", tenantID),
+			logx.Field("inviter_id", inviterID),
+			logx.Field("phone", req.VisitorPhone),
+			logx.Field("err", e.Error()))
+		return nil, errorx.NewError(errorx.ErrVisitorBlocklistCheckFailed, "风控校验暂不可用，已临时拒绝邀请")
 	}
 	if blocked {
+		// 命中黑名单: 结构化日志带上下文, 确保命中路径也不静默(审查清单①两条路径都不吞错).
+		logx.Infow("访客命中黑名单, 拒绝邀请",
+			logx.Field("tenant_id", tenantID),
+			logx.Field("inviter_id", inviterID),
+			logx.Field("phone", req.VisitorPhone))
 		// 黑名单命中事件(看板 P2): blocked → Kafka visitor-event(visitor_id=0 表示记录未创建),
 		// 供安防/大屏实时感知拉黑人员尝试进入; 尽力而为语义, 发布失败不影响拦截拒绝结果.
 		publishVisitorEvent(l.ctx, l.svcCtx, l.Logger, buildBlockedEvent(
@@ -202,4 +228,18 @@ func unixPtr(sec int64) *time.Time {
 	}
 	t := time.Unix(sec, 0)
 	return &t
+}
+
+// validPhone 校验中国大陆手机号: 11 位数字, 首位 1, 次位 3~9.
+// 用于邀请入参校验, 避免格式错误手机号入库导致黑名单"手机号维度"失效.
+func validPhone(p string) bool {
+	if len(p) != 11 || p[0] != '1' || p[1] < '3' || p[1] > '9' {
+		return false
+	}
+	for i := 1; i < len(p); i++ {
+		if p[i] < '0' || p[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

@@ -55,6 +55,11 @@ func (l *AssignWorkOrderLogic) AssignWorkOrder(req *types.AssignWorkOrderReq) (r
 		return nil, errorx.NewError(errorx.ErrM2Internal, "加载工单失败")
 	}
 
+	// 幂等: 已是处理中(已派单)时, 重复派单视为成功, 直接返回当前状态而非报错(审查清单④).
+	if wo.Status == state.StatusProcessing {
+		return &types.WorkOrderResp{Id: wo.ID, OrderNo: wo.OrderNo, Status: wo.Status}, nil
+	}
+
 	// FSM 校验: 仅允许从待派单执行 assign.
 	next, ok := state.NextStatus(wo.Status, state.ActionAssign)
 	if !ok {

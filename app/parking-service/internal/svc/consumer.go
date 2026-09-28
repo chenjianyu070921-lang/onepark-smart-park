@@ -234,9 +234,18 @@ func (s *ServiceContext) onTelemetryExit(ctx context.Context, t *deviceTelemetry
 	now := time.Now()
 	dur := 0
 	if rec.EntryTime != nil {
-		dur = int(exitTime.Sub(*rec.EntryTime).Minutes())
+		// 时长与费用统一取整口径: 费用(CalcFee*)按分钟向上取整, 展示时长必须同口径,
+		// 否则"停 15 分 30 秒"展示 15 分钟却按 16 分钟(1 小时)计费, 口径不一致易生纠纷(审查问题①).
+		dur = int(math.Ceil(exitTime.Sub(*rec.EntryTime).Minutes()))
 	}
+	// 计费口径与人工离场(ParkingExit)对齐: 优先采用当前生效费用规则, 无规则/解析失败降级内置默认
+	// (修复 Kafka 自动离场与人工离场计费口径不一致: 此前自动路径只用 CalcFee 默认, 不走配置规则).
 	fee := CalcFee(rec.EntryTime, &exitTime, rec.VehicleType)
+	if rule, rerr := model.GetActiveParkingFeeRule(s.DB, t.TenantID, now); rerr == nil && rule != nil {
+		if cfg, perr := rule.ParseRule(); perr == nil {
+			fee = CalcFeeByRule(rec.EntryTime, &exitTime, rec.VehicleType, cfg)
+		}
+	}
 
 	// CAS: 更新条件必须带上 status=停车中. 只按 id 更新时, 两条并发的离场消息
 	// 会各自算一次费用并各广播一次离场事件 —— 重复计费比"少算一次"难查得多.

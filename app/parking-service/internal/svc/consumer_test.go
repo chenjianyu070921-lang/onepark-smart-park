@@ -2,6 +2,7 @@ package svc
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,36 @@ func TestResolveVehicleType_Degrade(t *testing.T) {
 	if got := ResolveVehicleType(nil, 1, "苏A99999", time.Now()); got != model.VehicleTypeTemp {
 		t.Errorf("DB nil 时应降级为临时车, got %d", got)
 	}
+}
+
+// 验证消费幂等键生成 IdempotentID(事件驱动链路防重复建单/重复计费的第一道防线):
+// 优先用消息自带 request_id; 缺失时按 device|event|plate|timestamp 指纹降级.
+// 禁止用 partition-offset: 重放时 offset 会变导致重复处理.
+func TestIdempotentID(t *testing.T) {
+	t.Run("优先使用消息 request_id", func(t *testing.T) {
+		tm := &deviceTelemetry{RequestID: "req-xyz", DeviceID: "g1", Event: "entry", PlateNo: "A1", Timestamp: 100}
+		if got := tm.IdempotentID(); got != "req-xyz" {
+			t.Errorf("应优先返回 request_id, got %q", got)
+		}
+	})
+	t.Run("缺失 request_id 时按指纹降级", func(t *testing.T) {
+		tm := &deviceTelemetry{DeviceID: "g1", Event: "entry", PlateNo: "A1", Timestamp: 100}
+		got := tm.IdempotentID()
+		if !strings.HasPrefix(got, "fp:") {
+			t.Errorf("无 request_id 应生成 fp: 前缀指纹, got %q", got)
+		}
+		// 同输入必得同指纹(幂等去重靠它)
+		if tm.IdempotentID() != got {
+			t.Errorf("同输入应生成稳定指纹")
+		}
+	})
+	t.Run("指纹随输入变化", func(t *testing.T) {
+		a := &deviceTelemetry{DeviceID: "g1", Event: "entry", PlateNo: "A1", Timestamp: 100}
+		b := &deviceTelemetry{DeviceID: "g1", Event: "entry", PlateNo: "A1", Timestamp: 101}
+		if a.IdempotentID() == b.IdempotentID() {
+			t.Errorf("不同 timestamp 应生成不同指纹(否则会误判为重复消息)")
+		}
+	})
 }
 
 // 验证遥测报文归一化(地磁→停车全链路入口, 评审 P0 验证项):

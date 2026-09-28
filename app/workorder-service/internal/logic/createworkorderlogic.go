@@ -2,6 +2,8 @@ package logic
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"onepark/app/workorder-service/internal/model"
@@ -11,6 +13,7 @@ import (
 	"onepark/common/ctxdata"
 	"onepark/common/errorx"
 	"onepark/common/gormx"
+	"onepark/common/redisx"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -55,6 +58,27 @@ func (l *CreateWorkOrderLogic) CreateWorkOrder(req *types.CreateWorkOrderReq) (r
 		return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "工单优先级不合法(1紧急 2普通 3低)")
 	}
 
+	// 幂等防重(可选 idempotency_key): 相同 key 在 TTL(24h) 内重复提交直接返回首次创建结果,
+	// 不重复落库; 仅当 Redis 可用时生效(不可用则降级跳过, 不阻断建单, 符合"最小化、隔离式"原则).
+	if req.IdempotencyKey != "" && l.svcCtx.Redis != nil {
+		if cached, ok := getCreateIdempotent(l.ctx, l.svcCtx.Redis, tenantID, req.IdempotencyKey); ok {
+			return cached, nil
+		}
+		// SETNX 抢占位锁, 防并发重复建单. 必须区分三态(审查问题⑤):
+		//   Redis 故障(err!=nil)   -> 降级跳过幂等, 不阻断建单(与上方注释口径一致);
+		//   锁被他人占用(false,nil) -> 复查首创结果缓存, 仍无才判定为重复提交.
+		acquired, lerr := acquireCreateIdempotentLock(l.ctx, l.svcCtx.Redis, tenantID, req.IdempotencyKey)
+		if lerr != nil {
+			l.Errorf("acquire create idempotent lock failed, degrade to skip idempotency: tenant=%d key=%s err=%v",
+				tenantID, req.IdempotencyKey, lerr)
+		} else if !acquired {
+			if cached, ok := getCreateIdempotent(l.ctx, l.svcCtx.Redis, tenantID, req.IdempotencyKey); ok {
+				return cached, nil
+			}
+			return nil, errorx.NewError(errorx.ErrM2ParamInvalid, "请勿重复提交工单")
+		}
+	}
+
 	now := time.Now()
 	wo := &model.WorkOrder{
 		OrderNo:     "", // 事务内生成, 与撞号重试配合
@@ -87,6 +111,15 @@ func (l *CreateWorkOrderLogic) CreateWorkOrder(req *types.CreateWorkOrderReq) (r
 			return nil, errorx.NewError(errorx.ErrM2Internal, "工单号生成冲突, 请重试")
 		}
 		return nil, errorx.NewError(errorx.ErrM2Internal, "创建工单失败")
+	}
+
+	// 回填幂等结果缓存, 供后续同 key 重复提交直接返回(防重复落库); 失败静默不影响已成功的建单.
+	if req.IdempotencyKey != "" && l.svcCtx.Redis != nil {
+		setCreateIdempotent(l.ctx, l.svcCtx.Redis, tenantID, req.IdempotencyKey, &types.WorkOrderResp{
+			Id:      wo.ID,
+			OrderNo: wo.OrderNo,
+			Status:  wo.Status,
+		})
 	}
 
 	// 发布建单事件(workorder-event), 供 M5 大屏/通知类消费; 失败仅记日志不阻断建单.
@@ -122,4 +155,54 @@ func buildCreateFlow(tenantID, reporterID int64, wo *model.WorkOrder, now time.T
 	flow.CreatedAt = now
 	flow.UpdatedAt = now
 	return flow
+}
+
+// ---- 建单幂等缓存(防重复提交) ----
+// 设计: 相同 idempotency_key 在 TTL 内首次创建成功后缓存结果; 后续同 key 直接返回首创结果,
+// 不重复落库. 使用单 key 同时承载"占位锁(LOCK)"与"首创结果(JSON)", 避免双 key 竞态.
+
+// createIdemTTL 幂等结果缓存有效期: 24h 足够覆盖正常重试窗口.
+const createIdemTTL = 24 * time.Hour
+
+// createIdemLockTTL 占位锁有效期: 仅用于拦截并发同 key 请求, 首创结果写回后即被覆盖.
+const createIdemLockTTL = 30 * time.Second
+
+// createIdemKey 幂等缓存键, 按 (租户, 幂等键) 隔离, 防止跨租户串单.
+func createIdemKey(tenantID int64, key string) string {
+	return fmt.Sprintf("workorder:idem:%d:%s", tenantID, key)
+}
+
+// getCreateIdempotent 读取幂等缓存的首创结果; 命中(且非占位锁)返回 (resp, true).
+func getCreateIdempotent(ctx context.Context, r *redisx.Client, tenantID int64, key string) (*types.WorkOrderResp, bool) {
+	v, err := r.Get(ctx, createIdemKey(tenantID, key)).Result()
+	if err != nil || v == "" || v == "LOCK" {
+		return nil, false // 未命中/占位锁中(进行中)/缓存不可用: 一律视为未命中
+	}
+	var resp types.WorkOrderResp
+	if e := json.Unmarshal([]byte(v), &resp); e != nil {
+		return nil, false // 值损坏: 回落到正常建单流程
+	}
+	return &resp, true
+}
+
+// acquireCreateIdempotentLock SETNX 占位锁.
+// 返回 (true, nil) 抢到锁(后续由首创结果覆盖); (false, nil) 同 key 已被他人占用(进行中/已处理);
+// (false, err) Redis 故障 —— 调用方据此"降级跳过幂等", 不得与"被占用"混为一谈(审查问题⑤).
+func acquireCreateIdempotentLock(ctx context.Context, r *redisx.Client, tenantID int64, key string) (bool, error) {
+	ok, err := r.SetNX(ctx, createIdemKey(tenantID, key), "LOCK", createIdemLockTTL).Result()
+	if err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
+// setCreateIdempotent 用首创结果覆盖占位锁, TTL=24h; 失败静默(不影响已成功的建单).
+func setCreateIdempotent(ctx context.Context, r *redisx.Client, tenantID int64, key string, resp *types.WorkOrderResp) {
+	b, e := json.Marshal(resp)
+	if e != nil {
+		return
+	}
+	if e := r.Set(ctx, createIdemKey(tenantID, key), string(b), createIdemTTL).Err(); e != nil {
+		logx.WithContext(ctx).Errorf("set create idempotent cache failed: tenant=%d key=%s err=%v", tenantID, key, e)
+	}
 }

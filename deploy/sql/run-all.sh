@@ -55,6 +55,8 @@ run_one m2_parking_visitor_tables.sql # parking_db / visitor_db
 run_one m2_p2_monthly_card.sql        # parking_db (monthly_card, 月卡; P0 补缺, 代码已上线)
 run_one m2_p2_visitor_blocklist.sql   # visitor_db (visitor_blocklist, 黑名单; 幂等 CREATE, 代码已上线)
 run_one m2_p2_visitor_verify.sql      # visitor_db (visitor_record 多方式核验列, P2 落地; 幂等 ALTER, 代码已上线)
+run_one m2_p2_visitor_blocklist_unique.sql # visitor_db (黑名单并发唯一防线: 生成列+唯一索引, 幂等迁移)
+run_one m2_p2_monthly_card_unique.sql # parking_db (月卡并发唯一防线: 生成列+唯一索引, 幂等迁移)
 run_one m3_mysql_tables.sql           # alarm_db
 run_one m3_access_mysql_tables.sql    # access_db
 run_one m3_video_mysql_tables.sql     # video_db
