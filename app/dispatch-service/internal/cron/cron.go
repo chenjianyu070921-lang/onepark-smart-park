@@ -29,13 +29,43 @@ const (
 	// 不加锁的后果很具体 —— 两个实例同时扫到同一张超时工单, 会把它派给两个不同的人。
 	reassignLockKey = "m5:dispatch:lock:reassign"
 
-	// reassignLockTTL 锁 TTL 略小于默认扫描周期, 保证下一轮还能拿到锁;
-	// 即使本轮异常退出, 锁也会自动过期, 不会把任务永久锁死。
-	reassignLockTTL = 50 * time.Second
+	// lockTTLMargin 锁 TTL 相对扫描周期预留的余量(见 ReassignLockTTL)。
+	lockTTLMargin = 10 * time.Second
 
 	// defaultIntervalSec 扫描周期兜底值(配置缺失或非法时使用)。
 	defaultIntervalSec int64 = 60
 )
+
+// ReassignLockTTL 由扫描周期推导分布式锁的 TTL: **interval - 10s, 且不小于 interval/2**。
+//
+// 为什么不能让 TTL 与周期脱钩(原先是硬编码 50s):
+// 正常路径下锁是**会被主动释放**的 —— RunReassignOnce 用
+// `defer releaseLockScript(仅当值仍是自己 token 时删除)` 收尾。TTL 只兜两种异常:
+//
+//	① 进程在扫描中途崩溃/被 kill -> defer 没跑到, 锁靠 TTL 自动过期;
+//	② 释放时 ctx 已取消 -> Lua 删除静默失败(错误被刻意忽略), 同样靠 TTL。
+//
+// 所以 TTL 的取舍是:
+//
+//	**太长**: 异常退出后锁迟迟不释放, 后续几轮扫描被无声跳过(工单一直卡在"已指派");
+//	**太短**: 单轮扫描还没跑完锁就过期, 另一个实例会并发进来扫同一批(同一张单被派给两个人)。
+//
+// 硬编码 50s 只对"默认 60s 周期"成立 —— 把 IntervalSec 调到 300,
+// 锁在 50s 就过期, 而这一轮的扫描窗口有 300s: 恰恰是"太短"那一侧。
+// 故 TTL 必须由周期推导, 且保留 10s 余量让下一轮能正常抢锁。
+func ReassignLockTTL(intervalSec int64) time.Duration {
+	if intervalSec <= 0 {
+		intervalSec = defaultIntervalSec
+	}
+	interval := time.Duration(intervalSec) * time.Second
+
+	ttl := interval - lockTTLMargin
+	if min := interval / 2; ttl < min {
+		// 周期很短(<=20s)时余量会吃掉大半甚至变成负数, 兜一个下界
+		ttl = min
+	}
+	return ttl
+}
 
 // releaseLockScript 仅当锁的值仍是自己的 token 时才删除.
 // 直接 DEL 会把别人刚抢到的锁删掉, 导致两个实例同时执行。
@@ -56,9 +86,12 @@ func Start(ctx context.Context, db *gormx.DB, rdb *redisx.Client, intervalSec, m
 		intervalSec = defaultIntervalSec
 	}
 
+	// 锁 TTL 必须跟着扫描周期推导, 不能硬编码 —— 理由见 ReassignLockTTL 注释
+	lockTTL := ReassignLockTTL(intervalSec)
+
 	// tag 区分"启动补偿"与"定时触发", 便于排查
 	run := func(tag string) {
-		res, err := RunReassignOnce(ctx, db, rdb, maxReassign)
+		res, err := RunReassignOnce(ctx, db, rdb, maxReassign, lockTTL)
 		if err != nil {
 			logger.Errorf("[cron] %s-超时重派执行失败: %v", tag, err)
 			return

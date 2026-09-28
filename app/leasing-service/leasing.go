@@ -10,6 +10,7 @@ import (
 	"onepark/app/leasing-service/internal/handler"
 	"onepark/app/leasing-service/internal/svc"
 	"onepark/common/middleware"
+	"onepark/common/response"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
@@ -26,6 +27,12 @@ func main() {
 	// 届时 DSN 会带着未展开的 ${...} 去连库, 只报出一句难懂的 invalid DSN。
 	// 全平台多数服务(workorder/billing/alarm/video/...)以及本服务的 gRPC 入口都已启用, 此处补齐。
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
+
+	// 统一响应体 {code,msg,data}: 本服务 handler 走 httpx.OkJsonCtx 返回裸 payload,
+	// 依赖全局 OkHandler 包装. 未注册时接口直接返回裸对象(如 {"total":0,"list":[]}),
+	// 前端 axios 拦截器取不到 code 字段会误判为失败.
+	// 与 auth-service / user-manage / energy-analysis 保持一致.
+	response.Init()
 
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()

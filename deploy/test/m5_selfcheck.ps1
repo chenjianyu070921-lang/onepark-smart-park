@@ -37,6 +37,32 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $TempDir  = Join-Path $env:TEMP "m5-selfcheck"
 New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 
+# ---------- 环境变量: 配置里的 ${VAR} 占位符必须真的被设置 ----------
+# 缺 DEVICE_RPC_ENDPOINTS 等四个会让 dashboard **启动即 fatal**(zrpc.MustNewClient 拿到空地址),
+# 缺 *_MYSQL_DSN/REDIS_* 则连不上库 —— 所以这里统一从 deploy/.env 装载 + 补本地四路上游地址。
+function Import-DotEnv($path) {
+    if (-not (Test-Path $path)) { return }
+    foreach ($line in Get-Content -Path $path -Encoding UTF8) {
+        $t = $line.Trim()
+        if (-not $t -or $t.StartsWith('#') -or $t -notmatch '=') { continue }
+        $kv = $t.Split('=', 2)
+        if ($kv[0] -and -not (Get-Item "env:$($kv[0])" -ErrorAction SilentlyContinue)) {
+            Set-Item -Path "env:$($kv[0])" -Value $kv[1]
+        }
+    }
+}
+Import-DotEnv (Join-Path $RepoRoot "deploy\.env")
+foreach ($kv in @{
+        DEVICE_RPC_ENDPOINTS      = "127.0.0.1:9001"
+        WORKORDER_RPC_ENDPOINTS   = "127.0.0.1:9091"
+        ALARM_RPC_ENDPOINTS       = "127.0.0.1:9009"
+        ENERGY_DATA_RPC_ENDPOINTS = "127.0.0.1:9061"
+    }.GetEnumerator()) {
+    if (-not (Get-Item "env:$($kv.Key)" -ErrorAction SilentlyContinue)) {
+        Set-Item -Path "env:$($kv.Key)" -Value $kv.Value
+    }
+}
+
 # ---------- HTTP 小工具 ----------
 function Get-Json($url, $headers) {
     try {

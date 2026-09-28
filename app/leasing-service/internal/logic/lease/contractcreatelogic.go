@@ -74,7 +74,16 @@ func (l *ContractCreateLogic) ContractCreate(req *types.ContractCreateReq) (*typ
 		return nil, errorx.NewError(errorx.ErrBadRequest, "renew_notice_days 应在 0~365 之间")
 	}
 
-	from, _ := state.Next(0, state.ActionCreate)
+	// 初始状态由状态机给出(0=不存在 --create--> 待生效), 不硬编码。
+	//
+	// ⚠️ 原先这里写的是 `from, _ := state.Next(0, state.ActionCreate)` 并把 from 当 FromStatus 用:
+	// 那时这条边**不存在**, `_` 吞掉的正是 ok=false, from 拿到的是零值 0 —— 歪打正着把审计写对了。
+	// 一旦表里补上这条边(现已补), from 就会变成「待生效」而被写进 FromStatus, 语义当场反转。
+	// 这类"靠失败路径拿到正确值"的写法是定时炸弹, 所以改成显式取初始状态 + FromStatus 写常量 0。
+	initialStatus, ok := state.Next(0, state.ActionCreate)
+	if !ok {
+		return nil, errorx.NewError(errorx.ErrInternal, "状态机缺少建单起点")
+	}
 	// 租户来源必须是网关注入的 x-tenant-id(经 IdentityFromHeader 写入 ctx),
 	// 禁止信任请求体中的 tenant_id —— 否则客户端可伪造租户越权建合同.
 	tenantID := ctxdata.GetTenantId(l.ctx)
@@ -91,7 +100,7 @@ func (l *ContractCreateLogic) ContractCreate(req *types.ContractCreateReq) (*typ
 		Deposit:     deposit,
 		StartDate:       startDate,
 		EndDate:         endDate,
-		Status:          model.StatusPending,
+		Status:          initialStatus,
 		AutoRenew:       int8(req.AutoRenew),
 		RenewNoticeDays: req.RenewNoticeDays,
 	}
@@ -103,8 +112,8 @@ func (l *ContractCreateLogic) ContractCreate(req *types.ContractCreateReq) (*typ
 		}
 		return tx.Create(&model.LeaseContractStatusLog{
 			ContractId: contract.Id,
-			FromStatus: from,
-			ToStatus:   model.StatusPending,
+			FromStatus: 0, // 「不存在」: 与状态机的建单起点一致
+			ToStatus:   initialStatus,
 			Action:     state.ActionCreate,
 			Reason:     "新建合同",
 			OperatorId: ctxdata.GetUserId(l.ctx),

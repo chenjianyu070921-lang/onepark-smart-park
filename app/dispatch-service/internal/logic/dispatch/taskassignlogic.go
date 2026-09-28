@@ -169,6 +169,8 @@ func (l *TaskAssignLogic) lookupAssigneeName(assigneeId int64) string {
 // writeLog 写状态流转审计; 失败不影响主流程, 但必须留痕.
 func (l *TaskAssignLogic) writeLog(taskId int64, from, to int8, action string, operatorId int64) {
 	if err := l.svcCtx.DB.WithContext(l.ctx).Create(&model.DispatchTaskLog{
+		// 审计也写租户: 指派是从 HTTP 进来的, ctx 里就是网关注入的那个租户
+		TenantID:   ctxdata.GetTenantId(l.ctx),
 		TaskId:     taskId,
 		FromStatus: from,
 		ToStatus:   to,

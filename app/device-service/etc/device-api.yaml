@@ -39,6 +39,11 @@ TDengine:
 # HTTP 鉴权密钥; 为空时放行(M6 认证服务就绪前保持可联调)
 JwtSecret: "${JWT_SECRET}"
 
+# 影子服务(shadow-service)直连地址; 为空时注册链路仅写本地 shadow 表(device_db), 不同步 shadow_db
+ShadowRpc:
+  Target: "${SHADOW_RPC_TARGET}"
+  Timeout: 2000
+
 # 指令超时(秒)、超时扫描周期(秒)、单轮扫描批量、最大重发次数
 CommandTimeoutSec: 30
 TimeoutScanIntervalSec: 15

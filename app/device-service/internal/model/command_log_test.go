@@ -31,9 +31,13 @@ func newCommandLogTestDB(t *testing.T) (*commandLogModel, sqlmock.Sqlmock) {
 
 func TestRecordSuccessOnlyUpdatesPendingOrSent(t *testing.T) {
 	m, mock := newCommandLogTestDB(t)
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `command_log` SET `status`=2,`response`=?,`executed_at`=? WHERE request_id = ? AND status IN (?,?)")).
-		WithArgs([]byte(`{"ok":true}`), sqlmock.AnyArg(), "req-1", CommandStatusPending, CommandStatusSent).
+	// GORM 默认写操作包裹隐式事务(SkipDefaultTransaction=false), 必须期望 Begin/Commit
+	mock.ExpectBegin()
+	// GORM 对 Updates(map) 按列名字母序生成 SET 子句, 参数顺序随之调整
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `command_log` SET `executed_at`=?,`response`=?,`status`=? WHERE request_id = ? AND status IN (?,?)")).
+		WithArgs(sqlmock.AnyArg(), []byte(`{"ok":true}`), CommandStatusSuccess, "req-1", CommandStatusPending, CommandStatusSent).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	if err := m.RecordSuccess(context.Background(), "req-1", []byte(`{"ok":true}`), time.Now()); err != nil {
 		t.Fatalf("RecordSuccess failed: %v", err)
@@ -45,9 +49,12 @@ func TestRecordSuccessOnlyUpdatesPendingOrSent(t *testing.T) {
 
 func TestRecordFailureForRetryKeepsSentBelowLimit(t *testing.T) {
 	m, mock := newCommandLogTestDB(t)
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `command_log` SET `status`=CASE WHEN retry_count >= ? THEN 3 ELSE 1 END,`response`=?,`executed_at`=?,`timeout_at`=? WHERE request_id = ? AND status IN (?,?)")).
-		WithArgs(2, []byte(`{"error":"failed"}`), sqlmock.AnyArg(), sqlmock.AnyArg(), "req-1", CommandStatusPending, CommandStatusSent).
+	mock.ExpectBegin()
+	// 列序字母化: executed_at/response/status(CASE 表达式参数内联)/timeout_at
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `command_log` SET `executed_at`=?,`response`=?,`status`=CASE WHEN retry_count >= ? THEN ? ELSE ? END,`timeout_at`=? WHERE request_id = ? AND status IN (?,?)")).
+		WithArgs(sqlmock.AnyArg(), []byte(`{"error":"failed"}`), 2, CommandStatusFailed, CommandStatusSent, sqlmock.AnyArg(), "req-1", CommandStatusPending, CommandStatusSent).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	if err := m.RecordFailureForRetry(context.Background(), "req-1", []byte(`{"error":"failed"}`), time.Now(), 2); err != nil {
 		t.Fatalf("RecordFailureForRetry failed: %v", err)
@@ -59,8 +66,9 @@ func TestRecordFailureForRetryKeepsSentBelowLimit(t *testing.T) {
 
 func TestFindRetryListFiltersExpiredPendingOrSent(t *testing.T) {
 	m, mock := newCommandLogTestDB(t)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `command_log` WHERE status IN (?,?) AND timeout_at < NOW() ORDER BY `command_log`.`id` LIMIT 200")).
-		WithArgs(CommandStatusPending, CommandStatusSent).
+	// 断言口径对齐现行模型: FindRetryList 不带 ORDER BY, Limit 走占位符参数
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `command_log` WHERE status IN (?,?) AND timeout_at < NOW() LIMIT ?")).
+		WithArgs(CommandStatusPending, CommandStatusSent, 200).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "request_id"}).AddRow(1, "req-1"))
 
 	list, err := m.FindRetryList(context.Background(), 200)
@@ -77,9 +85,12 @@ func TestFindRetryListFiltersExpiredPendingOrSent(t *testing.T) {
 
 func TestClaimRetryIncrementsOnlyBelowLimit(t *testing.T) {
 	m, mock := newCommandLogTestDB(t)
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `command_log` SET `retry_count`=retry_count+1,`status`=1,`timeout_at`=? WHERE request_id = ? AND status IN (?,?) AND retry_count < ?")).
-		WithArgs(sqlmock.AnyArg(), "req-1", CommandStatusPending, CommandStatusSent, 2).
+	mock.ExpectBegin()
+	// gorm.Expr 原样输出 "retry_count + 1"(含空格), status/timeout_at 走占位符
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `command_log` SET `retry_count`=retry_count + 1,`status`=?,`timeout_at`=? WHERE request_id = ? AND status IN (?,?) AND retry_count < ?")).
+		WithArgs(CommandStatusSent, sqlmock.AnyArg(), "req-1", CommandStatusPending, CommandStatusSent, 2).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	claimed, err := m.ClaimRetry(context.Background(), "req-1", time.Now().Add(30*time.Second), 2)
 	if err != nil {
@@ -95,9 +106,11 @@ func TestClaimRetryIncrementsOnlyBelowLimit(t *testing.T) {
 
 func TestFinishTimeoutOnlyUpdatesPendingOrSent(t *testing.T) {
 	m, mock := newCommandLogTestDB(t)
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `command_log` SET `status`=4 WHERE request_id = ? AND status IN (?,?)")).
-		WithArgs("req-1", CommandStatusPending, CommandStatusSent).
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `command_log` SET `status`=? WHERE request_id = ? AND status IN (?,?)")).
+		WithArgs(CommandStatusTimeout, "req-1", CommandStatusPending, CommandStatusSent).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	if err := m.FinishTimeout(context.Background(), "req-1"); err != nil {
 		t.Fatalf("FinishTimeout failed: %v", err)

@@ -43,6 +43,19 @@ func toTaskDTO(m *model.DispatchTask) types.DispatchTask {
 	}
 }
 
+// toTaskLogDTO 将状态流转审计转换为对外契约对象(详情页时间线的一格).
+func toTaskLogDTO(m *model.DispatchTaskLog) types.TaskLog {
+	return types.TaskLog{
+		Id:         m.Id,
+		FromStatus: int32(m.FromStatus),
+		ToStatus:   int32(m.ToStatus),
+		Action:     m.Action,
+		Remark:     m.Remark,
+		OperatorId: m.OperatorId,
+		CreatedAt:  m.CreatedAt.Unix(),
+	}
+}
+
 // toStaffDTO 将人员模型转换为对外契约对象.
 func toStaffDTO(m *model.DispatchStaff) types.StaffItem {
 	return types.StaffItem{

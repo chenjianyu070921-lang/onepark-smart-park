@@ -28,6 +28,14 @@ const (
 
 // transitions 合法状态转移表: from -> action -> to.
 var transitions = map[int8]map[string]int8{
+	// 0 = 「不存在」: 审计流水里的起点(FromStatus), 也是建单的出发状态。
+	//
+	// 建单是一条**真实**的转移(不存在的工单 -> 待指派), 所以放进表里:
+	// 建单逻辑据此取初始状态, 而不是各处硬编码 model.StatusPendingAssign ——
+	// 一旦硬编码与审计流水里的 ToStatus 写得不一样, 就是一次静默的状态漂移。
+	0: {
+		ActionCreate: model.StatusPendingAssign,
+	},
 	model.StatusPendingAssign: {
 		ActionAssign: model.StatusAssigned,
 		ActionClose:  model.StatusClosed,
@@ -59,12 +67,4 @@ func IsTerminal(status int8) bool {
 	return status == model.StatusClosed
 }
 
-// IsValid 判断状态码是否合法.
-func IsValid(status int8) bool {
-	switch status {
-	case model.StatusPendingAssign, model.StatusAssigned, model.StatusProcessing,
-		model.StatusCompleted, model.StatusClosed:
-		return true
-	}
-	return false
-}
+

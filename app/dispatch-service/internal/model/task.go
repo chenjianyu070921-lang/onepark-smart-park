@@ -4,6 +4,8 @@ package model
 import (
 	"fmt"
 	"math/rand"
+	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -89,9 +91,44 @@ type DispatchTaskLog struct {
 // TableName 指定表名.
 func (DispatchTaskLog) TableName() string { return "dispatch_task_log" }
 
-// NewTaskNo 生成调度单号: DT + yyyyMMddHHmmss + 3 位随机数.
-// 随机数用于降低同秒并发碰撞概率; 唯一性最终由 uk_task_no 兜底.
+// taskNoSeq 单号序号计数器(进程内).
+// 随机起点: 多实例部署时让各实例的序列错开, 降低跨实例撞号概率.
+var taskNoSeq uint32
+
+func init() { taskNoSeq = uint32(rand.Intn(1000)) }
+
+// NewTaskNo 生成调度单号: DT + yyyyMMddHHmmss + 3 位序号.
+//
+// 序号用**进程内原子计数器**, 不再用随机数 —— 这是 2026-09-27 修的一个真 Bug:
+// 旧实现 `rand.Intn(1000)` 在同秒内只有 1000 种取值, 建 5 张单约有 1% 概率撞号、
+// 10 张约 4.4%、50 张约 71%(演示 seed 脚本 5 张单里挂了 1 张, 才暴露出来)。
+// 而撞 `uk_task_no` 的后果**不只是报错**: 告警自动建单路径把 1062 一概当成
+// 「告警已建单」静默跳过 —— 真实告警会因此**建不出工单而无人察觉**。
+//
+// 计数器保证同进程内每秒 ≤1000 张单**绝不重复**; 超过 1000 张/秒(或跨实例并发)仍可能撞,
+// 由两条建单路径的换号重试兜底(见 IsDuplicateKeyOn 的用法)。
+//
 // 放在 model 层, 是因为「人工建单」与「告警自动建单」两条路径都要用它.
 func NewTaskNo() string {
-	return fmt.Sprintf("DT%s%03d", time.Now().Format("20060102150405"), rand.Intn(1000))
+	n := atomic.AddUint32(&taskNoSeq, 1)
+	return fmt.Sprintf("DT%s%03d", time.Now().Format("20060102150405"), n%1000)
+}
+
+// IsDuplicateKeyOn 判断错误是否为**指定唯一索引**的冲突(MySQL 1062).
+//
+// 为什么必须带索引名: 同一个 1062 对不同唯一键的处置完全相反 ——
+//
+//	uk_alarm_id 冲突 = 告警重投, 幂等跳过 **正确**;
+//	uk_task_no  冲突 = 单号撞号, 跳过就等于**把没建成的单当成早就建过**, 真实告警被丢掉。
+//
+// 一律按"已存在"处理正是上面那个静默丢单 Bug 的成因, 所以这里刻意要求指名索引。
+func IsDuplicateKeyOn(err error, index string) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "1062") && !strings.Contains(msg, "Duplicate entry") {
+		return false
+	}
+	return strings.Contains(msg, index)
 }

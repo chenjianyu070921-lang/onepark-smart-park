@@ -31,10 +31,14 @@ const ActionCreated = "create"
 
 // AlarmEvent 告警事件载荷(JSON, snake_case 与 proto/common 字段命名保持一致).
 //
-// ⚠️ severity 口径待与 M5 书面确认: 本服务沿用 docs/m3/04 §5.1 的
-// 1提示 / 2一般 / 3严重 / 4紧急; 而 M5 确认书 §3.1 的 AlarmStatResponse 注释写的是
-// "severity = 1 critical / 2 major / 3 minor"(1 最严重), 两者方向相反.
-// 在确认前一律按 M3 自身语义发送, 不擅自翻转 —— 翻转会让告警等级在本服务与 M5 之间含义不一致.
+// severity 口径(2026-09-22 与 M5 对齐完成, 结论: 不翻转):
+// 本服务沿用 docs/m3/04 §5.1 的 1提示 / 2一般 / 3严重 / 4紧急(值越大越严重);
+// M5 侧 dashboard-service/internal/provider/alarm.go 的等级常量已按同一口径书写
+// (alarmLevelInfo=1 ~ alarmLevelCritical=4), 即大屏读的就是 M3 语义, 不存在反转。
+// M5 确认书 §3.1 里"1 critical / 2 major / 3 minor"的写法只出现在文件注释中, 未落到代码;
+// 且派单优先级正是由本包显式换算后下发(priority, M5 语义: 值越小越紧急),
+// 消费方不需要再从 severity 反推。故维持 M3 语义原样发送 ——
+// 一旦翻转, 大屏等级与派单优先级会同时反向, 而两边代码各自看起来都自洽。
 type AlarmEvent struct {
 	AlarmID   string `json:"alarm_id"`   // 业务编号 alarm_no, 与 M5 dispatch_task.uk_alarm_id 对齐
 	Action    string `json:"action"`     // create(产生) / resolve(解决)

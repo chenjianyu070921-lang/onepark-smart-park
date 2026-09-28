@@ -81,6 +81,16 @@ type CreateMenuResp {
 	Id uint64 `json:"id"`
 }
 
+// 菜单查询: role_id > 0 时只返回该角色已授权的菜单(前端侧边栏), 不传返回全量目录.
+type MenuListReq {
+	RoleId uint64 `form:"role_id,optional"`
+}
+
+type MenuListResp {
+	List  []MenuInfo `json:"list"`
+	Total int64      `json:"total"`
+}
+
 type AssignMenuReq {
 	RoleId uint64 `json:"role_id"`
 	MenuId uint64 `json:"menu_id"`
@@ -122,6 +132,9 @@ service usermanage-api {
 
 	@handler MenuCreate
 	post /api/menus (CreateMenuReq) returns (CreateMenuResp)
+
+	@handler MenuList
+	get /api/menus (MenuListReq) returns (MenuListResp)
 
 	@handler RoleMenuAssign
 	post /api/roles/menus (AssignMenuReq)

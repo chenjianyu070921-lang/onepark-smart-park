@@ -84,6 +84,7 @@ export const menuConfig: MenuNode[] = [
     children: [
       { key: 'contract', label: '合同管理', path: '/leasing/contract' },
       { key: 'occupancy', label: '出租率', path: '/leasing/occupancy' },
+      { key: 'billing', label: '账单管理', path: '/billing' },
     ],
   },
   {

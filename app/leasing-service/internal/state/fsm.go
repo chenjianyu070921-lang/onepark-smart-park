@@ -21,6 +21,12 @@ const (
 
 // transitions 合法状态转移表: from -> action -> to.
 var transitions = map[int8]map[string]int8{
+	// 0 = 「不存在」: 审计流水里的起点(FromStatus), 也是建单的出发状态。
+	// 建单的初始状态是「待生效」——注意这是**固定的**: 合同是否已生效由后续的
+	// activate(按起租日) 决定, 不靠建单时猜日期(那样会绕过状态机做判断)。
+	0: {
+		ActionCreate: model.StatusPending,
+	},
 	model.StatusPending: {
 		ActionActivate:  model.StatusActive,
 		ActionTerminate: model.StatusTerminated,
@@ -48,11 +54,4 @@ func IsTerminal(status int8) bool {
 	return status == model.StatusTerminated
 }
 
-// IsValid 判断状态码是否合法(防脏数据).
-func IsValid(status int8) bool {
-	switch status {
-	case model.StatusPending, model.StatusActive, model.StatusExpired, model.StatusTerminated:
-		return true
-	}
-	return false
-}
+

@@ -6,6 +6,15 @@ info (
 	version: "1.0"
 )
 
+// ⚠️ 重新生成前必读(2026-09-27 实测踩到):
+// `goctl api go -api leasing.api -dir .` 会**抹掉两处手工添加**, 生成后必须 `git diff` 逐行确认,
+// 不要 `git add -A` 一把梭:
+//   1) internal/handler/routes.go 里的 `GET /health` 路由 —— .api 无对应语法, 生成器不认识它,
+//      被删掉会直接打挂健康检查(自检脚本/k8s 探针都依赖它);
+//   2) internal/types/types.go 里 BillAutoResp.Failed —— 该字段此前只存在于生成物里(源头漂移),
+//      现已补回本文件, 后续生成不会再丢。
+// 另外: OccupancyReq 刻意不声明 tenant_id, 原因见其上方注释(租户只从网关注入的身份头取)。
+
 type (
 	// Contract 租赁合同。金额字段一律用字符串传输, 避免 JSON 浮点精度丢失
 	Contract {
@@ -78,8 +87,15 @@ type (
 		Status int32 `json:"status"`
 	}
 	// ==================== 入驻率统计 ====================
+	// OccupancyReq 入驻率查询请求。
+	//
+	// 刻意**没有** tenant_id 参数: 租户只从网关注入的身份头取
+	// (见 occupancylogic.go 的 ctxdata.GetTenantId)。
+	// 允许请求方自己指定租户等于开一个跨租户读取的口子 ——
+	// 2026-09-21 修掉的「账单三接口租户越权」就是这一类;
+	// 跨租户查看属于 RBAC 数据范围, 应由网关的 x-data-scope 收口, 不由业务参数承担。
+	// (gRPC 侧不经过网关, 由 rpcserver 把调用方声明的租户注入 ctx —— 见 GetOccupancy。)
 	OccupancyReq {
-		TenantId int64 `form:"tenant_id,default=0"`
 	}
 	OccupancyResp {
 		TotalAreaSqm  float64 `json:"total_area_sqm"`
@@ -118,7 +134,8 @@ type (
 	BillAutoResp {
 		Period  string `json:"period"`
 		Created int64  `json:"created"` // 新生成账单数
-		Skipped int64  `json:"skipped"` // 幂等跳过数
+		Skipped int64  `json:"skipped"` // 幂等跳过数(该账期账单已存在)
+		Failed  int64  `json:"failed"`  // 落库失败数(非重复错误, 需人工介入)
 	}
 	// ==================== 租金账单查询 ====================
 	// Bill 账单对外契约; 金额用字符串承载 decimal, 与合同口径一致
