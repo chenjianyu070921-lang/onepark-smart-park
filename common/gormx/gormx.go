@@ -3,6 +3,8 @@
 package gormx
 
 import (
+	"errors"
+
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -19,4 +21,12 @@ type DB = gorm.DB
 // 注意: gorm.Open 不会立即建立 TCP 连接, 首次查询时才会真正拨号.
 func NewDB(dsn string) (*gorm.DB, error) {
 	return gorm.Open(mysql.Open(dsn), &gorm.Config{})
+}
+
+// IsDuplicateKey 判断错误是否为唯一键冲突(并发插入竞态的兜底判定).
+// GORM 已将 MySQL 1062 归一为 gorm.ErrDuplicatedKey; 这里再 errors.Is 一层以兼容包装/翻译.
+// 配合各业务表"生成列 + 唯一索引"的并发去重防线(见 deploy/sql/m2_p2_*_unique.sql),
+// 使"查→写"非原子路径在竞态下可幂等回退而非产生重复生效记录.
+func IsDuplicateKey(err error) bool {
+	return errors.Is(err, gorm.ErrDuplicatedKey)
 }
