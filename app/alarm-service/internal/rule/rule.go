@@ -151,6 +151,34 @@ func IsValidRuleType(t string) bool {
 	return ok
 }
 
+// WithDeclaredType 用库表显式声明的规则类型(alarm_rule.rule_type)覆盖 JSON 推断结果.
+//
+// 为什么以列为准而不是以 JSON 为准:
+//  1. rule_type 是创建接口的必填项且经 normalizeRuleType 归一化, 是运维在控制台看到的那个值;
+//     conditions 里的 type 是可选字段(文档 04 的扁平写法就没有), 缺了只能靠字段推断;
+//  2. 两边冲突时若认 JSON, 会出现"控制台明明写着时间窗口规则, 实际按阈值逐条触发" ——
+//     现象是告警风暴, 而规则列表、详情接口回显的 rule_type 一切正常, 从配置面完全看不出来。
+//
+// 非法/空值一律不覆盖: 列里存了脏值(历史数据直连改库)时, 宁可退回 JSON 推断也不让规则变成
+// 引擎不认识的第四种类型 —— 未知类型在 Evaluate 的 switch 里会整条跳过, 等于规则静默失效。
+func WithDeclaredType(spec *NormalizedSpec, declared string) *NormalizedSpec {
+	if spec == nil {
+		return nil
+	}
+	t := strings.ToLower(strings.TrimSpace(declared))
+	if t == "" {
+		return spec
+	}
+	if alias, ok := ruleTypeAlias[t]; ok {
+		t = alias
+	}
+	if t != RuleTypeThreshold && t != RuleTypeCombination && t != RuleTypeTimeWindow {
+		return spec
+	}
+	spec.Type = t
+	return spec
+}
+
 // operator 归一化后的比较算子.
 type operator string
 

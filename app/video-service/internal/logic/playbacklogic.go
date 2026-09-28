@@ -107,7 +107,7 @@ func (l *PlaybackLogic) Playback(req *types.PlaybackReq) (*types.PlaybackResp, e
 			PlanName:    w.planName,
 			StartTime:   startUnix,
 			EndTime:     endUnix,
-			PlaybackUrl: playbackURL(l.svcCtx.Config.Record.PlaybackBaseURL, camera.DeviceID, startUnix, endUnix, sign, expiresAt),
+			PlaybackUrl: playbackURL(l.svcCtx.Config.Record.PlaybackBaseURL, camera.DeviceID, camera.ID, startUnix, endUnix, sign, expiresAt),
 			ExpiresAt:   expiresAt,
 			Sign:        sign,
 			SignAlg:     alg,
@@ -136,12 +136,13 @@ func (l *PlaybackLogic) playbackTTL() time.Duration {
 	return time.Hour
 }
 
-// playbackURL 拼接回放地址: {base}/{deviceID}.mp4?start=&end=[&expires=&sign=].
+// playbackURL 拼接回放地址: {base}/{deviceID}.mp4?start=&end=[&camera_id=&expires=&sign=].
 //
 // base 为空返回空串: 没有实际承载点时不下发编造出来的 URL(与 #51 FLV 的取舍一致),
 // 时间窗口仍然返回 —— 调用方至少能知道"按计划哪些时段有录像"。
 // 未启用签名时不追加 expires/sign, 行为与签名能力上线前一致。
-func playbackURL(base, deviceID string, startUnix, endUnix int64, sign string, expiresAt int64) string {
+// camera_id 与 FLV 侧同理: 回放签名绑的是摄像头主键, 校验方要能直接从地址上拿到它.
+func playbackURL(base, deviceID string, cameraID, startUnix, endUnix int64, sign string, expiresAt int64) string {
 	base = strings.TrimSpace(base)
 	if base == "" || deviceID == "" {
 		return ""
@@ -152,6 +153,7 @@ func playbackURL(base, deviceID string, startUnix, endUnix int64, sign string, e
 	if sign == "" {
 		return url
 	}
-	return url + "&" + QueryExpires + "=" + strconv.FormatInt(expiresAt, 10) +
+	return url + "&" + QueryCameraID + "=" + strconv.FormatInt(cameraID, 10) +
+		"&" + QueryExpires + "=" + strconv.FormatInt(expiresAt, 10) +
 		"&" + QuerySign + "=" + sign
 }

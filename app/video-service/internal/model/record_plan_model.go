@@ -102,6 +102,20 @@ func (m *recordPlanModel) Delete(ctx context.Context, tenantID, id int64) error 
 	return nil
 }
 
+// DeleteByCamera 删除指定摄像头下的全部计划.
+//
+// 一条 DELETE 而不是"先 List 再逐条 Delete": 两步之间新创建的计划会漏掉,
+// 而这类漏网之鱼正是最难被发现的那一批(看不见、查不到、只在继承时冒出来)。
+func (m *recordPlanModel) DeleteByCamera(ctx context.Context, tenantID, cameraID int64) (int64, error) {
+	res := m.db.WithContext(ctx).
+		Where("camera_id = ? AND tenant_id = ?", cameraID, tenantID).
+		Delete(&RecordPlan{})
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
+}
+
 func (m *recordPlanModel) List(ctx context.Context, f RecordPlanListFilter) ([]*RecordPlan, int64, error) {
 	tx := m.db.WithContext(ctx).Model(&RecordPlan{}).Where("tenant_id = ?", f.TenantID)
 	if f.CameraID != 0 {
