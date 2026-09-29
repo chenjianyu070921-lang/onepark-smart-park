@@ -1,0 +1,103 @@
+# =============================================================================
+# 本地临时覆盖文件 —— 不提交, 不修改官方 docker-compose.yml.
+# 仅用于本机开发环境启动, 解决上游镜像不可拉取 / 端口冲突 / apache 镜像 PATH 问题.
+#
+# 问题1: 官方 compose 的 kafka 镜像 bitnami/kafka 已于 2025 年从 Docker Hub 下线,
+#        任意 tag(含 latest)均返回 not found, 导致全量 make up 卡在拉 kafka.
+# 方案: 改用官方 ASF 镜像 apache/kafka:3.7.0(已验证可经代理直连 docker.io 拉取),
+#       并将 bitnami 风格的 KAFKA_CFG_* 环境变量改为 apache 风格 KAFKA_*.
+#
+# 问题2: 本机已有另一技术栈的 kafka 占用了主机 9092 端口, onepark-kafka 无法直接映射 9092;
+#        且单监听器 advertised 若设为 127.0.0.1:9092, 宿主消费者会拿到协调者地址 127.0.0.1:9092,
+#        被另一套 confluent kafka 容器截胡, 导致 "Group Coordinator Not Available" 无限重试.
+# 方案: 双监听器. PLAINTEXT://:9092 供 compose 内部(kafka-init 经 kafka:9092 连接, advertised=kafka:9092);
+#        EXTERNAL://:9192 供宿主 M2 服务(经 127.0.0.1:9192 端口映射回环到容器 9192, advertised=127.0.0.1:9192).
+#        因 compose 对 ports 为追加合并, 启动前 export KAFKA_PORT=9191(让 base 仅暴露无害的 9191:9092),
+#        本 override 再显式把宿主 9192 映射到容器 9192(EXTERNAL 监听器).
+#
+# 问题3: apache/kafka 镜像内 PATH 为空, 健康检查与 init-topics.sh 找不到 kafka-topics.sh
+#       (实际位于 /opt/kafka/bin). 修复: kafka 健康检查用绝对路径; kafka-init 注入 PATH.
+#
+# 用法(必须显式带两个 -f; 且先 export KAFKA_PORT=9191, 避免 base 的 9092 映射与 EXTERNAL 冲突):
+#   $env:KAFKA_PORT="9191"
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml \
+#     --env-file deploy/.env up -d mysql redis kafka kafka-init \
+#     workorder-service parking-service visitor-service notice-service
+# =============================================================================
+
+services:
+  # KRaft 模式单节点(无 ZooKeeper), 与官方 bitnami 配置等价的 apache 实现.
+  # 注意: 不在此处覆盖 ports(Compose 对 ports 为追加合并, 会叠加 base 的 9092 映射导致冲突);
+  # 主机端口改由命令行 export KAFKA_PORT=9192 控制 base 的 "${KAFKA_PORT:-9092}:9092".
+  kafka:
+    image: apache/kafka:3.7.0
+    # compose 对 ports 为追加合并, base 的 "${KAFKA_PORT}:9092" 会保留. 为避免宿主 9192 被
+    # base 的 9092 监听器与下方 EXTERNAL 监听器重复占用, 启动时 export KAFKA_PORT=9191
+    # (base 仅暴露无害的 9191:9092); 本 override 显式把宿主 9192 映射到容器 9192(EXTERNAL).
+    ports:
+      - "9192:9192"
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "controller,broker"
+      # 双监听器:
+      #  - PLAINTEXT://:9092 供 compose 内部组件访问(kafka-init 经 kafka:9092 连接),
+      #    advertised=kafka:9092, 仅在 docker 内网可达.
+      #  - EXTERNAL://:9192 供宿主 M2 服务访问(经 127.0.0.1:9192 端口映射回环到容器 9192),
+      #    advertised=127.0.0.1:9192, 仅在宿主网络命名空间可达.
+      # 旧配置单监听器 advertised=127.0.0.1:9092, 宿主消费者拿到协调者地址后去连宿主 9092,
+      # 被另一套 confluent kafka 容器截胡, 导致 "Group Coordinator Not Available" 无限重试.
+      KAFKA_LISTENERS: PLAINTEXT://:9092,EXTERNAL://:9192,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://127.0.0.1:9192
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      # 单节点 KRaft 下, 内部 topic(__consumer_offsets / __transaction_state)默认副本因子为 3,
+      # 但集群只有 1 个 broker, controller 无法以 RF=3 创建, 导致消费者永远拿不到 Group Coordinator
+      # (日志反复 "Sent auto-creation request for Set(__consumer_offsets) to the active controller"
+      # 但 topic 始终为空). 必须显式降为 1, 否则所有消费者组均 Group Coordinator Not Available.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      # 普通 topic 默认副本因子也降为 1, 否则业务 topic 经 auto-create 时(默认 RF=3)同样建不出来.
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
+      # 单节点 dev broker 无需默认 1G 堆; 限到 512M 显著降低常驻内存(实测 RSS 由 ~774MiB 降至 ~450MiB).
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"
+      KAFKA_LOG_DIRS: /tmp/kafka-logs
+    # 去掉外部卷挂载: apache/kafka 以 appuser(uid 1000) 运行, 挂载卷后 /tmp/kafka-logs 属主为 root
+    # 导致写 meta.properties 失败; 改用容器内 /tmp/kafka-logs(对 appuser 可写), 开发期数据不持久化.
+    volumes: []
+    # apache 镜像内 PATH 为空, 健康检查改用绝对路径定位 kafka-topics.sh
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # 一次性 topic 初始化: 复用 apache/kafka 镜像(自带 kafka-topics.sh), 通过内部 kafka:9092 访问.
+  # 注意: apache/kafka 镜像基于 busybox, 仅含 /bin/sh(busybox)无 bash; 官方 init-topics.sh 使用 bash 数组语法
+  # 无法执行(报 127). 故此处 command 覆盖为 sh 兼容的内联脚本预建业务 topic(幂等 --if-not-exists).
+  # 即使不预建, 业务 topic 也会经 broker 的 auto.create.topics.enable 自动创建; 这里预建仅为明确分区数.
+  kafka-init:
+    image: apache/kafka:3.7.0
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      KAFKA_REPLICATION_FACTOR: "1"
+      # 追加 kafka bin 到标准系统 PATH(/bin 含 busybox sh), 使 kafka-topics.sh 与 sh 均可定位.
+      PATH: /opt/kafka/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    # 覆盖 base 的 command(官方 init-topics.sh 依赖 bash), 改用 sh 循环预建 topic.
+    # $$ 为 compose 转义, 实际传给容器的是 $; 变量在容器内解析.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        BOOTSTRAP="$${KAFKA_BOOTSTRAP:-kafka:9092}"
+        RF="$${KAFKA_REPLICATION_FACTOR:-1}"
+        for entry in device-telemetry:6 parking-entry:3 parking-exit:3 alarm-event:3 onepark.alarm.event:3 notice-event:3 workorder-event:3 visitor-event:3 event-dispatcher-dlq:3; do
+          topic="$${entry%%:*}"
+          parts="$${entry##*:}"
+          kafka-topics.sh --bootstrap-server "$$BOOTSTRAP" --create --if-not-exists --topic "$$topic" --partitions "$$parts" --replication-factor "$$RF" || true
+          echo "[init-topics] ensure: $$topic (partitions=$$parts)"
+        done
+        echo "[init-topics] done."
