@@ -22,6 +22,11 @@ coverage.txt
 .env
 *.local
 
+# 本地覆盖配置：文件名里带 .local. 的（如 deploy/workorder-grpc.local.yaml、web/admin/vite.config.local.ts）
+# ⚠️ 上面那条 `*.local` 只匹配**以 .local 结尾**的文件，这两类都漏掉了 → 会一直挂在 git status 里，
+# 哪天 `git add .` 就把个人本地配置提交进仓库了。
+*.local.*
+
 # Docker
 deploy/.env
 

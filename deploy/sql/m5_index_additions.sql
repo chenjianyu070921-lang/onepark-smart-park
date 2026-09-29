@@ -1,0 +1,58 @@
+-- ============================================================================
+-- M5 索引补充建议（**尚未执行**，需走表结构变更流程后再跑）
+--
+-- 来源: docs/m5/08-大屏性能基线.md 第七节的执行计划验证（影子表灌 5000 行后 EXPLAIN）。
+-- 方法: 不往真表灌数据, 而是 CREATE TABLE <真表>__x<随机> LIKE <真表> 造影子表量计划。
+--
+-- 结论: 10 条真实查询**全部**走索引, 设计目标的组合索引都被优化器选中。
+--       下面两条是那次验证里发现的**可改进项** —— 当前数据量下都不是瓶颈,
+--       改不改取决于后续数据量; 先留档, 不要因为"看着能优化"就直接在生产跑。
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 1. 重派扫描: dispatch_task 的 assign_expire_at 没有索引
+-- ---------------------------------------------------------------------------
+-- 真实 SQL（app/dispatch-service/internal/cron/reassign.go:106）:
+--   SELECT * FROM dispatch_task
+--   WHERE status = 2 AND assign_expire_at IS NOT NULL AND assign_expire_at < NOW() LIMIT 100;
+--
+-- 当前计划: type=ref key=idx_status_priority rows=1000 Extra=Using where
+--   —— 只能借 status 的前缀进索引, 再**回表逐行过滤** assign_expire_at,
+--      影子表 5000 行里要扫 1000 行才凑够 100 条结果。
+--
+-- 为什么要紧: 这条 SQL **每轮 cron 都执行**(默认 60s 一次), 成本随「已指派」的行数线性增长。
+-- 顺带说明: 列顺序必须是 (status, assign_expire_at) —— 反过来用不上 status 的等值前缀,
+--          而 status=2 是这个查询唯一稳定的等值条件。
+--
+-- ALTER TABLE dispatch_db.dispatch_task
+--   ADD INDEX idx_status_expire (status, assign_expire_at);
+
+-- ---------------------------------------------------------------------------
+-- 2. 账单按租户查: lease_bill 没有 tenant_id 索引
+-- ---------------------------------------------------------------------------
+-- 真实 SQL（app/leasing-service/internal/logic/lease/billlistlogic.go:62,67）:
+--   SELECT * FROM lease_bill WHERE tenant_id = ? AND status = ? ORDER BY id DESC LIMIT 20;
+--
+-- 当前计划: type=index key=PRIMARY rows=20 Extra=Using where
+--   —— 租户维度**只能回表过滤**（现有索引是 idx_period_status 与 uk_contract_period）。
+--      LIMIT 小时代价可接受, 但「按租户查全部账单 + 大偏移分页」会退化成扫全表。
+--
+-- 注意: 若将来账单改为按「租户 + 账期」查, 更合适的索引是 (tenant_id, billing_period, status);
+--       加哪个取决于前端实际的查询组合, **别一次加两条**。
+--
+-- ALTER TABLE leasing_db.lease_bill
+--   ADD INDEX idx_tenant_status (tenant_id, status);
+
+-- ---------------------------------------------------------------------------
+-- 执行与回滚
+-- ---------------------------------------------------------------------------
+-- 执行前: 记录当前计划作为对照, 执行后**重跑一次 EXPLAIN 对比**(不能只看"加成功了"):
+--   docker exec -e MYSQL_PWD=<pw> onepark-mysql mysql -e "EXPLAIN <上面的 SQL>"
+--   或直接重跑工具: go run ./app/dispatch-service/tools/dbexplain -dsn ... -rows 5000
+--
+-- 回滚:
+--   ALTER TABLE dispatch_db.dispatch_task DROP INDEX idx_status_expire;
+--   ALTER TABLE leasing_db.lease_bill      DROP INDEX idx_tenant_status;
+--
+-- ⚠️ 加索引是**在线 DDL**: MySQL 8 对普通二级索引支持 INPLACE(期间可读写), 但会占用
+--    额外磁盘与 短暂 IO; 演示前不要做, 找空闲窗口。

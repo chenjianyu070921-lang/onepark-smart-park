@@ -5,6 +5,8 @@ import {
   Card,
   Descriptions,
   Drawer,
+  message,
+  Modal,
   Select,
   Space,
   Table,
@@ -14,13 +16,20 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
+  assignTask,
   getTaskDetail,
+  listStaffs,
   listTasks,
   TASK_ACTION,
+  TASK_ALLOWED_ACTIONS,
+  TASK_BUTTON_LABEL,
   TASK_PRIORITY,
   TASK_SOURCE,
   TASK_STATUS,
+  updateTaskStatus,
   type DispatchTask,
+  type StaffItem,
+  type TaskAction,
   type TaskDetail,
 } from '../../api/dispatch'
 import { listZones, type Zone } from '../../api/leasing'
@@ -36,10 +45,10 @@ interface TaskQuery extends BaseQuery {
 }
 
 export default function DispatchListPage() {
-  const { list, loading, query, setQuery, pagination } = useTableQuery<DispatchTask, TaskQuery>(
-    (q) => listTasks(q),
-    { page: 1, page_size: PAGE_SIZE },
-  )
+  const { list, loading, query, setQuery, reload, pagination } = useTableQuery<
+    DispatchTask,
+    TaskQuery
+  >((q) => listTasks(q), { page: 1, page_size: PAGE_SIZE })
 
   // 园区下拉: 复用租赁的区域清单(同一套 zone_code)。取不到就降级为空选项, 不影响其余筛选。
   const [zones, setZones] = useState<Zone[]>([])
@@ -66,6 +75,123 @@ export default function DispatchListPage() {
     } finally {
       setDetailLoading(false)
     }
+  }
+
+  // ---- 指派 / 状态流转 ----
+  // 操作成功后统一刷新: 列表必刷; 详情抽屉开着时也刷一次 —— 否则时间线会停在操作前,
+  // 演示时刚点完「开始」却在时间线里看不到那一条, 很容易被当成"没生效"。
+  const [actingId, setActingId] = useState<number | null>(null)
+  const [assignRow, setAssignRow] = useState<DispatchTask | null>(null)
+  const [staffs, setStaffs] = useState<StaffItem[]>([])
+  const [staffsLoading, setStaffsLoading] = useState(false)
+  const [assigneeId, setAssigneeId] = useState<number>(0)
+  const [assigning, setAssigning] = useState(false)
+
+  const refreshAfterAction = async () => {
+    reload()
+    if (open && detail?.task) {
+      try {
+        setDetail(await getTaskDetail(detail.task.id))
+      } catch {
+        // 详情刷新失败不影响列表已经刷新的结果
+      }
+    }
+  }
+
+  const openAssign = async (row: DispatchTask) => {
+    setAssignRow(row)
+    setAssigneeId(0) // 默认「自动指派」: 演示时一键就能看后端打分的结果
+    setStaffsLoading(true)
+    try {
+      // 只列**在岗**人员: 指给不在岗的人只会白挨一条 4xx
+      const r = await listStaffs({ on_duty: 1, page: 1, page_size: 100 })
+      setStaffs(r.list ?? [])
+    } catch {
+      setStaffs([])
+    } finally {
+      setStaffsLoading(false)
+    }
+  }
+
+  const doAssign = async () => {
+    if (!assignRow) return
+    setAssigning(true)
+    try {
+      const r = await assignTask(assignRow.id, assigneeId)
+      const who = r.assignee_name || `#${r.assignee_id}`
+      message.success(assigneeId === 0 ? `已自动指派: ${who}` : `已指派: ${who}`)
+      setAssignRow(null)
+      await refreshAfterAction()
+    } catch {
+      // 错误提示由 axios 拦截器统一弹出; 对话框保持打开, 便于改选别人
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  const doAction = (row: DispatchTask, action: Exclude<TaskAction, 'assign'>) => {
+    const label = TASK_BUTTON_LABEL[action]
+    const run = async () => {
+      setActingId(row.id)
+      try {
+        await updateTaskStatus(row.id, action)
+        message.success(`已${label}: ${row.task_no}`)
+        await refreshAfterAction()
+      } catch {
+        // 同上
+      } finally {
+        setActingId(null)
+      }
+    }
+    // 「关闭」是终态、不可回退 -> 单独确认; 其余是常规推进, 不打断操作
+    if (action === 'close') {
+      Modal.confirm({
+        title: `关闭工单 ${row.task_no}?`,
+        content: '关闭后为终态, 不能再推进状态(审计流水仍保留)。',
+        okText: '确认关闭',
+        cancelText: '取消',
+        onOk: run,
+      })
+      return
+    }
+    void run()
+  }
+
+  // 按钮集合由后端状态机的可达边生成(见 api/dispatch.ts 的 TASK_ALLOWED_ACTIONS):
+  // UI 不提供后端必拒的操作, 终态则明确显示「终态」而不是给一排点不动的灰按钮。
+  const renderActions = (row: DispatchTask) => {
+    const allowed = TASK_ALLOWED_ACTIONS[row.status] ?? []
+    if (allowed.length === 0) {
+      return <Typography.Text type="secondary">终态</Typography.Text>
+    }
+    return (
+      <Space size={0} wrap>
+        {allowed.map((a) =>
+          a === 'assign' ? (
+            <Button
+              key={a}
+              type="link"
+              size="small"
+              disabled={actingId === row.id}
+              onClick={() => void openAssign(row)}
+            >
+              {/* 已指派的再指派就是改派, 文案跟着状态变 */}
+              {row.status === 2 ? '改派' : TASK_BUTTON_LABEL[a]}
+            </Button>
+          ) : (
+            <Button
+              key={a}
+              type="link"
+              size="small"
+              disabled={actingId === row.id}
+              onClick={() => doAction(row, a)}
+            >
+              {TASK_BUTTON_LABEL[a]}
+            </Button>
+          ),
+        )}
+      </Space>
+    )
   }
 
   const columns: ColumnsType<DispatchTask> = [
@@ -111,12 +237,15 @@ export default function DispatchListPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 110,
+      width: 300,
       fixed: 'right',
       render: (_, row) => (
-        <Button type="link" size="small" onClick={() => void openDetail(row)}>
-          时间线
-        </Button>
+        <Space size={0} wrap>
+          <Button type="link" size="small" onClick={() => void openDetail(row)}>
+            时间线
+          </Button>
+          {renderActions(row)}
+        </Space>
       ),
     },
   ]
@@ -174,8 +303,11 @@ export default function DispatchListPage() {
           dataSource={list}
           loading={loading}
           pagination={pagination}
-          scroll={{ x: 1200 }}
-          locale={{ emptyText: '暂无工单 —— 可在「告警中心」投一条告警自动建单, 或调 POST /api/dispatch 人工建单' }}
+          scroll={{ x: 1400 }}
+          locale={{
+            emptyText:
+              '暂无工单 —— 可在「告警中心」投一条告警自动建单, 或调 POST /api/dispatch 人工建单',
+          }}
         />
       </Card>
 
@@ -251,6 +383,49 @@ export default function DispatchListPage() {
           </Space>
         )}
       </Drawer>
+
+      <Modal
+        title={assignRow ? `指派工单 · ${assignRow.task_no}` : '指派工单'}
+        open={!!assignRow}
+        onOk={() => void doAssign()}
+        confirmLoading={assigning}
+        onCancel={() => setAssignRow(null)}
+        okText="确认指派"
+        cancelText="取消"
+        destroyOnClose
+      >
+        {assignRow ? (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Descriptions column={1} size="small">
+              <Descriptions.Item label="工单">{assignRow.title}</Descriptions.Item>
+              <Descriptions.Item label="园区 / 所需技能">
+                {assignRow.zone_code} / {assignRow.required_skill || '不限'}
+              </Descriptions.Item>
+              <Descriptions.Item label="当前处理人">
+                {assignRow.assignee_name || '-'}
+              </Descriptions.Item>
+            </Descriptions>
+            <Select
+              style={{ width: '100%' }}
+              loading={staffsLoading}
+              value={assigneeId}
+              onChange={setAssigneeId}
+              options={[
+                { value: 0, label: '自动指派（值班 + 技能 + 就近 + 负载）' },
+                ...staffs.map((s) => ({
+                  value: s.staff_id,
+                  label: `${s.name} · ${s.zone_code || '未分园区'} · ${s.skills || '无技能标签'}`,
+                })),
+              ]}
+            />
+            {!staffsLoading && staffs.length === 0 ? (
+              <Typography.Text type="secondary">
+                暂无在岗人员 —— 仍可选「自动指派」；或先通过人员维护接口补在岗人员。
+              </Typography.Text>
+            ) : null}
+          </Space>
+        ) : null}
+      </Modal>
     </div>
   )
 }

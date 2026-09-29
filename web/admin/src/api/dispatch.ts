@@ -89,3 +89,77 @@ export function listTasks(params: {
 export function getTaskDetail(id: number) {
   return request<TaskDetail>({ url: `/dispatch/${id}`, method: 'get' })
 }
+
+// 调度人员(指派对话框的候选池)。on_duty: -1 不限 1 只看在岗 0 只看不在岗。
+export interface StaffItem {
+  staff_id: number
+  name: string
+  phone: string
+  zone_code: string
+  skills: string // 技能标签, 逗号分隔
+  on_duty: number // 1 在岗 0 不在岗
+  status: number
+  updated_at: number
+}
+
+export function listStaffs(params: { on_duty?: number; page: number; page_size: number }) {
+  return request<{ total: number; list: StaffItem[] }>({
+    url: '/dispatch/staffs',
+    method: 'get',
+    params,
+  })
+}
+
+// 指派 / 改派。
+// assigneeId = 0 表示走**自动指派**(后端按 值班 + 技能 + 就近 + 负载 打分), 非 0 则指给具体某人。
+export function assignTask(id: number, assigneeId: number) {
+  return request<{ id: number; assignee_id: number; assignee_name: string }>({
+    url: `/dispatch/${id}/assign`,
+    method: 'put',
+    data: { assignee_id: assigneeId },
+  })
+}
+
+// 状态流转。action 的取值**必须**是后端状态机里的合法边(见 internal/state/fsm.go 的 transitions)。
+//
+// ⚠️ 这里刻意不放 `assign`: 改派要带指派对象, 走 assignTask 才对;
+//    用本接口的 assign 只会改状态、不会写处理人, 会造出"已指派但没处理人"的脏数据。
+export function updateTaskStatus(
+  id: number,
+  action: 'release' | 'start' | 'finish' | 'close',
+  remark?: string,
+) {
+  return request<{ id: number; status: number }>({
+    url: `/dispatch/${id}/status`,
+    method: 'put',
+    data: { action, remark },
+  })
+}
+
+// 各状态下**允许的操作** —— 与后端 FSM 的转移表逐格对齐:
+//   1 待指派: assign, close
+//   2 已指派: assign(改派), release, start, close
+//   3 处理中: finish, close
+//   4 已完成: close
+//   5 已关闭: (终态, 无出边)
+//
+// 为什么要在前端也列一份: 按钮由它生成, **UI 不会提供后端必拒的操作** ——
+// 演示时点不出 4xx, 也不会让人以为"这个操作应该能点"。
+export type TaskAction = 'assign' | 'release' | 'start' | 'finish' | 'close'
+
+export const TASK_ALLOWED_ACTIONS: Record<number, TaskAction[]> = {
+  1: ['assign', 'close'],
+  2: ['assign', 'release', 'start', 'close'],
+  3: ['finish', 'close'],
+  4: ['close'],
+  5: [],
+}
+
+// 按钮文案(比 TASK_ACTION 的时间线文案更短, 且区分「指派」与「改派」)
+export const TASK_BUTTON_LABEL: Record<TaskAction, string> = {
+  assign: '指派',
+  release: '释放',
+  start: '开始',
+  finish: '完成',
+  close: '关闭',
+}

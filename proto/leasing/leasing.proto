@@ -22,7 +22,7 @@ service LeasingService {
 // GetContractReq 合同查询请求
 message GetContractReq {
   int64 id = 1;        // 合同ID
-  int64 tenant_id = 2; // 园区ID(RBAC 数据隔离); 0 表示不校验
+  int64 tenant_id = 2; // 园区ID(RBAC 数据隔离); 0 = **fail-closed**(按租户 0 过滤, 不是"不过滤")
 }
 
 message GetContractResp {
@@ -53,7 +53,7 @@ message Contract {
 
 // GetOccupancyReq 入驻率查询请求
 message GetOccupancyReq {
-  int64 tenant_id = 1; // 园区ID; 0 表示不过滤
+  int64 tenant_id = 1; // 园区ID; 0 = **fail-closed**(按租户 0 过滤)。实现恒按 ctx 租户过滤, 不存在"不过滤"
 }
 
 message GetOccupancyResp {
