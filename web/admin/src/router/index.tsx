@@ -13,6 +13,8 @@ import ContractListPage from '../pages/leasing/ContractList'
 import OccupancyPage from '../pages/leasing/Occupancy'
 import RentBillListPage from '../pages/billing/RentBillList'
 import DispatchListPage from '../pages/dispatch/DispatchList'
+import DeviceListPage from '../pages/device/DeviceList'
+import ProductListPage from '../pages/device/ProductList'
 import EnergyAnalysisPage from '../pages/energy/EnergyAnalysis'
 import UsersPage from '../pages/system/Users'
 import RolesPage from '../pages/system/Roles'
@@ -47,8 +49,8 @@ export const routes: RouteObject[] = [
       { path: 'alarm', element: <AlarmCenterPage /> },
       { path: 'access', element: <PlaceholderPage title="门禁管理" /> },
       { path: 'video', element: <PlaceholderPage title="视频监控" /> },
-      { path: 'device', element: <PlaceholderPage title="设备列表" /> },
-      { path: 'product', element: <PlaceholderPage title="产品管理" /> },
+      { path: 'device', element: <DeviceListPage /> },
+      { path: 'product', element: <ProductListPage /> },
       { path: 'energy', element: <PlaceholderPage title="能耗监控" /> },
       { path: 'energy/analysis', element: <EnergyAnalysisPage /> },
       { path: 'leasing/contract', element: <ContractListPage /> },
