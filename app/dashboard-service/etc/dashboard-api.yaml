@@ -86,3 +86,23 @@ Kafka:
 # 填上后 /ws/dashboard 的 ?token= 会被真正校验(浏览器无法给 WS 握手设 Authorization 头,
 # 故 common/middleware 的 extractToken 已支持从 query 取 token)。
 JwtSecret: ""
+
+# ===== 大屏 WebSocket(来源白名单 + 多实例扇出) =====
+# 浏览器的 WebSocket **不受同源策略限制**: 任意站点都能借用户浏览器连 ?token= 通道,
+# 因此 CheckOrigin 不能 `return true`, 必须按白名单/同源判定(见 internal/wsserver/origin.go)。
+Ws:
+  # 握手来源白名单, 形如 scheme://host[:port], 精确比对(忽略末尾斜杠与 path)。
+  # ⚠️ 留空**不等于放开**: 留空 = 只允许同源(Origin 的 host == 请求 Host)
+  #    以及非浏览器客户端(压测工具/服务端订阅, 握手不带 Origin)。
+  # 需要放开一切时写 ["*"] —— 仅供本机联调, 启动时会打 warn。
+  #   AllowOrigins:
+  #     - http://localhost:5173        # 本地前端 dev server
+  #     - http://127.0.0.1:5173
+  #     - https://dash.example.com     # 生产域名(上线前必须收敛为真实域名)
+  AllowOrigins: []
+
+  # 多实例扇出。默认 false = 单实例内存广播。
+  # 多实例部署必须置 true: 否则连到 A 实例的大屏收不到 B 实例产生的消息,
+  # 表现为"大屏时好时坏"(同一块屏刷新几次数据跳变)。频道名各实例必须一致。
+  Fanout: false
+  FanoutChannel: onepark:dashboard:ws

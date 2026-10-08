@@ -28,6 +28,32 @@ type Config struct {
 	// JwtSecret HTTP/WebSocket 鉴权密钥; 为空时放行。
 	// WebSocket 场景依赖它校验 ?token=(浏览器无法给 WS 握手设置 Authorization 头)。
 	JwtSecret string `json:",env=JWT_SECRET,optional"`
+
+	// Ws 大屏 WebSocket 的接入来源与多实例扇出配置。
+	Ws WsConf `json:",optional"`
+}
+
+// WsConf 大屏 WebSocket 配置。
+type WsConf struct {
+	// AllowOrigins 握手来源白名单, 形如 `http://localhost:5173` / `https://dash.example.com`。
+	// 按 scheme://host[:port] 精确比对(忽略末尾斜杠与 path)。
+	//
+	// ⚠️ 留空**不等于放开**: 留空 = 只允许**同源**(Origin 的 host 与请求 Host 相同)
+	// 以及**非浏览器客户端**(握手不带 Origin, 如压测工具/服务端订阅)。
+	// 值为 ["*"] 表示放开一切, 仅供本机联调 —— 启动时会打 warn(见 logAllowOrigins)。
+	//
+	// 为什么必须配: 浏览器的 WebSocket **不受同源策略限制**, 任意站点都能借用户浏览器
+	// 连上实时通道(跨站 WebSocket 劫持)。上线前必须收敛为真实域名白名单。
+	AllowOrigins []string `json:",optional"`
+
+	// Fanout 是否开启 Redis Pub/Sub 多实例扇出。
+	// 默认 false = 单实例内存广播(与引入扇出之前行为一致)。
+	// 多实例部署必须开启: 否则每个实例只能把消息推给自己进程内的连接,
+	// 连到 A 实例的大屏收不到 B 实例产生的消息(表现为"大屏时好时坏")。
+	Fanout bool `json:",default=false"`
+
+	// FanoutChannel 扇出频道名。多实例之间必须**一致**; 不能与其它业务频道重名。
+	FanoutChannel string `json:",default=onepark:dashboard:ws"`
 }
 
 // KafkaConf 大屏事件消费配置.

@@ -48,14 +48,27 @@ func main() {
 	// 路由用 AddRoute 程序化注册而非写进 .api —— goctl 不支持 WS 升级,
 	// 且不改动 routes.go, 重新生成不会互相覆盖。
 	hub := wshub.NewHub()
-	server.AddRoute(rest.Route{
-		Method:  http.MethodGet,
-		Path:    "/ws/dashboard",
-		Handler: wsserver.Handler(hub, c.JwtSecret),
-	})
 
 	wsCtx, cancelWs := context.WithCancel(context.Background())
 	defer cancelWs()
+
+	// 多实例扇出: 默认关闭(单实例内存广播, 与引入扇出前行为一致)。
+	// 开启后 Broadcast 走「本地优先 + 经 Redis 发布给其它实例」——
+	// Redis 挂了只影响跨实例推送, 本实例在线的大屏照常刷新(可用性优先)。
+	if c.Ws.Fanout {
+		fanout := wshub.NewRedisFanout(ctx.Redis, c.Ws.FanoutChannel)
+		hub.SetPublisher(wsCtx, fanout)
+		go fanout.Run(wsCtx, hub)
+		fmt.Printf("[ws] 多实例扇出已开启: channel=%s instance=%s\n", c.Ws.FanoutChannel, fanout.InstanceID())
+	} else {
+		fmt.Printf("[ws] 多实例扇出未开启(单实例内存广播) —— 多实例部署时须置 Ws.Fanout=true\n")
+	}
+
+	server.AddRoute(rest.Route{
+		Method:  http.MethodGet,
+		Path:    "/ws/dashboard",
+		Handler: wsserver.Handler(hub, c.JwtSecret, c.Ws.AllowOrigins),
+	})
 
 	// 事件增量推送(组长计划书 周四 P0): 消费 Kafka 告警/工单事件, 到达即广播增量,
 	// 并由快照循环失效聚合缓存后重新聚合。默认关闭 —— 见 config.KafkaConf 注释。

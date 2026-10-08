@@ -43,12 +43,17 @@ type snapshotMsg struct {
 }
 
 // Handler 返回 WebSocket 升级处理器, 路由为 GET /ws/dashboard?token=xxx.
-func Handler(hub *wshub.Hub, jwtSecret string) http.HandlerFunc {
+//
+// allowOrigins 为来源白名单(规则见 origin.go): 留空 = 只允许同源与非浏览器客户端。
+func Handler(hub *wshub.Hub, jwtSecret string, allowOrigins []string) http.HandlerFunc {
+	logAllowOrigins(allowOrigins)
+
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-		// 大屏前端与服务可能不同源; 开发期放开, 上线前必须收敛为域名白名单
-		CheckOrigin: func(r *http.Request) bool { return true },
+		// 大屏前端与服务可能不同源, 所以不能简单 `return true` —— 那等于把跨站 WebSocket 劫持面完全放开。
+		// 由 OriginChecker 按「无 Origin / 同源 / 白名单」三档判定, 拒绝时把 Origin 与 Host 打进日志。
+		CheckOrigin: OriginChecker(allowOrigins),
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {

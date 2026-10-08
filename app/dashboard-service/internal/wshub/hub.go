@@ -9,6 +9,7 @@
 package wshub
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -100,6 +101,12 @@ func (c *Client) WritePump() {
 type Hub struct {
 	mu      sync.RWMutex
 	clients map[*Client]struct{}
+
+	// publisher 非 nil 时, Broadcast 会把消息同时送往其它实例(Redis Pub/Sub 扇出)。
+	// 单实例部署保持 nil: Broadcast 退化为纯本地投递, 与引入扇出之前**行为完全一致**。
+	publisher Publisher
+	// pubCtx 随 SetPublisher 一起注入, 供 publish 使用(避免在广播路径上临时造 ctx)。
+	pubCtx context.Context
 }
 
 // NewHub 创建 Hub.
@@ -134,11 +141,41 @@ func (h *Hub) Count() int {
 	return len(h.clients)
 }
 
-// Broadcast 向所有在线连接推送消息.
+// SetPublisher 注入跨实例发布器(见 fanout.go)。
+// 必须在服务启动阶段调用一次; 不调用则保持单实例语义。
+func (h *Hub) SetPublisher(ctx context.Context, p Publisher) {
+	h.mu.Lock()
+	h.publisher = p
+	h.pubCtx = ctx
+	h.mu.Unlock()
+}
+
+// Broadcast 向本实例连接投递, 并(配置了扇出时)转发给其它实例。
+//
+// 顺序很关键: **先本地投递、再发布**。
+// 反过来(先发 Redis 等订阅回放)会让本实例的大屏多等一次往返, 且 Redis 抖动时本地也一起卡住。
+func (h *Hub) Broadcast(msg []byte) {
+	h.DeliverLocal(msg)
+
+	h.mu.RLock()
+	p, ctx := h.publisher, h.pubCtx
+	h.mu.RUnlock()
+	if p == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	p.Publish(ctx, msg)
+}
+
+// DeliverLocal 只向本实例的连接投递, **不再转发**。
+//
+// 订阅端回放跨实例消息时必须用它(而不是 Broadcast), 否则消息会在实例之间来回反弹。
 //
 // 单连接发送缓冲满 -> 该连接消费端已卡死(典型: 网络半开),
 // 异步踢掉它, 绝不阻塞广播拖慢其余大屏。
-func (h *Hub) Broadcast(msg []byte) {
+func (h *Hub) DeliverLocal(msg []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients {

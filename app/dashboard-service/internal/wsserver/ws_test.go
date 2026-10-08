@@ -54,7 +54,7 @@ func waitCount(hub *wshub.Hub, want int, timeout time.Duration) int {
 // 这是"大屏裸奔"的兜底 —— 若此处退化成放行, 任何人不带凭证就能连上大屏拿到园区全量数据。
 func TestHandler_RefusesWhenSecretUnconfigured(t *testing.T) {
 	hub := wshub.NewHub()
-	srv := httptest.NewServer(Handler(hub, ""))
+	srv := httptest.NewServer(Handler(hub, "", nil))
 	t.Cleanup(srv.Close)
 
 	conn, resp := dialWS(t, srv, "")
@@ -75,7 +75,7 @@ func TestHandler_RefusesWhenSecretUnconfigured(t *testing.T) {
 // TestHandler_RejectsBadTokens 缺 token / 假 token / refresh token 一律 401.
 func TestHandler_RejectsBadTokens(t *testing.T) {
 	hub := wshub.NewHub()
-	srv := httptest.NewServer(Handler(hub, wsTestSecret))
+	srv := httptest.NewServer(Handler(hub, wsTestSecret, nil))
 	t.Cleanup(srv.Close)
 
 	refresh, err := jwt.Generate(wsTestSecret, 1001, "1", 1, jwt.TypeRefresh, 3600)
@@ -122,7 +122,7 @@ func TestHandler_RejectsBadTokens(t *testing.T) {
 // 注册进 hub -> 收到广播 -> 断开后在线数回落.
 func TestHandler_ValidTokenUpgradesRegistersAndBroadcasts(t *testing.T) {
 	hub := wshub.NewHub()
-	srv := httptest.NewServer(Handler(hub, wsTestSecret))
+	srv := httptest.NewServer(Handler(hub, wsTestSecret, nil))
 	t.Cleanup(srv.Close)
 
 	token, err := jwt.Generate(wsTestSecret, 1001, "1", 1, jwt.TypeAccess, 3600)
