@@ -9,6 +9,7 @@ use (
 	./app/device-service
 	./app/dispatch-service
 	./app/energy-analysis-service
+	./app/energy-agent-service
 	./app/energy-data-service
 	./app/event-dispatcher
 	./app/gateway-service
