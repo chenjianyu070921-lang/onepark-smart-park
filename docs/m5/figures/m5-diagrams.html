@@ -416,5 +416,55 @@
 </section>
 
 </main>
+
+<!-- 顶部快速跳转: 答辩时"切到图 2"只需要点一下, 不必滚动页面找图(滚动在投影上很晃眼)。
+     按钮由脚本按 section 顺序自动生成, 增删图不用改这里。哈希(#fig2)会写进地址栏, 刷新后停在原处。 -->
+<nav id="fig-nav"><span class="navlbl">快速跳转</span></nav>
+<script>
+(function () {
+  var nav = document.getElementById('fig-nav');
+  var secs = document.querySelectorAll('main section');
+  secs.forEach(function (sec, i) {
+    sec.id = 'fig' + (i + 1);
+    var h2 = sec.querySelector('h2');
+    if (!h2) return;
+    var m = h2.textContent.match(/图\s*(\d+)/);
+    var no = m ? m[1] : String(i + 1);
+    var name = h2.textContent.replace(/^图\s*\d+\s*·\s*/, '');
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = '图 ' + no + ' · ' + (name.length > 12 ? name.slice(0, 12) + '…' : name);
+    b.onclick = function () {
+      sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      location.hash = sec.id;
+    };
+    nav.appendChild(b);
+  });
+  // 从 #figN 直接进来时: 先滚到位(锚点会被固定导航挡一点, 这里补个偏移)
+  if (/^#fig\d+$/.test(location.hash)) {
+    var t = document.querySelector(location.hash);
+    if (t) setTimeout(function () { t.scrollIntoView({ block: 'start' }); }, 60);
+  }
+})();
+</script>
+<style>
+  body { padding-top: 46px; }
+  #fig-nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 9;
+    display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; overflow-x: auto;
+    padding: 8px 16px; background: rgba(255, 255, 255, .95);
+    border-bottom: 1px solid var(--line); backdrop-filter: blur(4px);
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  }
+  #fig-nav .navlbl { font-size: 12px; color: var(--sub); white-space: nowrap; margin-right: 4px; }
+  #fig-nav button {
+    font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer;
+    padding: 3px 10px; border: 1px solid var(--line); border-radius: 14px;
+    background: #fff; color: var(--ink);
+  }
+  #fig-nav button:hover { border-color: var(--m5); color: var(--m5); }
+  section { scroll-margin-top: 54px; }
+  @media print { #fig-nav { display: none; } body { padding-top: 0; } }
+</style>
 </body>
 </html>
