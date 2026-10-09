@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>M5 图示集 — 泳道图 / 状态机 / 时序图</title>
+<!--
+  自包含图示集: 不依赖任何外部资源(无 CDN、无字体下载), 断网也能开, 可直接投影或打印/导出 PDF。
+  为什么不用 mermaid: 本机没有 mermaid, 答辩场地也不保证有网; 手写 SVG 换来的是"打开就能看"。
+  用法: 浏览器打开本文件 → 滚动演示; 打印时用横向、缩放 100%, 每张图都独占一页(见 @media print)。
+-->
+<style>
+  :root{
+    --ink:#1f2328; --sub:#57606a; --line:#d0d7de; --bg:#ffffff;
+    --m1:#0969da; --m2:#1a7f37; --m3:#bf3989; --m4:#9a6700; --m5:#8250df; --bus:#6e7781;
+    --soft:#f6f8fa;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:"Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;line-height:1.6}
+  header{padding:28px 40px 8px;border-bottom:1px solid var(--line)}
+  header h1{margin:0 0 6px;font-size:24px}
+  header p{margin:0;color:var(--sub);font-size:13px}
+  main{padding:8px 40px 60px;max-width:1240px}
+  section{padding:26px 0;border-bottom:1px dashed var(--line);page-break-inside:avoid}
+  section:last-child{border-bottom:0}
+  h2{font-size:18px;margin:0 0 4px}
+  .cap{color:var(--sub);font-size:13px;margin:0 0 14px}
+  .cap b{color:var(--ink)}
+  figcaption{color:var(--sub);font-size:12px;margin-top:8px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--sub);margin:10px 0 0}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  svg{max-width:100%;height:auto;display:block}
+  text{font-family:"Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif}
+  .t{font-size:13px;fill:var(--ink)}
+  .sm{font-size:11px;fill:var(--sub)}
+  .xs{font-size:10px;fill:var(--sub)}
+  .box{fill:#fff;stroke:var(--line);stroke-width:1.2;rx:8}
+  .lane{fill:var(--soft);stroke:var(--line);stroke-width:1}
+  .arrow{stroke:var(--bus);stroke-width:1.4;fill:none;marker-end:url(#ah)}
+  .arrow2{stroke:var(--m5);stroke-width:1.6;fill:none;marker-end:url(#ah5)}
+  .dash{stroke-dasharray:5 4}
+  @media print{
+    header{page-break-after:always}
+    section{page-break-after:always;border:0}
+    main{padding:0 24px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>M5 图示集 — 招商运营 + 指挥调度</h1>
+  <p>共 6 张。断网可用, 可直接投影; 打印建议横向 A4, 每张图独占一页。
+     颜色约定: <b>M1</b> 蓝 · <b>M2</b> 绿 · <b>M3</b> 品红 · <b>M4</b> 棕 · <b>M5</b> 紫 · 事件总线 灰。</p>
+</header>
+
+<main>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6e7781"/>
+    </marker>
+    <marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8250df"/>
+    </marker>
+  </defs>
+</svg>
+
+<!-- ============ 图 1: 泳道图 ============ -->
+<section>
+  <h2>图 1 · 告警处置泳道图（一条告警从设备到闭环，跨 4 个模块）</h2>
+  <p class="cap">这是整个平台<strong>最长的一条业务线</strong>，也是唯一能一次讲清"为什么要做事件驱动"的图。
+     纵向是角色/模块，横向是时间。整条链路里 <b>M5 只负责最后两格</b>（自动建单 + 大屏推送），前面都是别人的。</p>
+
+  <svg viewBox="0 0 1180 470" role="img" aria-label="告警处置泳道图">
+    <!-- lane 背景 -->
+    <rect class="lane" x="120" y="10"  width="1040" height="58" rx="6"/>
+    <rect class="lane" x="120" y="74"  width="1040" height="58" rx="6"/>
+    <rect class="lane" x="120" y="138" width="1040" height="58" rx="6"/>
+    <rect class="lane" x="120" y="202" width="1040" height="58" rx="6"/>
+    <rect class="lane" x="120" y="266" width="1040" height="58" rx="6"/>
+    <rect class="lane" x="120" y="330" width="1040" height="58" rx="6"/>
+    <rect class="lane" x="120" y="394" width="1040" height="58" rx="6"/>
+
+    <!-- lane labels -->
+    <text class="t" x="16" y="44">设备 / 传感器</text>
+    <text class="t" x="16" y="108">M1 事件接入</text>
+    <text class="t" x="16" y="172">Kafka 事件总线</text>
+    <text class="t" x="16" y="236">M3 安防</text>
+    <text class="t" x="16" y="300">M5 指挥调度</text>
+    <text class="t" x="16" y="364">M5 指挥大屏</text>
+    <text class="t" x="16" y="428">值班人员</text>
+
+    <!-- 1: device -->
+    <rect class="box" x="152" y="22" width="150" height="34"/>
+    <text class="t" x="168" y="44">烟感上报 event</text>
+
+    <!-- 2: M1 -->
+    <rect class="box" x="330" y="86" width="170" height="34"/>
+    <text class="t" x="344" y="108">分类路由 → 生产事件</text>
+    <rect class="box" x="330" y="22" width="1" height="1" opacity="0"/>
+
+    <!-- 3: Kafka -->
+    <rect class="box" x="530" y="150" width="190" height="34"/>
+    <text class="t" x="544" y="172">alarm-event（位移提交）</text>
+
+    <!-- 4: M3 -->
+    <rect class="box" x="748" y="214" width="180" height="34"/>
+    <text class="t" x="762" y="236">规则匹配 + 冷却去重</text>
+    <rect class="box" x="748" y="86" width="180" height="34"/>
+    <text class="t" x="762" y="108">（旁路）WS 推前端</text>
+    <rect class="box" x="748" y="150" width="180" height="34"/>
+    <text class="t" x="762" y="172">告警入库 + 发事件</text>
+
+    <!-- 5: M5 dispatch -->
+    <rect class="box" x="960" y="278" width="176" height="34"/>
+    <text class="t" x="974" y="300">消费 → 幂等建单</text>
+    <rect class="box" x="960" y="342" width="176" height="34"/>
+    <text class="t" x="974" y="364">打分派单 + WS 推送</text>
+
+    <!-- 6: 值班 -->
+    <rect class="box" x="748" y="406" width="180" height="34"/>
+    <text class="t" x="762" y="428">接单 → 处理 → 完成</text>
+    <rect class="box" x="960" y="406" width="176" height="34"/>
+    <text class="t" x="974" y="428">状态回写 + 时间线</text>
+
+    <!-- arrows -->
+    <path class="arrow" d="M302,39 L330,39 L330,86"/>
+    <path class="arrow" d="M500,103 L530,103 L530,150"/>
+    <path class="arrow" d="M720,167 L748,167 L748,214"/>
+    <path class="arrow" d="M838,248 L838,278 L960,278"/>
+    <path class="arrow" d="M838,184 L838,110"/>            <!-- M3 旁路推 WS -->
+    <path class="arrow5 arrow2" d="M1048,312 L1048,342"/>
+    <path class="arrow" d="M1048,376 L1048,406"/>
+    <path class="arrow" d="M838,440 L960,440"/>
+    <path class="arrow" d="M1048,440 L1120,440 L1120,300 L1136,300"/>
+    <text class="xs" x="1054" y="392">大屏 5s 快照 / 事件增量</text>
+    <text class="xs" x="852" y="270">自动建单（唯一键 uk_alarm_id 幂等）</text>
+    <text class="xs" x="336" y="126">M1 只做接入, 不做业务判断</text>
+    <text class="xs" x="764" y="262">人工可确认 / 解决</text>
+  </svg>
+
+  <div class="legend">
+    <span><i style="background:var(--m1)"></i>M1 接入</span>
+    <span><i style="background:var(--m2)"></i>M2 物业</span>
+    <span><i style="background:var(--m3)"></i>M3 安防</span>
+    <span><i style="background:var(--m4)"></i>M4 能源</span>
+    <span><i style="background:var(--m5)"></i>M5 我的模块</span>
+    <span><i style="background:var(--bus)"></i>异步 / Kafka</span>
+  </div>
+  <figcaption>讲法：指到"Kafka"那一格说 —— 有了它，M3 不需要知道 M5 存在；M5 挂了也不影响告警入库。</figcaption>
+</section>
+
+<!-- ============ 图 2: 大屏聚合与降级 ============ -->
+<section>
+  <h2>图 2 · 大屏聚合与逐源降级流程</h2>
+  <p class="cap">这张图回答"某一路上游挂了会怎样"。要点是：<b>四路并发、各自的超时、错误在单路内部吸收</b>，
+     最后只把失败那几路的名字放进 <code>degraded</code>，接口永远 200。</p>
+
+  <svg viewBox="0 0 1180 430" role="img" aria-label="大屏聚合与降级流程">
+    <rect class="box" x="20" y="180" width="120" height="48"/>
+    <text class="t" x="42" y="200">GET</text>
+    <text class="sm" x="34" y="218">/overview</text>
+
+    <rect class="box" x="180" y="180" width="130" height="48"/>
+    <text class="t" x="196" y="200">查 30s 缓存</text>
+    <text class="xs" x="196" y="218">key 带租户维度</text>
+
+    <path class="arrow" d="M140,204 L180,204"/>
+    <path class="arrow" d="M310,196 L380,120"/>
+    <text class="xs" x="316" y="140">命中 → 直接返回</text>
+    <path class="arrow" d="M310,212 L380,300"/>
+    <text class="xs" x="300" y="286">未命中 → singleflight</text>
+
+    <!-- 四路 -->
+    <rect class="box" x="392" y="22"  width="250" height="40"/>
+    <text class="t" x="404" y="40">M1 device　GetDeviceStat</text>
+    <text class="xs" x="404" y="56">独立超时预算</text>
+    <rect class="box" x="392" y="72"  width="250" height="40"/>
+    <text class="t" x="404" y="90">M2 workorder　GetWorkOrders</text>
+    <text class="xs" x="404" y="106">独立超时预算</text>
+    <rect class="box" x="392" y="122" width="250" height="40"/>
+    <text class="t" x="404" y="140">M3 alarm　GetActiveAlarms</text>
+    <text class="xs" x="404" y="156">独立超时预算</text>
+    <rect class="box" x="392" y="172" width="250" height="40"/>
+    <text class="t" x="404" y="190">M4 energy　GetDailyReport</text>
+    <text class="xs" x="404" y="206">独立超时预算</text>
+
+    <rect class="box" x="392" y="300" width="250" height="52" stroke="#8250df"/>
+    <text class="t" x="404" y="320">并发聚合（不带 cancel 的 errgroup）</text>
+    <text class="xs" x="404" y="338">单路失败在内部吸收 → 返回 nil</text>
+
+    <rect class="box" x="698" y="180" width="200" height="60"/>
+    <text class="t" x="712" y="202">组装响应</text>
+    <text class="xs" x="712" y="220">卡片：真值 或 null</text>
+    <text class="xs" x="712" y="234">degraded: 失败源列表</text>
+
+    <rect class="box" x="698" y="300" width="200" height="52"/>
+    <text class="t" x="712" y="320">写缓存 30s</text>
+    <text class="xs" x="712" y="338">下次直接命中</text>
+
+    <path class="arrow2" d="M512,262 L512,300"/>
+    <path class="arrow" d="M642,326 L698,222"/>
+    <path class="arrow" d="M898,210 L960,210"/>
+    <path class="arrow" d="M798,240 L798,300 L898,326"/>
+    <path class="arrow" d="M960,210 L1080,210 L1080,120 L960,120"/>
+    <text class="xs" x="986" y="112">HTTP 200</text>
+    <text class="xs" x="986" y="230">前端按 null 渲染"暂不可用"</text>
+
+    <rect class="box" x="392" y="374" width="506" height="42" stroke="#bf3989"/>
+    <text class="t" x="404" y="394">关键约束：任一路失败都不得取消兄弟任务 —— 所以用 errgroup.Group 而不是 WithContext</text>
+    <text class="xs" x="404" y="410">（用 WithContext 会把"部分降级"变成"整体失败"，与需求正好相反）</text>
+  </svg>
+  <figcaption>实测口径：四路正常聚合层净开销 7.9µs，单路挂 8.8µs，四路全挂 8.7µs —— 降级几乎不额外花钱。</figcaption>
+</section>
+
+<!-- ============ 图 3: 合同状态机 ============ -->
+<section>
+  <h2>图 3 · 合同生命周期状态机（招商租赁）</h2>
+  <p class="cap">四条转移边，其中 <b>续签是"生效中 → 生效中"的自环</b>（改租金与租期但不改状态）。
+     到期与自动续约由每天 00:05 的定时任务驱动。</p>
+
+  <svg viewBox="0 0 1180 330" role="img" aria-label="合同状态机">
+    <circle cx="120" cy="160" r="9" fill="#1f2328"/>
+    <text class="sm" x="88" y="140">新建</text>
+    <rect class="box" x="170" y="136" width="140" height="48" stroke="#0969da"/>
+    <text class="t" x="196" y="156">待生效</text>
+    <text class="xs" x="196" y="174">status 1</text>
+
+    <rect class="box" x="400" y="136" width="140" height="48" stroke="#1a7f37"/>
+    <text class="t" x="424" y="156">生效中</text>
+    <text class="xs" x="416" y="174">status 2 ｜ 计入入驻率与出账</text>
+
+    <rect class="box" x="700" y="60" width="140" height="48" stroke="#9a6700"/>
+    <text class="t" x="726" y="80">已到期</text>
+    <text class="xs" x="718" y="98">status 3</text>
+
+    <rect class="box" x="700" y="220" width="140" height="48" stroke="#6e7781"/>
+    <text class="t" x="722" y="240">已终止</text>
+    <text class="xs" x="716" y="258">status 4（终态）</text>
+
+    <path class="arrow" d="M129,160 L170,160"/>
+    <path class="arrow" d="M310,160 L400,160"/>
+    <text class="xs" x="322" y="150">activate</text>
+
+    <path class="arrow" d="M540,148 L700,96"/>
+    <text class="xs" x="556" y="116">expire（每日 00:05 自动）</text>
+
+    <path class="arrow" d="M540,176 L700,232"/>
+    <text class="xs" x="556" y="208">terminate（含终止原因）</text>
+
+    <path class="arrow2" d="M470,136 C470,88 540,88 540,136"/>
+    <text class="xs" x="452" y="76">renew 续签：顺延原租期长度, 状态不变</text>
+    <text class="xs" x="452" y="90">（不留痕就会问不出去哪儿了 —— 审计与状态变更同事务写）</text>
+
+    <rect class="box" x="880" y="60" width="272" height="90" stroke="#9a6700"/>
+    <text class="t" x="894" y="82">每日 00:05 定时任务（顺序不可颠倒）</text>
+    <text class="xs" x="894" y="102">① 自动续约：auto_renew=1 且已过终止日</text>
+    <text class="xs" x="894" y="118">　 → 按原租期长度顺延, 保持生效中</text>
+    <text class="xs" x="894" y="134">② 自动到期：其余已过终止日且仍生效中</text>
+    <text class="xs" x="894" y="150">　 → 转已到期;  启动时补执行一次</text>
+
+    <path class="arrow" d="M840,84 L880,84"/>
+  </svg>
+  <figcaption>为什么必须真有 expire 这条边：缺了它，到期合同永远挂在生效中，入驻率与账单口径同时失真。</figcaption>
+</section>
+
+<!-- ============ 图 4: 工单状态机 ============ -->
+<section>
+  <h2>图 4 · 调度工单状态机与超时重派（指挥调度）</h2>
+  <p class="cap">五态 + 一条由定时任务触发的 <code>release</code> 边。这条边的作用是把"工人卡死"变成"交回人工"。</p>
+
+  <svg viewBox="0 0 1180 360" role="img" aria-label="工单状态机">
+    <circle cx="110" cy="180" r="9" fill="#1f2328"/>
+    <text class="sm" x="78" y="160">告警自动 / 人工</text>
+
+    <rect class="box" x="150" y="156" width="130" height="48" stroke="#0969da"/>
+    <text class="t" x="178" y="176">待指派</text>
+    <text class="xs" x="172" y="194">status 1</text>
+
+    <rect class="box" x="350" y="156" width="130" height="48" stroke="#8250df"/>
+    <text class="t" x="378" y="176">已指派</text>
+    <text class="xs" x="372" y="194">status 2</text>
+
+    <rect class="box" x="560" y="156" width="130" height="48" stroke="#1a7f37"/>
+    <text class="t" x="584" y="176">处理中</text>
+    <text class="xs" x="582" y="194">status 3</text>
+
+    <rect class="box" x="770" y="156" width="130" height="48" stroke="#0a3069"/>
+    <text class="t" x="794" y="176">已完成</text>
+    <text class="xs" x="792" y="194">status 4</text>
+
+    <rect class="box" x="770" y="266" width="130" height="48" stroke="#6e7781"/>
+    <text class="t" x="792" y="286">已关闭</text>
+    <text class="xs" x="790" y="304">status 5（终态）</text>
+
+    <path class="arrow" d="M119,180 L150,180"/>
+    <path class="arrow" d="M280,180 L350,180"/>
+    <text class="xs" x="288" y="170">assign</text>
+    <path class="arrow" d="M480,180 L560,180"/>
+    <text class="xs" x="492" y="170">start</text>
+    <path class="arrow" d="M690,180 L770,180"/>
+    <text class="xs" x="700" y="170">finish</text>
+
+    <path class="arrow dash" d="M415,204 C415,262 415,262 415,204" stroke="#bf3989"/>
+    <path class="arrow" d="M415,156 C415,286 330,300 280,204" stroke="#bf3989"/>
+    <text class="xs" x="196" y="292" fill="#bf3989">release：超时无人接单 → 交回待指派</text>
+
+    <rect class="box" x="560" y="40" width="330" height="86" stroke="#bf3989"/>
+    <text class="t" x="574" y="62">超时重派（cron，每 60s）</text>
+    <text class="xs" x="574" y="82">Redis 锁（TTL = 扫描周期 − 10s）防多实例并扫</text>
+    <text class="xs" x="574" y="98">数据库层兜底：WHERE status=? AND version=?</text>
+    <text class="xs" x="574" y="114">审计仅在 RowsAffected &gt; 0 时写</text>
+
+    <path class="arrow" d="M700,126 L415,156" stroke="#bf3989"/>
+    <path class="arrow" d="M280,230 L300,266 L770,290"/>
+    <text class="xs" x="470" y="286">close（任意非终态 → 已关闭）</text>
+  </svg>
+  <figcaption>铁律：所有状态写入都必须过 state.Next(from, action)，不允许绕过状态机直接 UPDATE status。</figcaption>
+</section>
+
+<!-- ============ 图 5: 每日定时任务时序 ============ -->
+<section>
+  <h2>图 5 · 每日定时任务与三层防重复（招商租赁）</h2>
+  <p class="cap">两台实例同时跑会怎样、锁丢了会怎样 —— 这张图就是答案。</p>
+
+  <svg viewBox="0 0 1180 420" role="img" aria-label="每日定时任务时序">
+    <!-- lifelines -->
+    <rect class="box" x="60"  y="16" width="150" height="34"/>
+    <text class="t" x="96" y="38">定时任务</text>
+    <rect class="box" x="330" y="16" width="150" height="34"/>
+    <text class="t" x="376" y="38">Redis</text>
+    <rect class="box" x="600" y="16" width="150" height="34"/>
+    <text class="t" x="632" y="38">MySQL</text>
+    <rect class="box" x="880" y="16" width="200" height="34"/>
+    <text class="t" x="912" y="38">审计流水（同事务）</text>
+
+    <path class="arrow dash" d="M135,50 L135,400"/>
+    <path class="arrow dash" d="M405,50 L405,400"/>
+    <path class="arrow dash" d="M675,50 L675,400"/>
+    <path class="arrow dash" d="M980,50 L980,400"/>
+
+    <text class="xs" x="20" y="86">00:05 启动</text>
+    <path class="arrow2" d="M135,84 L405,84"/>
+    <text class="xs" x="150" y="78">① SET NX 抢当日锁（10 分钟 TTL）</text>
+    <text class="xs" x="150" y="100">抢不到 → 本实例直接跳过（另一台在跑）</text>
+
+    <path class="arrow" d="M135,140 L675,140"/>
+    <text class="xs" x="150" y="134">② 先自动续约：auto_renew=1 且已过终止日 → 按原租期顺延</text>
+
+    <path class="arrow" d="M135,186 L675,186"/>
+    <text class="xs" x="150" y="180">③ 再自动到期：其余已过终止日且仍生效中 → 转已到期</text>
+    <text class="xs" x="150" y="202">更新条件带 status AND version（数据库层兜底）</text>
+
+    <path class="arrow" d="M675,238 L980,238"/>
+    <text class="xs" x="690" y="232">④ 仅当 RowsAffected &gt; 0 才写一条 expire 流水</text>
+
+    <path class="arrow2" d="M980,278 L710,278 L710,300 L670,300"/>
+    <text class="xs" x="700" y="296">⑤ 释放锁：Lua 比对持有者再 DEL（直接 DEL 会删掉别人的锁）</text>
+
+    <rect class="box" x="60" y="322" width="1020" height="80" stroke="#bf3989"/>
+    <text class="t" x="76" y="346">为什么要三层，而不是"有锁就够了"</text>
+    <text class="xs" x="76" y="366">锁会丢：进程被杀、或释放时 ctx 已取消导致 Lua 删除静默失败 —— 此时同一批合同会被第二台实例重复处理。</text>
+    <text class="xs" x="76" y="384">所以第 ② ③ 步把 status 与 version 写进更新条件（数据库层兜底），第 ④ 步保证审计不重复。</text>
+    <text class="xs" x="76" y="398">顺序不可颠倒：先跑到期会把"约定自动续约"的合同也转成已到期，再续约就要跨状态处理。</text>
+  </svg>
+</section>
+
+<!-- ============ 图 6: WS 双通道 ============ -->
+<section>
+  <h2>图 6 · 大屏 WebSocket 双通道与事件驱动缓存失效</h2>
+  <p class="cap">两条通道缺一不可：<b>快照</b>保证断线重连后有基线，<b>事件增量</b>保证实时性；
+     而"事件到达 → 置脏 → 快照循环失效缓存"是把两者缝起来的那一步。</p>
+
+  <svg viewBox="0 0 1180 430" role="img" aria-label="WS 双通道时序">
+    <rect class="box" x="60"  y="16" width="170" height="34"/>
+    <text class="t" x="82" y="38">Kafka 事件</text>
+    <rect class="box" x="310" y="16" width="170" height="34"/>
+    <text class="t" x="336" y="38">事件消费者</text>
+    <rect class="box" x="560" y="16" width="200" height="34"/>
+    <text class="t" x="590" y="38">5s 快照循环</text>
+    <rect class="box" x="840" y="16" width="180" height="34"/>
+    <text class="t" x="884" y="38">Hub / 连接</text>
+    <rect class="box" x="1050" y="16" width="110" height="34"/>
+    <text class="t" x="1074" y="38">浏览器</text>
+
+    <path class="arrow dash" d="M145,50 L145,410"/>
+    <path class="arrow dash" d="M395,50 L395,410"/>
+    <path class="arrow dash" d="M660,50 L660,410"/>
+    <path class="arrow dash" d="M930,50 L930,410"/>
+    <path class="arrow dash" d="M1105,50 L1105,410"/>
+
+    <text class="xs" x="20" y="84">事件到达（可能一百条同时来）</text>
+    <path class="arrow" d="M145,90 L395,90"/>
+    <path class="arrow2" d="M395,124 L930,124"/>
+    <text class="xs" x="410" y="118">① 立即广播增量消息（不等下一个周期）</text>
+    <path class="arrow" d="M930,124 L1105,124"/>
+    <text class="xs" x="936" y="118">event 帧</text>
+
+    <path class="arrow" d="M395,168 L470,168 L470,190 L395,190"/>
+    <text class="xs" x="404" y="212">② 写内存脏标记（不失效缓存、不阻塞）</text>
+    <text class="xs" x="404" y="228">　 一百条事件也只置一次 → 天然节流</text>
+
+    <path class="arrow" d="M660,262 L470,262 L470,286 L395,286"/>
+    <text class="xs" x="404" y="282">③ 快照循环取走脏标记 → 失效聚合缓存</text>
+    <path class="arrow" d="M660,316 L930,316"/>
+    <text class="xs" x="676" y="310">④ 重新聚合（逐源降级仍生效）→ 广播 snapshot 帧</text>
+    <path class="arrow" d="M930,316 L1105,316"/>
+    <text class="xs" x="936" y="310">snapshot 帧</text>
+
+    <rect class="box" x="60" y="348" width="1020" height="66" stroke="#8250df"/>
+    <text class="t" x="76" y="370">为什么脏标记放在消费者、缓存在快照循环里失效</text>
+    <text class="xs" x="76" y="390">消费者只做 O(1) 的置位，不碰 Redis；真正失效缓存发生在推送前，所以"最后一条事件的影响"一定体现在下一帧里。</text>
+    <text class="xs" x="76" y="406">每连接一个 16 条缓冲 channel + 独立写泵：gorilla/websocket 不支持并发写，缓冲打满即踢掉该连接（慢客户端不拖累别人）。</text>
+  </svg>
+  <figcaption>实测：500 客户端 p50 6.5ms、零丢帧、每连接约 21.4KB；一个不读的慢客户端在场时其余客户端仍 2ms 收齐。</figcaption>
+</section>
+
+</main>
+</body>
+</html>
