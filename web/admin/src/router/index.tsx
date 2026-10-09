@@ -13,6 +13,7 @@ import ContractListPage from '../pages/leasing/ContractList'
 import OccupancyPage from '../pages/leasing/Occupancy'
 import RentBillListPage from '../pages/billing/RentBillList'
 import DispatchListPage from '../pages/dispatch/DispatchList'
+import CommandScreenPage from '../pages/screen/CommandScreen'
 import DeviceListPage from '../pages/device/DeviceList'
 import ProductListPage from '../pages/device/ProductList'
 import EnergyAnalysisPage from '../pages/energy/EnergyAnalysis'
@@ -40,6 +41,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="/home" replace /> },
       { path: 'home', element: <HomePage /> },
+      { path: 'screen', element: <CommandScreenPage /> },
       { path: 'workorder', element: <WorkorderListPage /> },
       // 尚未实现的模块统一走占位页, 菜单可见但提示建设中.
       { path: 'dispatch', element: <DispatchListPage /> },

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import {
+  DashboardOutlined,
   HomeOutlined,
   ToolOutlined,
   TeamOutlined,
@@ -30,6 +31,8 @@ export interface MenuNode {
 // 菜单与路由表. 已实现的页面挂真实组件, 其余指向占位页, 后续里程碑逐个替换.
 export const menuConfig: MenuNode[] = [
   { key: 'home', label: '工作台', icon: <HomeOutlined />, path: '/home' },
+  // M5 指挥大屏: 四路聚合 + 降级呈现 + 实时推送（后端 /api/dashboard/overview 与 /ws/dashboard 都在本模块）
+  { key: 'screen', label: '指挥大屏', icon: <DashboardOutlined />, path: '/screen' },
   {
     key: 'property',
     label: '物业运营',
