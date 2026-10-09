@@ -1,3 +1,7 @@
 Name: dashboard-api
 Host: 0.0.0.0
 Port: 8888
+
+# M4 energy-data-service 的 gRPC 直连地址(接口54 GetDailyReport, 大屏能耗卡片)
+EnergyDataRpc:
+  Endpoint: 127.0.0.1:9061

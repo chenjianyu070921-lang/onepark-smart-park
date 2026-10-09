@@ -13,10 +13,10 @@ const (
 	// timeLayoutDate 只有日期, 如 2026-09-15
 	timeLayoutDate = "2006-01-02"
 
-	// mysqlLayoutHour 按小时汇总时传给 MySQL DATE_FORMAT 的格式
-	mysqlLayoutHour = "%Y-%m-%d %H:00"
-	// mysqlLayoutDay 按天汇总时传给 MySQL DATE_FORMAT 的格式
-	mysqlLayoutDay = "%Y-%m-%d"
+	// bucketLayoutHour 按小时分桶, 传给 ListUsage 做差分聚合用的 Go 时间格式
+	bucketLayoutHour = "2006-01-02 15:00"
+	// bucketLayoutDay 按天分桶
+	bucketLayoutDay = "2006-01-02"
 )
 
 // ParseDay 把日期字符串解析成"当天 0 点"和"次日 0 点"两个时刻

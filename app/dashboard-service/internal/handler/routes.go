@@ -19,4 +19,15 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			},
 		},
 	)
+
+	// 手写路由(联调 M4 接口54): 重新生成 routes.go 后需补回
+	server.AddRoutes(
+		[]rest.Route{
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/dashboard/energy/card",
+				Handler: EnergyCardHandler(serverCtx),
+			},
+		},
+	)
 }

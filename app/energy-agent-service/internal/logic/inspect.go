@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -235,6 +236,14 @@ func toExplainRequest(f *rules.Finding, statDate string) llm.ExplainRequest {
 		Baseline:  f.Evidence["baseline"],
 		Deviation: f.Evidence["deviation"],
 	}
+	if req.Category == "night_idle" {
+		// 夜间空转的字段含义和别的类型不一样: 给的是夜间电量、全天总量、夜间占比。
+		// 照原样塞进去, 大模型会把全天用量当成"当天用量"、把占比讲成"偏离 30%"。
+		req.Usage = f.Evidence["night"]
+		req.Baseline = f.Evidence["total"]
+		req.Deviation = f.Evidence["share"]
+		return req
+	}
 	if req.Usage == 0 {
 		req.Usage = f.Evidence["total"]
 	}
@@ -253,20 +262,33 @@ func polish(ctx context.Context, svcCtx *svc.ServiceContext, runID uint64,
 	if len(list) == 0 {
 		return list
 	}
+	// 并发润色: 每个发现的润色互不依赖, 一条一条调在发现多的时候
+	// 会把整条 REST 请求拖过超时线(单次 1~5 秒 × 六七个发现)。
+	// 并发上限 5, 免得一次巡检把厂商的 QPS 限额打满。
+	// 每个 goroutine 只写自己那个下标, 结果顺序不变。
+	sem := make(chan struct{}, 5)
+	var wg sync.WaitGroup
 	for i := range list {
-		f := &list[i]
-		req := toExplainRequest(f, statDate)
-		st := time.Now()
-		// 兜底文本就是规则自己写的解释, 大模型不可用时原样返回
-		text, _, err := llm.ExplainWithFallback(ctx, client, req, f.Reason)
-		if err != nil {
-			logx.Errorf("大模型解释失败(已用规则原文兜底): %v", err)
-		}
-		if text != "" {
-			f.Reason = text
-		}
-		recordToolCall(ctx, svcCtx, runID, "llm_explain", f.Category, text, st, err)
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			f := &list[i]
+			req := toExplainRequest(f, statDate)
+			st := time.Now()
+			// 兜底文本就是规则自己写的解释, 大模型不可用时原样返回
+			text, _, err := llm.ExplainWithFallback(ctx, client, req, f.Reason)
+			if err != nil {
+				logx.Errorf("大模型解释失败(已用规则原文兜底): %v", err)
+			}
+			if text != "" {
+				f.Reason = text
+			}
+			recordToolCall(ctx, svcCtx, runID, "llm_explain", f.Category, text, st, err)
+		}(i)
 	}
+	wg.Wait()
 	return list
 }
 

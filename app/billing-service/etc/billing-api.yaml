@@ -2,6 +2,10 @@ Name: billing-api
 Host: 0.0.0.0
 Port: 8063
 
+# 出账要跑两条关联子查询(约 3 秒), 默认 3 秒路由超时会掐死最后的事务提交,
+# 实测报 context deadline exceeded(2026-09-27), 放宽到 15 秒
+Timeout: 15000
+
 # MySQL: 组内公用库 onepark-smart-park(计费规则表 billing_rule、账单表 bill 都在里面)
 MySQL:
   DataSource: root:4ay1nkal3u8ed77y@tcp(115.191.16.159:3306)/onepark-smart-park?charset=utf8mb4&parseTime=true&loc=Local

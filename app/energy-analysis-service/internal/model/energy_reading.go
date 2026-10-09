@@ -134,12 +134,14 @@ type LastReading struct {
 }
 
 // ListLastReading 查每个设备在 [start, end) 内最后一条读数(接口58 用)
-// 写法: 外层先限定区域和时间, 再用子查询挑出"该设备在这个区间里最晚的那条"
+// 写法: 先按设备分组求出各自最晚时间(走 idx_zone_time), 再 JOIN 回原表拿那条读数。
+// 不要写成外层逐行带关联子查询: 每行都要回表跑一次 MAX, 区域几千行时整个接口卡 2 秒。
 func (m *EnergyReadingModel) ListLastReading(ctx context.Context, zoneID string, start, end time.Time) ([]LastReading, error) {
 	q := "SELECT e.device_id, e.energy_kwh, e.reported_at FROM energy_reading e " +
-		"WHERE e.zone_id = ? AND e.reported_at >= ? AND e.reported_at < ? " +
-		"AND e.reported_at = (SELECT MAX(reported_at) FROM energy_reading " +
-		"WHERE device_id = e.device_id AND zone_id = ? AND reported_at >= ? AND reported_at < ?)"
+		"JOIN (SELECT device_id, MAX(reported_at) AS mx FROM energy_reading " +
+		"WHERE zone_id = ? AND reported_at >= ? AND reported_at < ? GROUP BY device_id) t " +
+		"ON e.device_id = t.device_id AND e.reported_at = t.mx " +
+		"WHERE e.zone_id = ? AND e.reported_at >= ? AND e.reported_at < ?"
 
 	var rows []LastReading
 	if err := m.db.WithContext(ctx).Raw(q, zoneID, start, end, zoneID, start, end).Scan(&rows).Error; err != nil {

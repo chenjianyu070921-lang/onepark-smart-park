@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +65,10 @@ type Consumer struct {
 	// defaultZone 设备既没上报区域、device 表也查不到时, 归到这个区域
 	defaultZone string
 
+	// brokers/group 留一份, reader 卡死后要按原样重建(自愈)
+	brokers []string
+	group   string
+
 	// zoneCache 设备号 → 区域, 查过一次就记住, 别每条消息都打一次库
 	zoneMu    sync.RWMutex
 	zoneCache map[string]string
@@ -71,28 +76,34 @@ type Consumer struct {
 	cancel context.CancelFunc
 }
 
-// NewConsumer 创建消费者, 连不上 Kafka 也不会让服务崩, 只是记日志
-func NewConsumer(brokers []string, topic, group, defaultZone string,
-	m *model.EnergyReadingModel, devices *model.DeviceModel) *Consumer {
-	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     brokers,
-		Topic:       topic,
-		GroupID:     group,
+func (c *Consumer) newReader() *kafka.Reader {
+	return kafka.NewReader(kafka.ReaderConfig{
+		Brokers:     c.brokers,
+		Topic:       c.topic,
+		GroupID:     c.group,
 		StartOffset: kafka.LastOffset, // 只消费启动之后的新消息
 		MinBytes:    1,
 		MaxBytes:    10 << 20, // 10MB
 	})
+}
+
+// NewConsumer 创建消费者, 连不上 Kafka 也不会让服务崩, 只是记日志
+func NewConsumer(brokers []string, topic, group, defaultZone string,
+	m *model.EnergyReadingModel, devices *model.DeviceModel) *Consumer {
 	if defaultZone == "" {
 		defaultZone = "未分配"
 	}
-	return &Consumer{
-		reader:      reader,
+	c := &Consumer{
 		model:       m,
 		devices:     devices,
 		topic:       topic,
 		defaultZone: defaultZone,
+		brokers:     brokers,
+		group:       group,
 		zoneCache:   make(map[string]string),
 	}
+	c.reader = c.newReader()
+	return c
 }
 
 // Start 启动消费循环(实现 go-zero 的 service.Service 接口, 由 ServiceGroup 统一拉起)
@@ -214,6 +225,19 @@ func (c *Consumer) resolveZone(ctx context.Context, deviceID, fromPayload string
 	return z
 }
 
+// brokerAlive 轻量探测: broker 的 TCP 端口通不通。
+// 用来区分 FetchMessage 超时的两种情况: 真没消息(broker 通) vs 连不上(端口也不通)。
+func (c *Consumer) brokerAlive() bool {
+	for _, b := range c.brokers {
+		conn, err := net.DialTimeout("tcp", b, 800*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Consumer) loop(ctx context.Context) {
 	var batch []*model.EnergyReading
 	var msgs []kafka.Message
@@ -237,6 +261,24 @@ func (c *Consumer) loop(ctx context.Context) {
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
 
+	failStreak := 0
+	var lastRebuild time.Time
+	// rebuild 卡死后按原样重建 reader 自愈。加了 10 秒最小间隔:
+	// 重建太频繁会把刚 join 到一半的新 reader 又干掉, 永远恢复不了(实测踩过)。
+	rebuild := func(why string) {
+		if !lastRebuild.IsZero() && time.Since(lastRebuild) < 10*time.Second {
+			return // 刚重建过, 再观察一会
+		}
+		lastRebuild = time.Now()
+		flush() // 攒着的先落库, 别跟着 reader 一起陪葬
+		logx.Errorf("kafka reader 持续读取失败(%s), 重建 reader 自愈", why)
+		if err := c.reader.Close(); err != nil {
+			logx.Errorf("关闭旧 reader 失败: %v", err)
+		}
+		c.reader = c.newReader()
+		failStreak = 0
+	}
+
 	for {
 		// 先看有没有退出信号 / 到没到刷盘时间(不能阻塞在读消息上, 否则定时器永远轮不到)
 		select {
@@ -258,12 +300,28 @@ func (c *Consumer) loop(ctx context.Context) {
 				return
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
-				continue // 只是这一轮没消息
+				// 超时有两种可能: 真没消息, 或者 broker 连不上(reader 内部把错吞成了超时)。
+				// 用 TCP 探测区分: 连不上才计入失败, 别把正常空闲也当成故障。
+				if !c.brokerAlive() {
+					failStreak++
+					if failStreak >= 3 {
+						rebuild("broker 不可达")
+					}
+				} else {
+					failStreak = 0
+				}
+				continue
+			}
+			// 明确的错误(连接被拒等), 同样累计; kafka-go 首连失败后可能一直吐同一个错
+			failStreak++
+			if failStreak >= 10 {
+				rebuild(err.Error())
 			}
 			// Kafka 连不上时别空转把 CPU 跑满, 歇一秒再试
 			time.Sleep(time.Second)
 			continue
 		}
+		failStreak = 0
 
 		r, ok, reason := c.parse(ctx, msg.Value)
 		if !ok {

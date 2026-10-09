@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -24,7 +25,7 @@ func (EnergyReading) TableName() string {
 
 type EnergyReadingModel struct {
 	db *gorm.DB
-}
+}BB
 
 func NewEnergyReadingModel(db *gorm.DB) *EnergyReadingModel {
 	return &EnergyReadingModel{db: db}
@@ -108,14 +109,39 @@ type UsagePoint struct {
 }
 
 // ListUsage 按时间粒度汇总用量(接口53历史曲线用)
-// layout 传 "%Y-%m-%d %H:00" 就是按小时, 传 "%Y-%m-%d" 就是按天
+// 必须用差分法: 增量 = 相邻两条读数之差, 记到后一条读数所在的桶。
+// 不能按桶内 MAX-MIN 算 —— 稀疏上报的设备(一天只报几次)一个桶里往往只有一条读数,
+// 桶内 MAX-MIN 恒为 0, 跨桶的增量也全被丢掉, 导致各桶之和 <> 区间总量。
+// 读数回退(换表/重置)时增量按 0 记, 不产生负用量。
+// layout 是 Go 的时间格式: "2006-01-02 15:00" 按小时, "2006-01-02" 按天
 func (m *EnergyReadingModel) ListUsage(ctx context.Context, deviceID string, start, end time.Time, layout string) ([]UsagePoint, error) {
-	var points []UsagePoint
-	err := m.db.WithContext(ctx).Model(&EnergyReading{}).
-		Select("DATE_FORMAT(reported_at, ?) AS bucket, MAX(energy_kwh) - MIN(energy_kwh) AS usage_kwh", layout).
+	var rows []EnergyReading
+	err := m.db.WithContext(ctx).
+		Model(&EnergyReading{}).
+		Select("reported_at", "energy_kwh").
 		Where("device_id = ? AND reported_at >= ? AND reported_at < ?", deviceID, start, end).
-		Group("bucket").
-		Order("bucket ASC").
-		Scan(&points).Error
-	return points, err
+		Order("reported_at ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	acc := make(map[string]float64)
+	for i := 1; i < len(rows); i++ {
+		delta := rows[i].EnergyKwh - rows[i-1].EnergyKwh
+		if delta < 0 {
+			delta = 0
+		}
+		acc[rows[i].ReportedAt.Format(layout)] += delta
+	}
+
+	points := make([]UsagePoint, 0, len(acc))
+	for b, u := range acc {
+		points = append(points, UsagePoint{Bucket: b, Usage: u})
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].Bucket < points[j].Bucket })
+	return points, nil
 }

@@ -4,8 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/zeromicro/go-zero/core/logx"
 	"onepark/common/errorx"
+
+	"github.com/zeromicro/go-zero/core/logx"
 
 	"onepark/app/energy-data-service/internal/ecode"
 	"onepark/app/energy-data-service/internal/svc"
@@ -49,9 +50,10 @@ func (l *HistoryLogic) History(req *types.HistoryRequest) (*types.HistoryRespons
 	}
 
 	// 3. 粒度: hour 按小时, day 按天, 默认小时
-	layout := mysqlLayoutHour
+	// 注意: ListUsage 是差分法聚合, 桶名用 Go 的时间格式生成, 不能传 MySQL 的 DATE_FORMAT 格式
+	layout := bucketLayoutHour
 	if req.Granularity == "day" {
-		layout = mysqlLayoutDay
+		layout = bucketLayoutDay
 	}
 
 	// 4. 按粒度查每个时间段的用量

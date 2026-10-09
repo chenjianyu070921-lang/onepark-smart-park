@@ -8,3 +8,19 @@ type Request struct {
 type Response struct {
 	Message string `json:"message"`
 }
+
+// ---------- 以下为手写类型(联调 M4 接口54), 重新生成 types.go 时请保留 ----------
+
+// EnergyCardReq 大屏能耗卡片查询条件
+type EnergyCardReq struct {
+	Date   string `form:"date,optional"`   // 统计日期, 如 2026-09-15; 空=今天
+	ZoneId string `form:"zone_id,optional"` // 区域, 如 A栋; 空=全园区
+}
+
+// EnergyCardResp 大屏能耗卡片出数
+type EnergyCardResp struct {
+	Date          string  `json:"date"`            // 统计日期
+	ZoneId        string  `json:"zone_id"`         // 区域, 空=全园区
+	TotalUsageKwh float64 `json:"total_usage_kwh"` // 当日总用量(度)
+	UpdatedAt     string  `json:"updated_at"`      // 最新一条数据采集时间
+}

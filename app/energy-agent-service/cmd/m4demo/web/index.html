@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>M4 能源管控服务 · 演示看板</title>
+<script>
+// 页面可能被别的端口托管(静态副本预览 / 直接双击打开), 相对路径会 404,
+// 所以统一走绝对地址直连演示服务器; 演示服务器已开跨域头, 同/不同源都能取数据。
+var API_BASE = 'http://127.0.0.1:8070';
+</script>
+<style>
+  :root{
+    --bg:#f4f6fa; --card:#ffffff; --line:#e7eaf0; --text:#1c2333; --sub:#737d8c;
+    --blue:#2f6fed; --blue-bg:#eef3fe; --teal:#159e9e; --amber:#dd8f2e;
+    --red:#d5494a; --green:#2f9e6a; --purple:#7a5cd6;
+    --shadow:0 1px 3px rgba(28,35,51,.05);
+    --shadow-lg:0 6px 24px rgba(28,35,51,.08);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--text);
+       font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;font-size:14px}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:#d3d9e3;border-radius:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  header{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.92);
+         backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+         padding:12px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{margin:0;font-size:17px;font-weight:700;letter-spacing:.3px}
+  header h1 .dot{display:inline-block;width:8px;height:8px;border-radius:3px;
+                 background:var(--blue);margin-right:8px}
+  .tag{font-size:11px;color:var(--sub);border:1px solid var(--line);border-radius:20px;
+       padding:2px 9px;background:#fff}
+  .grow{flex:1}
+  .status{display:flex;gap:12px;font-size:12px;color:var(--sub);flex-wrap:wrap}
+  .dot-s{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;
+         vertical-align:middle;transition:background .3s}
+  .ok{background:var(--green)} .bad{background:var(--red)}
+  .pulse{animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  button{background:var(--blue);color:#fff;border:0;border-radius:8px;padding:7px 14px;
+         font-size:13px;cursor:pointer;font-family:inherit;transition:all .15s}
+  button:hover{filter:brightness(1.07);box-shadow:var(--shadow)}
+  button.ghost{background:#fff;color:var(--text);border:1px solid var(--line)}
+  button.ghost:hover{border-color:var(--blue);color:var(--blue);filter:none}
+  button.mini{padding:3px 10px;font-size:12px;border-radius:6px}
+  button.green{background:var(--green)} button.red{background:var(--red)}
+  button:disabled{background:#b9c6e8;cursor:not-allowed;box-shadow:none;filter:none}
+
+  main{padding:18px 24px 60px;max-width:1440px;margin:0 auto}
+  .fade{animation:fade .4s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  .toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;
+           background:var(--card);border:1px solid var(--line);border-radius:12px;
+           padding:12px 16px;box-shadow:var(--shadow)}
+  label{font-size:13px;color:var(--sub);display:flex;align-items:center;gap:6px}
+  input,select{border:1px solid var(--line);border-radius:7px;padding:6px 10px;
+               font-size:13px;font-family:inherit;color:var(--text);background:#fff;
+               transition:border .15s}
+  input:focus,select:focus{outline:none;border-color:var(--blue)}
+  .updated{font-size:12px;color:var(--sub)}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+        gap:14px;margin-bottom:16px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;
+       padding:16px 18px;box-shadow:var(--shadow);transition:all .2s;position:relative;
+       overflow:hidden}
+  .kpi:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px)}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--ac,#2f6fed)}
+  .kpi .k{font-size:12px;color:var(--sub)}
+  .kpi .v{font-size:25px;font-weight:700;margin-top:7px;line-height:1.1;
+          font-variant-numeric:tabular-nums}
+  .kpi .u{font-size:12px;color:var(--sub);font-weight:400;margin-left:3px}
+  .kpi .d{font-size:12px;color:var(--sub);margin-top:6px}
+
+  .grid{display:grid;gap:14px;margin-bottom:16px}
+  .g-73{grid-template-columns:7fr 5fr}
+  .g-11{grid-template-columns:1fr 1fr}
+  @media (max-width:1080px){.g-73,.g-11{grid-template-columns:1fr}}
+
+  /* 大屏拖拽: 所有卡片挂到一条可换行的横向流上, 宽度档位近似原来的 7:5 / 1:1 两栏 */
+  .board{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px;align-items:flex-start}
+  .board>.card{margin-bottom:0}
+  .b-73{flex:0 0 calc(58.333% - 7px)}
+  .b-53{flex:0 0 calc(41.667% - 7px)}
+  .b-50{flex:0 0 calc(50% - 7px)}
+  .b-100{flex:0 0 100%}
+  @media (max-width:1080px){.board>.card{flex-basis:100%}}
+  .grip{cursor:grab;color:#b9c2d4;font-size:15px;line-height:1;user-select:none;
+        padding:2px 4px 0;border-radius:4px}
+  .grip:hover{color:var(--blue);background:var(--blue-bg)}
+  .grip:active{cursor:grabbing}
+  .card.dragging{opacity:.35;border-style:dashed;border-color:var(--blue)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+        padding:16px 18px;box-shadow:var(--shadow)}
+  .card:hover{box-shadow:var(--shadow-lg)}
+  .card .head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px}
+  .card h2{margin:0;font-size:14.5px;font-weight:700}
+  .api-chip{font-size:11px;color:var(--blue);background:var(--blue-bg);
+            border-radius:4px;padding:1px 7px;font-weight:500}
+  .hint{font-size:12px;color:var(--sub);margin:3px 0 10px}
+  .chart{width:100%}
+  .h300{height:300px} .h230{height:230px} .h260{height:260px}
+
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin:8px 0 12px}
+  .chip{border:1px solid var(--line);border-radius:20px;padding:3px 12px;font-size:12px;
+        color:var(--sub);cursor:pointer;background:#fff;transition:all .15s;user-select:none}
+  .chip:hover{border-color:var(--blue);color:var(--blue)}
+  .chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  tr:last-child td{border-bottom:0}
+  th{color:var(--sub);font-weight:500;font-size:12px}
+  tbody tr{transition:background .12s}
+  tbody tr:hover{background:#f7f9fc}
+  tbody tr.sel{background:var(--blue-bg)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+
+  .badge{display:inline-block;padding:1px 8px;border-radius:5px;font-size:12px;line-height:19px}
+  .b-red{background:#fdecec;color:var(--red)}   .b-amber{background:#fbf2e2;color:var(--amber)}
+  .b-gray{background:#eef1f5;color:var(--sub)}  .b-blue{background:var(--blue-bg);color:var(--blue)}
+  .b-green{background:#e8f5ee;color:var(--green)}
+  .b-teal{background:#e5f4f4;color:var(--teal)} .b-purple{background:#efeafa;color:var(--purple)}
+
+  .rt{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px}
+  .rt .kv{background:#f7f9fc;border:1px solid var(--line);border-radius:8px;
+          padding:6px 12px;font-size:12px;color:var(--sub)}
+  .rt .kv b{display:block;font-size:15px;color:var(--text);margin-top:2px;
+            font-variant-numeric:tabular-nums}
+
+  .sug{border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin-bottom:10px;
+       transition:all .15s;background:#fff}
+  .sug:hover{box-shadow:var(--shadow-lg);border-color:#d9e2f2}
+  .sug .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:7px}
+  .sug .title{font-weight:600;font-size:13.5px}
+  .sug .meta{font-size:12px;color:var(--sub);margin-top:5px}
+  .sug .reason{font-size:13px;color:#3a4354;margin-top:7px;line-height:1.65}
+  .sug .action{font-size:12px;color:var(--sub);margin-top:7px;padding-top:7px;
+               border-top:1px dashed var(--line)}
+  .empty{padding:30px;text-align:center;color:var(--sub);font-size:13px}
+
+  .toast{position:fixed;right:20px;bottom:20px;z-index:99;display:flex;
+         flex-direction:column;gap:8px}
+  .toast div{background:#1c2333;color:#fff;border-radius:8px;padding:10px 16px;
+             font-size:13px;box-shadow:var(--shadow-lg);animation:fade .3s;max-width:340px}
+  .toast .warn{background:var(--amber)} .toast .err{background:var(--red)}
+
+  .mask{position:fixed;inset:0;background:rgba(28,35,51,.4);z-index:90;
+        display:none;align-items:center;justify-content:center}
+  .mask.show{display:flex}
+  .modal{background:#fff;border-radius:14px;padding:22px;width:380px;
+         box-shadow:var(--shadow-lg);animation:fade .2s}
+  .modal h3{margin:0 0 4px;font-size:15px}
+  .modal p{margin:0 0 14px;font-size:12.5px;color:var(--sub);line-height:1.5}
+  .modal .row{margin-bottom:12px}
+  .modal input{width:100%}
+  .modal .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+
+  footer{max-width:1440px;margin:0 auto;padding:0 24px 30px;font-size:12px;color:var(--sub)}
+  footer code{background:#eef1f5;border-radius:4px;padding:1px 6px;font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot"></span>M4 能源管控服务 · 演示看板</h1>
+  <span class="tag">临时演示页 · 直连 8061~8064 真实接口 · 卡片可拖拽</span>
+  <span class="grow"></span>
+  <div class="status" id="status"><span><i class="dot-s pulse"></i>探测后端中…</span></div>
+  <button onclick="loadAll()">刷新数据</button>
+</header>
+
+<main class="fade">
+  <div class="toolbar">
+    <label>统计日期 <input id="date" value="2026-09-15" size="12"></label>
+    <label>账期月份 <input id="month" value="2026-09" size="9"></label>
+    <button class="ghost" onclick="loadAll()">应用</button>
+    <span class="grow"></span>
+    <span class="updated" id="updated"></span>
+    <button id="runBtn" onclick="runInspect()">▶ 跑一次智能体巡检</button>
+  </div>
+
+  <div class="kpis" id="kpis">
+    <div class="kpi"><div class="k">当日全园区总用电</div><div class="v">…</div></div>
+    <div class="kpi"><div class="k">覆盖设备</div><div class="v">…</div></div>
+    <div class="kpi"><div class="k">区域数</div><div class="v">…</div></div>
+    <div class="kpi"><div class="k">账单总额</div><div class="v">…</div></div>
+    <div class="kpi"><div class="k">待审批建议</div><div class="v">…</div></div>
+  </div>
+
+  <div class="board" id="board">
+    <div class="card b-73" data-card="trend">
+      <div class="head"><span class="grip" title="按住拖动调整布局">⠿</span><h2>月度每日用电趋势</h2><span class="api-chip">接口 57</span>
+        <span class="grow"></span><span class="hint" id="yoy" style="margin:0"></span></div>
+      <div class="hint">每日明细之和 = 月度总量，虚线为日均</div>
+      <div id="c-trend" class="chart h300"></div>
+    </div>
+    <div class="card b-53" data-card="pie">
+      <div class="head"><span class="grip" title="按住拖动调整布局">⠿</span><h2>当日区域用电占比</h2><span class="api-chip">接口 56</span></div>
+      <div class="hint">点击扇区，联动下方区域详情</div>
+      <div id="c-pie" class="chart h300"></div>
+    </div>
+
+    <div class="card b-100" data-card="zone">
+      <div class="head"><span class="grip" title="按住拖动调整布局">⠿</span><h2>区域能耗详情</h2><span class="api-chip">接口 58</span></div>
+      <div class="hint">左：该区域设备用量排行（点击设备行，联动下方 24 小时曲线）· 右：本月按天趋势</div>
+      <div class="chips" id="zoneChips"></div>
+      <div class="grid g-11">
+        <div id="c-dev" class="chart h260"></div>
+        <div id="c-zdays" class="chart h260"></div>
+      </div>
+    </div>
+
+    <div class="card b-50" data-card="device">
+      <div class="head"><span class="grip" title="按住拖动调整布局">⠿</span><h2>单设备 24 小时用电曲线</h2><span class="api-chip">接口 52 + 53</span>
+        <span class="grow"></span><select id="devSel" onchange="loadDevice()"></select></div>
+      <div class="rt" id="rt"></div>
+      <div id="c-hist" class="chart h230"></div>
+    </div>
+    <div class="card b-50" data-card="billseg">
+      <div class="head"><span class="grip" title="按住拖动调整布局">⠿</span><h2>峰谷账单 · 分段明细</h2><span class="api-chip">接口 61</span>
+        <span class="grow"></span><span class="hint" id="billMeta" style="margin:0"></span></div>
+      <div class="hint">各段用量之和 = 账单总用量（差分法，跨小时增量不丢失）</div>
+      <div id="c-bill" class="chart h300"></div>
+    </div>
+
+    <div class="card b-100" data-card="billing">
+      <div class="head"><span class="grip" title="按住拖动调整布局">⠿</span><h2>计费</h2><span class="api-chip">接口 59 ~ 62</span>
+        <span class="grow"></span>
+        <span class="chips" style="margin:0" id="billTabs">
+          <span class="chip on" onclick="billTab('bill',this)">账单列表 · 62</span>
+          <span class="chip" onclick="billTab('rule',this)">计费规则 · 60</span>
+        </span>
+      </div>
+      <div class="toolbar" style="margin:10px 0;padding:10px 12px" id="genBar">
+        <label>区域 <input id="gZone" list="zoneList" value="SCEN-突增区" size="14"></label>
+        <datalist id="zoneList"></datalist>
+        <label>账期 <input id="gPeriod" value="2026-09" size="9"></label>
+        <button class="ghost" onclick="genBill(this)">现场出账 · 61</button>
+        <span class="hint" style="margin:0">同一区域同一账期重复出账会被唯一键挡住（幂等）</span>
+      </div>
+      <div id="tab-bill" style="max-height:280px;overflow:auto"><table id="billTable"></table></div>
+      <div id="tab-rule" style="display:none;max-height:280px;overflow:auto"><table id="ruleTable"></table></div>
+    </div>
+
+    <div class="card b-100" data-card="agent">
+      <div class="head"><span class="grip" title="按住拖动调整布局">⠿</span><h2>能源归因智能体 · 优化建议</h2><span class="api-chip">巡检 + 列表 + 审批</span>
+        <span class="grow"></span>
+        <span class="chips" style="margin:0" id="stChips">
+          <span class="chip on" data-st="">全部</span>
+          <span class="chip" data-st="1">待审批</span>
+          <span class="chip" data-st="2">已通过</span>
+          <span class="chip" data-st="3">已驳回</span>
+        </span>
+        <select id="catSel" onchange="renderSug()">
+          <option value="">全部类型</option><option value="night_idle">夜间空转</option>
+          <option value="zone_surge">区域普涨</option><option value="device_spike">设备突增</option>
+          <option value="meter_backward">读数回退</option><option value="data_missing">数据缺失</option>
+        </select>
+      </div>
+      <div class="hint">规则引擎判定异常，大模型只润色表述；卡片右侧按钮走真实审批接口，可现场演示人机协同</div>
+      <div id="sugList"><div class="empty">加载中…</div></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  接口 <code>54</code>（gRPC GetDailyReport，供 M5 大屏聚合）与 <code>55</code>（Kafka 消费 M1 遥测入库）
+  为服务间链路，不产生 HTTP 响应，故不在本页展示。演示数据存于组内公用库，其中
+  「演示-空转区峰谷」规则与 <code>B202609-SCEN-空转区</code> 账单为演示用。
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<div class="mask" id="mask">
+  <div class="modal">
+    <h3 id="mTitle">审批建议</h3>
+    <p id="mDesc"></p>
+    <div class="row"><label style="width:100%">审批人<br>
+      <input id="mReviewer" value="演示评审" style="margin-top:5px"></label></div>
+    <div class="row"><label style="width:100%">审批意见（可选）<br>
+      <input id="mComment" placeholder="属实，安排检修" style="margin-top:5px"></label></div>
+    <div class="btns">
+      <button class="ghost mini" onclick="closeModal()">取消</button>
+      <button class="red mini" id="mReject" onclick="doApprove(false)">驳回</button>
+      <button class="green mini" id="mPass" onclick="doApprove(true)">通过</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const C = {blue:'#2f6fed',teal:'#159e9e',amber:'#dd8f2e',red:'#d5494a',
+           green:'#2f9e6a',purple:'#7a5cd6',gray:'#9aa5b1'};
+const PALETTE = [C.blue,C.teal,C.amber,C.purple,C.green,C.red,'#5b8def','#c9a54e'];
+let charts = {};
+let state = {date:'', month:'', zone:'', device:'', sugAll:[], sugSt:'', billTab:'bill'};
+
+/* ---------- 基础 ---------- */
+let apiFail = 0;
+async function api(path){
+  const r = await fetch(API_BASE + path);
+  const j = await r.json();
+  if(j.code !== '0' && j.code !== 0) throw new Error(j.msg || ('接口返回 code=' + j.code));
+  return j.data;
+}
+// 连不上后端时把原因和排查办法直接摆在页面上, 别让人对着"探测中"猜
+function diagnose(why){
+  apiFail++;
+  const here = location.href;
+  $('err').innerHTML = `<div class="err">
+    <b>连不上后端：${why}</b><br>
+    1. 确认你打开的是 <b>http://127.0.0.1:8070</b>，而不是静态副本预览（当前页面地址：${here}）。<br>
+    2. 确认 8061~8064 四个服务在跑：数据 / 分析 / 计费 / 智能体。<br>
+    3. 确认演示服务器在跑：<code>go run ./cmd/m4demo -dir &lt;页面目录&gt; -port 8070</code><br>
+    <span style="opacity:.8">后端本身可以用 curl 自测：curl http://127.0.0.1:8070/api/demo/health</span><br>
+    <button class="ghost mini" style="margin-top:8px" onclick="loadAll()">重试</button>
+  </div>`;
+}
+function fmt(n, d=2){ return Number(n||0).toFixed(d); }
+function fmtInt(n){ return Number(n||0).toLocaleString('zh-CN'); }
+function toast(msg, cls=''){
+  const t = document.createElement('div'); t.className = cls; t.textContent = msg;
+  $('toast').appendChild(t); setTimeout(()=>t.remove(), 3500);
+}
+function chart(id){
+  if(!charts[id]) charts[id] = echarts.init($(id));
+  return charts[id];
+}
+window.addEventListener('resize', ()=>Object.values(charts).forEach(c=>c&&c.resize()));
+
+/* ---------- 启动 ---------- */
+async function loadAll(){
+  state.date = $('date').value; state.month = $('month').value;
+  $('updated').textContent = '';
+  health();
+  try{
+    await loadMonthly();                 // 先拿月度, 顺带修正统计日期
+    await Promise.all([loadDaily(), loadBills(), loadRules(), loadSuggestions()]);
+    await loadZoneDetail();              // 依赖 daily 的区域列表
+  }catch(e){ toast('加载失败：'+e.message,'err'); }
+  $('updated').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN');
+}
+
+async function health(){
+  try{
+    const list = await api('/api/demo/health');
+    $('status').innerHTML = list.map(s =>
+      `<span><i class="dot-s ${s.ok?'ok':'bad'}"></i>${s.name}</span>`).join('');
+    if(apiFail) $('err').innerHTML = '';        // 后端恢复了就把报错撤掉
+    apiFail = 0;
+  }catch(e){
+    $('status').innerHTML = '<span style="color:#d5494a">后端探测失败</span>';
+    diagnose(e.message || '演示服务器或后端服务未响应');
+  }
+}
+
+/* ---------- KPI + 日报(56) + 月报(57) ---------- */
+async function loadMonthly(){
+  const v = await api('/api/energy/monthly?month='+state.month);
+  const days = v.days||[];
+  // 统计日期当天没数据就自动落到本月最后一条有数据的日子, 免得一进来全是空图
+  if(days.length && !days.some(d=>d.date===state.date)){
+    state.date = days[days.length-1].date; $('date').value = state.date;
+    toast('统计日期 '+state.date+' 无数据，已切换到当天');
+  }
+  const yoy = v.yoy==null?null:(v.yoy*100), mom = v.mom==null?null:(v.mom*100);
+  $('yoy').innerHTML =
+    `本月 <b>${fmt(v.totalUsage,1)}</b> 度 · 日均 <b>${fmt(v.avgDailyUsage,1)}</b>` +
+    (mom==null?'':` · 环比 <b style="color:${mom>=0?C.red:C.green}">${mom>=0?'+':''}${fmt(mom,1)}%</b>`);
+  chart('c-trend').setOption({
+    tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}<br/><b>${fmt(p[0].value)} 度</b>`},
+    grid:{left:58,right:22,top:26,bottom:34},
+    xAxis:{type:'category',data:days.map(x=>x.date.slice(5)),
+           axisLine:{lineStyle:{color:'#e7eaf0'}},axisLabel:{color:'#737d8c',fontSize:11}},
+    yAxis:{type:'value',name:'度',nameTextStyle:{color:'#737d8c',fontSize:11},
+           splitLine:{lineStyle:{color:'#f0f2f6'}},axisLabel:{color:'#737d8c',fontSize:11}},
+    series:[{
+      type:'line',smooth:true,symbolSize:5,
+      data:days.map(x=>x.usage),
+      lineStyle:{width:2.5,color:C.blue},itemStyle:{color:C.blue},
+      areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,
+        [{offset:0,color:'rgba(47,111,237,.20)'},{offset:1,color:'rgba(47,111,237,0)'}])},
+      markLine:{silent:true,symbol:'none',data:[{type:'average',
+        lineStyle:{color:C.amber,type:'dashed'},
+        label:{formatter:c=>`日均 ${fmt(c.value,1)}`,color:C.amber,fontSize:11}}]}
+    }]
+  }, true);
+}
+
+async function loadDaily(){
+  const v = await api('/api/energy/daily?date='+state.date);
+  const zones = v.zones||[];
+  chart('c-pie').setOption({
+    color:PALETTE,
+    tooltip:{trigger:'item',formatter:b=>`${b.name}<br/><b>${fmt(b.value)} 度</b> (${b.percent}%)`},
+    legend:{bottom:0,itemWidth:9,itemHeight:9,itemGap:10,
+            textStyle:{fontSize:11,color:'#737d8c'}},
+    series:[{
+      type:'pie',radius:['44%','68%'],center:['50%','44%'],
+      label:{formatter:'{d}%',fontSize:11},
+      emphasis:{scaleSize:6},
+      data:zones.map(z=>({name:z.zoneId,value:z.usage})),
+      cursor:'pointer'
+    }]
+  }, true);
+  chart('c-pie').off('click');
+  chart('c-pie').on('click', e => { if(e.name) selectZone(e.name); });
+
+  // 区域 chips + 出账 datalist
+  $('zoneChips').innerHTML = zones.map(z =>
+    `<span class="chip${z.zoneId===state.zone?' on':''}" onclick="selectZone('${z.zoneId}')">${z.zoneId}</span>`).join('');
+  $('zoneList').innerHTML = zones.map(z=>`<option value="${z.zoneId}">`).join('');
+  if(!zones.some(z=>z.zoneId===state.zone)) state.zone = zones.length?zones[0].zoneId:'';
+
+  const top = zones[0]?zones[0].zoneId:'—';
+  const k = $('kpis').children;
+  k[0].style.setProperty('--ac',C.blue);
+  k[0].innerHTML = `<div class="k">当日全园区总用电</div>
+    <div class="v">${fmt(v.totalUsage)}<span class="u">度</span></div>
+    <div class="d">统计日期 ${v.date}</div>`;
+  k[1].style.setProperty('--ac',C.teal);
+  k[1].innerHTML = `<div class="k">覆盖设备</div>
+    <div class="v">${fmtInt(v.deviceCount)}<span class="u">台</span></div>
+    <div class="d">当日有数据上报</div>`;
+  k[2].style.setProperty('--ac',C.purple);
+  k[2].innerHTML = `<div class="k">区域数</div>
+    <div class="v">${zones.length}<span class="u">个</span></div>
+    <div class="d">用电最高：${top}</div>`;
+  k[3].style.setProperty('--ac',C.amber);
+  k[3].innerHTML = `<div class="k">本月账单总额</div>
+    <div class="v" id="kpiAmount">…</div><div class="d">已出账金额合计</div>`;
+  k[4].style.setProperty('--ac',C.red);
+  k[4].innerHTML = `<div class="k">待审批建议</div>
+    <div class="v" id="kpiPending">…</div><div class="d">智能体产出</div>`;
+}
+
+/* ---------- 区域详情(58) ---------- */
+// 已看过的区域结果缓存: 切回来看过的区域不重复打后端
+var zoneCache = {};
+async function selectZone(z){
+  state.zone = z; state.device = '';
+  document.querySelectorAll('#zoneChips .chip').forEach(c=>
+    c.classList.toggle('on', c.textContent===z));
+  await loadZoneDetail();
+}
+function zoneKey(){
+  return state.zone + '|' + state.month + '-01|' + state.date;
+}
+async function loadZoneDetail(){
+  if(!state.zone) return;
+  const start = state.month + '-01', end = state.date;
+  const key = zoneKey();
+  let v = zoneCache[key];
+  if(!v){
+    v = await api('/api/energy/zone?zoneId='+encodeURIComponent(state.zone)+
+                  '&start='+start+'&end='+end);
+    zoneCache[key] = v;
+  }
+  const devs = v.devices||[];
+  chart('c-dev').setOption({
+    grid:{left:120,right:40,top:8,bottom:24},
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'value',name:'度',nameTextStyle:{color:'#737d8c',fontSize:11},
+           splitLine:{lineStyle:{color:'#f0f2f6'}},axisLabel:{color:'#737d8c',fontSize:11}},
+    yAxis:{type:'category',data:devs.map(d=>d.deviceId).reverse(),
+           axisLabel:{color:'#3a4354',fontSize:11}},
+    series:[{
+      type:'bar',barWidth:'55%',
+      data:devs.map(d=>d.usage).reverse(),
+      itemStyle:{borderRadius:[0,4,4,0],
+        color:p=>PALETTE[p.dataIndex % PALETTE.length]},
+      label:{show:true,position:'right',formatter:p=>fmt(p.value,0)+' 度',
+             fontSize:11,color:'#737d8c'}
+    }]
+  }, true);
+
+  const days = v.days||[];
+  chart('c-zdays').setOption({
+    grid:{left:52,right:20,top:24,bottom:32},
+    tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}<br/><b>${fmt(p[0].value)} 度</b>`},
+    xAxis:{type:'category',data:days.map(d=>d.date.slice(5)),
+           axisLabel:{color:'#737d8c',fontSize:11}},
+    yAxis:{type:'value',name:'度',nameTextStyle:{color:'#737d8c',fontSize:11},
+           splitLine:{lineStyle:{color:'#f0f2f6'}},axisLabel:{color:'#737d8c',fontSize:11}},
+    series:[{
+      type:'bar',barWidth:'55%',data:days.map(d=>d.usage),
+      itemStyle:{borderRadius:[4,4,0,0],
+        color:new echarts.graphic.LinearGradient(0,0,0,1,
+          [{offset:0,color:'#5b8def'},{offset:1,color:'rgba(91,141,239,.35)'}])}
+    }]
+  }, true);
+
+  $('devSel').innerHTML = devs.map(d=>
+    `<option value="${d.deviceId}"${d.deviceId===state.device?' selected':''}>${d.deviceId}</option>`).join('')
+    || '<option value="">（该区域暂无设备数据）</option>';
+  if(devs.length && !devs.some(d=>d.deviceId===state.device)) state.device = devs[0].deviceId;
+  loadDevice();
+}
+
+/* ---------- 单设备 52+53 ---------- */
+async function loadDevice(){
+  const id = $('devSel').value || state.device;
+  if(!id){ $('rt').innerHTML=''; chart('c-hist').clear(); return; }
+  state.device = id;
+  // 实时(52)和历史(53)互不依赖, 并行拉比串行快一倍
+  const [rt, h] = await Promise.all([
+    api('/api/energy/realtime/'+encodeURIComponent(id)),
+    api('/api/energy/history?deviceId='+encodeURIComponent(id)+
+        '&start='+state.date+'&granularity=hour')
+  ]).catch(()=>[null,null]);
+  if(!rt || !h) return;
+  $('rt').innerHTML = `
+    <span class="kv">今日用量<b>${fmt(rt.todayUsage)} 度</b></span>
+    <span class="kv">瞬时功率<b>${fmt(rt.powerKw,2)} kW</b></span>
+    <span class="kv">累计读数<b>${fmt(rt.energyKwh)} 度</b></span>
+    <span class="kv">上报时间<b>${(rt.reportedAt||'').replace('T',' ')}</b></span>`;
+  const pts = h.points||[];
+  chart('c-hist').setOption({
+    grid:{left:48,right:18,top:24,bottom:30},
+    tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}<br/><b>${fmt(p[0].value)} 度</b>`},
+    xAxis:{type:'category',data:pts.map(p=>p.time.slice(11,16)),
+           axisLabel:{color:'#737d8c',fontSize:11},
+           axisLine:{lineStyle:{color:'#e7eaf0'}}},
+    yAxis:{type:'value',name:'度',nameTextStyle:{color:'#737d8c',fontSize:11},
+           splitLine:{lineStyle:{color:'#f0f2f6'}},axisLabel:{color:'#737d8c',fontSize:11}},
+    series:[{
+      type:'bar',data:pts.map(p=>p.usage),barWidth:'62%',
+      itemStyle:{borderRadius:[3,3,0,0],
+        color:p=>p.value>0?C.teal:'#dde3ec'}
+    }]
+  }, true);
+}
+
+/* ---------- 计费 59~62 ---------- */
+function billTab(t, el){
+  state.billTab = t;
+  document.querySelectorAll('#billTabs .chip').forEach(c=>c.classList.remove('on'));
+  el.classList.add('on');
+  $('tab-bill').style.display = t==='bill'?'':'none';
+  $('tab-rule').style.display = t==='rule'?'':'none';
+  $('genBar').style.display  = t==='bill'?'':'none';
+}
+async function loadBills(){
+  const v = await api('/api/billing/bills?page=1&pageSize=30');
+  const list = v.list||[];
+  let t = `<tr><th>账单号</th><th>区域</th><th>账期</th>
+           <th style="text-align:right">用量(度)</th><th style="text-align:right">金额(元)</th>
+           <th>状态</th></tr>`;
+  t += list.map(b=>`<tr style="cursor:pointer" id="br-${b.billNo}" onclick="showBill('${b.billNo}')">
+    <td>${b.billNo}</td><td>${b.zoneId}</td>
+    <td>${(b.periodStart||'').slice(0,7)}</td>
+    <td class="num">${fmt(b.usageKwh)}</td><td class="num">${fmt(b.amount)}</td>
+    <td><span class="badge ${b.status===2?'b-green':'b-blue'}">${b.status===2?'已缴':'待缴'}</span></td></tr>`).join('');
+  $('billTable').innerHTML = t || '<tr><td class="empty">暂无账单</td></tr>';
+  const sum = list.reduce((s,b)=>s+Number(b.amount||0),0);
+  const el = $('kpiAmount'); if(el) el.innerHTML = '¥ '+fmt(sum);
+  if(list.length){
+    const best = list.reduce((a,b)=>Number(b.usageKwh)>Number(a.usageKwh)?b:a);
+    showBill(best.billNo);
+  }
+}
+async function loadRules(){
+  const v = await api('/api/billing/rules');
+  const RT = {1:'b-blue 单一',2:'b-purple 阶梯',3:'b-teal 峰谷'};
+  let t = `<tr><th>规则</th><th>区域</th><th>类型</th><th>状态</th><th>创建时间</th></tr>`;
+  t += (v.list||[]).map(r=>{
+    const [cls,name] = RT[r.ruleType].split(' ');
+    return `<tr><td>${r.name}</td><td>${r.zoneId||'全园区'}</td>
+      <td><span class="badge ${cls}">${name}</span></td>
+      <td><span class="badge ${r.status===1?'b-green':'b-gray'}">${r.status===1?'启用':'停用'}</span></td>
+      <td style="color:var(--sub);font-size:12px">${r.createdAt}</td></tr>`;
+  }).join('');
+  $('ruleTable').innerHTML = t || '<tr><td class="empty">暂无规则</td></tr>';
+}
+async function showBill(no){
+  document.querySelectorAll('#billTable tr.sel').forEach(r=>r.classList.remove('sel'));
+  const row = $('br-'+no); if(row) row.classList.add('sel');
+  try{
+    const v = await api('/api/demo/billdetail?billNo='+encodeURIComponent(no));
+    const det = v.detail||[];
+    $('billMeta').textContent = no+' · '+(v.zoneId||'')+' · '+(v.usage||0)+' 度 / ¥'+fmt(v.amount);
+    chart('c-bill').setOption({
+      tooltip:{trigger:'axis'},
+      legend:{bottom:0,itemWidth:9,itemHeight:9,textStyle:{fontSize:11,color:'#737d8c'}},
+      grid:{left:54,right:54,top:26,bottom:44},
+      xAxis:{type:'category',data:det.map(d=>d.name),axisLabel:{color:'#3a4354',fontSize:11}},
+      yAxis:[
+        {type:'value',name:'度',nameTextStyle:{color:'#737d8c',fontSize:11},
+         splitLine:{lineStyle:{color:'#f0f2f6'}},axisLabel:{color:'#737d8c',fontSize:11}},
+        {type:'value',name:'元',nameTextStyle:{color:'#737d8c',fontSize:11},
+         splitLine:{show:false},axisLabel:{color:'#737d8c',fontSize:11}}],
+      series:[
+        {name:'用量(度)',type:'bar',barWidth:'36%',data:det.map(d=>d.usage),
+         itemStyle:{color:C.blue,borderRadius:[4,4,0,0]},
+         label:{show:true,position:'top',formatter:p=>fmt(p.value,0),fontSize:11,color:'#737d8c'}},
+        {name:'金额(元)',type:'bar',yAxisIndex:1,barWidth:'36%',data:det.map(d=>d.amount),
+         itemStyle:{color:C.teal,borderRadius:[4,4,0,0]},
+         label:{show:true,position:'top',formatter:p=>'¥'+fmt(p.value,0),fontSize:11,color:'#737d8c'}}
+      ]
+    }, true);
+  }catch(e){ chart('c-bill').clear(); $('c-bill').innerHTML=''; toast(e.message,'err'); }
+}
+async function genBill(btn){
+  const label = btn.textContent; btn.disabled = true; btn.textContent = '出账中…';
+  try{
+    const r = await fetch(API_BASE + '/api/billing/generate',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({zoneId:$('gZone').value, period:$('gPeriod').value})
+    });
+    const j = await r.json();
+    if(j.code!=='0'&&j.code!==0) throw new Error(j.msg);
+    toast('已出账：'+j.data.billNo+' · ¥'+fmt(j.data.amount));
+    await loadBills(); showBill(j.data.billNo);
+  }catch(e){ toast(e.message,'warn'); }
+  finally{ btn.disabled=false; btn.textContent=label; }
+}
+
+/* ---------- 智能体 ---------- */
+const CAT = {night_idle:'夜间空转',zone_surge:'区域普涨',device_spike:'设备突增',
+             meter_backward:'读数回退',data_missing:'数据缺失'};
+const STATUS = {1:'待审批',2:'已通过',3:'已驳回',4:'已转工单'};
+
+async function loadSuggestions(){
+  try{
+    const all = await api('/api/agent/suggestions?page=1&pageSize=100');
+    const pend = await api('/api/agent/suggestions?page=1&pageSize=1&status=1');
+    state.sugAll = all.list||[];
+    const el = $('kpiPending'); if(el) el.innerHTML = fmtInt(pend.total);
+    renderSug();
+  }catch(e){ $('sugList').innerHTML='<div class="empty">'+e.message+'</div>'; }
+}
+function renderSug(){
+  const st = state.sugSt, cat = $('catSel').value;
+  const list = state.sugAll.filter(s =>
+    (!st || String(s.status)===st) && (!cat || s.category===cat));
+  if(!list.length){
+    $('sugList').innerHTML = '<div class="empty">当前筛选下没有建议</div>'; return;
+  }
+  $('sugList').innerHTML = list.map(s=>{
+    const sev = s.severity>=3?['b-red','高危']:s.severity===2?['b-amber','中危']:['b-gray','低危'];
+    const stc = s.status===2?'b-green':s.status===3?'b-red':'b-blue';
+    const canApprove = s.status===1;
+    return `<div class="sug">
+      <div class="top">
+        <span class="badge ${sev[0]}">${sev[1]}</span>
+        <span class="badge b-blue">${CAT[s.category]||s.category}</span>
+        <span class="title">${s.title}</span>
+        <span class="grow"></span>
+        <span class="badge ${stc}">${STATUS[s.status]||s.status}</span>
+        ${canApprove?`<button class="green mini" onclick="openModal(${s.id},true,'${(s.title||'').replace(/'/g,'')}')">通过</button>
+        <button class="red mini" onclick="openModal(${s.id},false,'${(s.title||'').replace(/'/g,'')}')">驳回</button>`:''}
+      </div>
+      <div class="meta">区域 ${s.zoneId}${s.deviceId?' · 设备 '+s.deviceId:''} · 置信度 ${fmt(s.confidence)}</div>
+      <div class="reason">${s.reason||''}</div>
+      <div class="action">建议动作：${s.action||'—'}</div>
+    </div>`;
+  }).join('');
+}
+document.querySelectorAll('#stChips .chip').forEach(c=>{
+  c.onclick = () => {
+    document.querySelectorAll('#stChips .chip').forEach(x=>x.classList.remove('on'));
+    c.classList.add('on'); state.sugSt = c.dataset.st; renderSug();
+  };
+});
+
+let approveCtx = null;
+function openModal(id, pass, title){
+  approveCtx = {id, pass};
+  $('mTitle').textContent = (pass?'通过':'驳回')+'建议 #'+id;
+  $('mDesc').textContent = title;
+  $('mPass').style.display = pass?'':'none';
+  $('mReject').style.display = pass?'none':'';
+  $('mask').classList.add('show');
+}
+function closeModal(){ $('mask').classList.remove('show'); }
+async function doApprove(pass){
+  if(!approveCtx) return;
+  const {id} = approveCtx;
+  const reviewer = $('mReviewer').value.trim();
+  if(!reviewer){ toast('审批人必填','warn'); return; }
+  try{
+    const r = await fetch(API_BASE + '/api/agent/suggestion/approve',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id, approved:pass, reviewer,
+                           comment:$('mComment').value.trim()})
+    });
+    const j = await r.json();
+    if(j.code!=='0'&&j.code!==0) throw new Error(j.msg);
+    toast((pass?'已通过':'已驳回')+' · 状态 → '+STATUS[j.data.status]);
+    closeModal(); loadSuggestions();
+  }catch(e){ toast(e.message,'err'); }
+  $('mComment').value='';
+}
+
+async function runInspect(){
+  const btn = $('runBtn');
+  btn.disabled = true; btn.textContent = '巡检中…';
+  try{
+    const r = await fetch(API_BASE + '/api/agent/inspect',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({statDate:state.date})
+    });
+    const j = await r.json();
+    if(j.code!=='0'&&j.code!==0) throw new Error(j.msg);
+    // 把这次用没用大模型、用的哪个模型显示出来: 一是答辩现场一眼能答"模型是谁",
+    // 二是关掉大模型对比时, 这里的字样会变成 mock, 正好当证据
+    const llm = j.data.llmEnabled ? `，大模型润色 ${j.data.llmModel}` : '，未启用大模型（规则原文）';
+    toast(`巡检完成：${j.data.zoneCount} 个区域，发现 ${j.data.findCount} 条异常（${j.data.costMs/1000}s${llm}）`);
+    await loadSuggestions();
+  }catch(e){ toast('巡检失败：'+e.message,'err'); }
+  finally{ btn.disabled=false; btn.textContent='▶ 跑一次智能体巡检'; }
+}
+
+/* ---------- 大屏卡片拖拽 ---------- */
+const board = $('board');
+const LAYOUT_KEY = 'm4-board-layout';
+let armed = null;   // 这一次按下是不是从卡片手柄(或标题栏空白处)开始的
+
+// 卡片常驻 draggable=true, 用 dragstart 里的 armed 判断放不放行:
+// 在 mousedown 里才把 draggable 打开, 浏览器不会认这个元素可拖, 所以那样写拖不动
+document.querySelectorAll('#board > .card').forEach(card => {
+  card.setAttribute('draggable', 'true');
+  card.addEventListener('dragstart', e => {
+    if(armed !== card){ e.preventDefault(); return; }   // 从图表/表格/控件上按下: 取消拖拽, 交回控件
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try{ e.dataTransfer.setData('text/plain', card.dataset.card); }catch(_){}
+  });
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    armed = null;
+    saveLayout();
+    // 落位后卡片宽度可能变了, ECharts 不会自己适应, 必须手动 resize
+    Object.values(charts).forEach(c => c && c.resize());
+  });
+});
+// 除了图表画布和下拉/按钮/筛选片, 卡片上其它地方都能按住拖 —— 手柄只是给个显眼的抓手
+// 挂在捕获阶段, 免得 ECharts 之类的库 stopPropagation 把事件吃掉导致判定过期
+document.addEventListener('mousedown', e => {
+  const card = e.target.closest('#board > .card');
+  if(!card){ armed = null; return; }
+  const ctrl = e.target.closest('select,button,input,textarea,a,.chip,.chips,.chart');
+  armed = ctrl ? null : card;
+}, true);
+
+board.addEventListener('dragover', e => {
+  const dragging = board.querySelector('.dragging');
+  if(!dragging) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  // 插入位置: 鼠标已经越过某一行就插到那行前面; 还在同一行内则看鼠标在目标卡片中线的左还是右
+  const others = [...board.children].filter(c => c !== dragging);
+  let next = null;
+  for(const c of others){
+    const r = c.getBoundingClientRect();
+    if(e.clientY < r.top - 6){ next = c; break; }
+    if(e.clientY <= r.bottom + 6 && e.clientX < r.left + r.width/2){ next = c; break; }
+  }
+  // 已经在目标位置就别再动了, 反复 insertBefore 会让卡片和鼠标打架(抖动)
+  if(next){
+    if(dragging.nextElementSibling !== next) board.insertBefore(dragging, next);
+  }else if(board.lastElementChild !== dragging){
+    board.appendChild(dragging);
+  }
+});
+board.addEventListener('drop', e => e.preventDefault());
+
+function saveLayout(){
+  try{ localStorage.setItem(LAYOUT_KEY,
+    [...board.children].map(c => c.dataset.card).join(',')); }catch(_){}
+}
+// 刷新/重开先还原上次的卡片顺序; 必须赶在图表初始化之前做完, init 量到的才是最终位置
+(function restoreLayout(){
+  let order = [];
+  try{ order = (localStorage.getItem(LAYOUT_KEY) || '').split(','); }catch(_){}
+  if(!order.length) return;
+  const cards = {};
+  [...board.children].forEach(c => cards[c.dataset.card] = c);
+  order.filter(id => cards[id]).forEach(id => board.appendChild(cards[id]));
+})();
+
+// 静态副本预览(端口不是 8070)会调不到 /api, 先说清楚
+if(location.port && location.port !== '8070'){
+  $('err').innerHTML = `<div class="err">
+    当前页面端口是 <b>${location.port}</b>（静态副本预览），已自动改用 <b>${API_BASE}</b> 取数。
+    若仍无数据，请在浏览器打开 <b>http://127.0.0.1:8070</b>。
+  </div>`;
+}
+// 先加载 ECharts(1MB), 加载失败就明说, 别让人对着空白图表猜
+loadScript(API_BASE + '/echarts.min.js').then(loadAll).catch(e=>{
+  $('err').innerHTML = `<div class="err">
+    ECharts 加载失败：${e.message}<br>
+    请确认演示服务器在跑，并且 <b>${API_BASE}/echarts.min.js</b> 能打开。
+  </div>`;
+  $('status').innerHTML = '<span style="color:#d5494a">ECharts 未加载</span>';
+});
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    const s = document.createElement('script');
+    s.src = src; s.onload = res;
+    s.onerror = ()=>rej(new Error(src));
+    document.head.appendChild(s);
+  });
+}
+</script>
+</body>
+</html>

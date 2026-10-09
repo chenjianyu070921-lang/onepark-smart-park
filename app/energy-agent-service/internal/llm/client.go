@@ -100,11 +100,29 @@ func BuildPrompt(req ExplainRequest) (system, user string) {
 
 	user = fmt.Sprintf("检测日期: %s\n对象: %s\n异常类型: %s",
 		req.StatDate, target, categoryName(req.Category))
+	// 夜间空转的数字要换个说法: 它的 evidence 是"夜间电量 / 全天总量 / 夜间占比",
+	// 套"用量 / 基线 / 偏离幅度"的标签, 模型会把占比讲成"偏离 30%", 口径就错了。
+	if req.Category == "night_idle" {
+		if req.Usage > 0 {
+			user += fmt.Sprintf("\n夜间(23:00-次日06:00)用电量: %.2f 度", req.Usage)
+		}
+		if req.Baseline > 0 {
+			user += fmt.Sprintf("\n当天总用量: %.2f 度", req.Baseline)
+		}
+		if req.Deviation != 0 {
+			user += fmt.Sprintf("\n夜间占全天比例: %.0f%%", req.Deviation)
+		}
+		return system, user
+	}
 	// 只有真有数字的时候才往提示词里塞。
 	// 读数回退、数据缺失这类发现本来就没有用量和基线, 硬塞两个 0.00 进去,
 	// 模型要么照着 0 度编一段话, 要么干脆不敢提数字 —— 两种都不如不给。
 	if req.Usage > 0 || req.Baseline > 0 {
-		user += fmt.Sprintf("\n当天用量: %.2f 度\n历史基线: %.2f 度", req.Usage, req.Baseline)
+		user += fmt.Sprintf("\n当天用量: %.2f 度", req.Usage)
+	}
+	// 基线为 0 说明这几天本来就没量, 再塞一行"历史基线 0.00 度"只会让模型照着 0 编
+	if req.Baseline > 0 {
+		user += fmt.Sprintf("\n历史基线: %.2f 度", req.Baseline)
 	}
 	if req.Deviation != 0 {
 		user += fmt.Sprintf("\n偏离幅度: %.0f%%", req.Deviation)

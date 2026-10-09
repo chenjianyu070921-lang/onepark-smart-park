@@ -12,16 +12,17 @@ MySQL:
 
 # 大模型(层2, 只负责把规则算出的结论翻译成人话, 不参与异常判定)
 # 用 OpenAI 兼容格式, 换厂商只改这三行, 代码不用动:
-#   DeepSeek: BaseURL https://api.deepseek.com/v1        Model deepseek-chat
+#   DeepSeek 官方: BaseURL https://api.deepseek.com/v1        Model deepseek-chat
+#   火山方舟:      BaseURL https://ark.cn-beijing.volces.com/api/coding/v1   Model deepseek-v4-flash-ga-260731
 #   通义千问: BaseURL https://dashscope.aliyuncs.com/compatible-mode/v1  Model qwen-plus
 #   智谱:     BaseURL https://open.bigmodel.cn/api/paas/v4  Model glm-4-flash
 #   Kimi:     BaseURL https://api.moonshot.cn/v1         Model moonshot-v1-8k
 # Enable 设为 false、或填了 key 但调用失败时, 自动降级成规则原文, 报告照常出
 LLM:
-  Enable: false
-  BaseURL: https://api.deepseek.com/v1
-  APIKey: "" # 建议启动时用环境变量覆盖, 别把 key 提交到 git
-  Model: deepseek-chat
+  Enable: true
+  BaseURL: https://ark.cn-beijing.volces.com/api/coding/v1
+  APIKey: "" # 用环境变量注入, 别把 key 提交到 git
+  Model: deepseek-v4-flash-ga-260731
   Timeout: 20
 
 # 定时巡检: 每天固定时间自动扫一次昨天的数据
