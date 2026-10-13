@@ -8,11 +8,12 @@ use (
 	./app/dashboard-service
 	./app/device-service
 	./app/dispatch-service
-	./app/energy-analysis-service
 	./app/energy-agent-service
+	./app/energy-analysis-service
 	./app/energy-data-service
 	./app/event-dispatcher
 	./app/gateway-service
+	./app/kb-service
 	./app/leasing-service
 	./app/notice-service
 	./app/parking-service

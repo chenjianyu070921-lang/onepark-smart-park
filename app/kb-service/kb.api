@@ -1,0 +1,142 @@
+// =====================================================================
+// 企业知识库 kb-service HTTP 契约
+//
+// 定位: 把园区自己的材料(流程文档 / 历史工单 / 制度)变成"可问答"的知识库。
+//       检索与生成都在本服务内, 不往上依赖 M5; M5 的页面通过网关/本地代理直接调这里。
+//
+// 为什么契约里没有"上传文件"接口:
+//       第一版只接受**纯文本正文**(前端粘贴 / ingest 脚本灌)。文件解析(PDF/Word/网页)
+//       是下一步的事 —— 先把"切片→检索→引用→回答"这条主干打通并让它可测、可讲。
+//
+// 鉴权与租户: 与全项目一致 —— 网关校验 token 并注入 x-tenant-id / x-user-id,
+//       本服务只透传(middleware.IdentityFromHeader), 所有查询按 tenant_id 过滤。
+// =====================================================================
+
+syntax = "v1"
+
+info (
+	title:   "企业知识库"
+	desc:    "文档接入 / 切片检索 / 带引用问答 / 反馈回流"
+	version: "v1"
+)
+
+@server (
+	prefix: /api
+)
+
+service kb-api {
+	@doc "录入文档(自动切片)。同一 (tenant,title,source) 重复录入 = 覆盖重建切片"
+	@handler CreateDocumentHandler
+	post /kb/documents (CreateDocumentRequest) returns (CreateDocumentResponse)
+
+	@doc "文档列表(含切片数)"
+	@handler ListDocumentsHandler
+	get /kb/documents (ListDocumentsRequest) returns (ListDocumentsResponse)
+
+	@doc "删除文档(连同切片)"
+	@handler DeleteDocumentHandler
+	delete /kb/documents/:id (DeleteDocumentRequest) returns (DeleteDocumentResponse)
+
+	@doc "问答: 检索 + (可选)生成, 返回带出处的回答"
+	@handler AskHandler
+	post /kb/ask (AskRequest) returns (AskResponse)
+
+	@doc "问答日志(审计 / 效果评估用)"
+	@handler ListQaLogsHandler
+	get /kb/qa-logs (ListQaLogsRequest) returns (ListQaLogsResponse)
+
+	@doc "对某条问答投票(有用/没用), 回流给效果评估"
+	@handler FeedbackHandler
+	post /kb/feedback (FeedbackRequest) returns (FeedbackResponse)
+}
+
+type (
+	// ---------- 文档 ----------
+	CreateDocumentRequest {
+		Title    string `json:"title"`              // 文档标题
+		Source   string `json:"source,optional"`    // 出处, 如 docs/m5/04-招商租赁业务流程.md
+		Category string `json:"category,optional"`  // 制度 / 流程 / 技术 / 工单经验
+		Content  string `json:"content"`            // 正文(纯文本, 支持 markdown 标题与段落)
+	}
+	CreateDocumentResponse {
+		Id         int64 `json:"id"`
+		ChunkCount int   `json:"chunkCount"`
+	}
+
+	ListDocumentsRequest {
+		Category string `form:"category,optional"`
+		Page     int    `form:"page,default=1"`
+		PageSize int    `form:"pageSize,default=20"`
+	}
+	ListDocumentsResponse {
+		Total int64            `json:"total"`
+		List  []DocumentItem   `json:"list"`
+	}
+	DocumentItem {
+		Id         int64  `json:"id"`
+		Title      string `json:"title"`
+		Source     string `json:"source"`
+		Category   string `json:"category"`
+		ChunkCount int    `json:"chunkCount"`
+		Status     int    `json:"status"`
+		CreatedAt  string `json:"createdAt"`
+	}
+
+	DeleteDocumentRequest {
+		Id int64 `path:"id"`
+	}
+	DeleteDocumentResponse {
+		Deleted int64 `json:"deleted"` // 删除的切片数
+	}
+
+	// ---------- 问答 ----------
+	AskRequest {
+		Question string `json:"question"`         // 用户问题
+		TopK     int    `json:"topK,optional"`    // 取前几段, 默认 3
+	}
+	AskResponse {
+		Answer    string     `json:"answer"`    // 回答正文
+		Mode      string     `json:"mode"`      // extractive / llm / no_hit
+		QaId      int64      `json:"qaId"`      // 日志 id, 供反馈用
+		Citations []Citation `json:"citations"` // 引用片段(空 = 没有依据)
+		TopScore  float64    `json:"topScore"`  // 命中最高分
+		ElapsedMs int64      `json:"elapsedMs"`
+	}
+	Citation {
+		ChunkId    int64   `json:"chunkId"`
+		DocumentId int64   `json:"documentId"`
+		Title      string  `json:"title"`
+		Source     string  `json:"source"`
+		Seq        int     `json:"seq"`     // 第几段(从 0 开始)
+		Score      float64 `json:"score"`
+		Snippet    string  `json:"snippet"` // 片段原文(截断到 200 字)
+	}
+
+	// ---------- 日志与反馈 ----------
+	ListQaLogsRequest {
+		Page     int `form:"page,default=1"`
+		PageSize int `form:"pageSize,default=20"`
+	}
+	ListQaLogsResponse {
+		Total int64   `json:"total"`
+		List  []QaLog `json:"list"`
+	}
+	QaLog {
+		Id        int64   `json:"id"`
+		Question  string  `json:"question"`
+		Answer    string  `json:"answer"`
+		Mode      string  `json:"mode"`
+		TopScore  float64 `json:"topScore"`
+		ElapsedMs int64   `json:"elapsedMs"`
+		CreatedAt string  `json:"createdAt"`
+	}
+
+	FeedbackRequest {
+		QaId    int64  `json:"qaId"`
+		Vote    int    `json:"vote"`              // 1 有用 / 2 没用
+		Comment string `json:"comment,optional"`
+	}
+	FeedbackResponse {
+		Ok bool `json:"ok"`
+	}
+)

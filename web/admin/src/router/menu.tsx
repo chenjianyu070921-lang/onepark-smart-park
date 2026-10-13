@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import {
+  BulbOutlined,
   DashboardOutlined,
   HomeOutlined,
   ToolOutlined,
@@ -89,6 +90,12 @@ export const menuConfig: MenuNode[] = [
       { key: 'occupancy', label: '出租率', path: '/leasing/occupancy' },
       { key: 'billing', label: '账单管理', path: '/billing' },
     ],
+  },
+  {
+    key: 'smart',
+    label: '智能应用',
+    icon: <BulbOutlined />,
+    children: [{ key: 'kb', label: '企业知识库', path: '/kb' }],
   },
   {
     key: 'system',

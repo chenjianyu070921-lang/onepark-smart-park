@@ -20,6 +20,7 @@ import EnergyAnalysisPage from '../pages/energy/EnergyAnalysis'
 import UsersPage from '../pages/system/Users'
 import RolesPage from '../pages/system/Roles'
 import PlaceholderPage from '../pages/placeholder/Placeholder'
+import KbAskPage from '../pages/kb/KbAsk'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation()
@@ -58,6 +59,7 @@ export const routes: RouteObject[] = [
       { path: 'leasing/contract', element: <ContractListPage /> },
       { path: 'leasing/occupancy', element: <OccupancyPage /> },
       { path: 'billing', element: <RentBillListPage /> },
+      { path: 'kb', element: <KbAskPage /> },
       { path: 'system/users', element: <UsersPage /> },
       { path: 'system/roles', element: <RolesPage /> },
     ],
