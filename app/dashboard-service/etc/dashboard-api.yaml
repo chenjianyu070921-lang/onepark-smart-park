@@ -99,7 +99,18 @@ Ws:
   #     - http://localhost:5173        # 本地前端 dev server
   #     - http://127.0.0.1:5173
   #     - https://dash.example.com     # 生产域名(上线前必须收敛为真实域名)
-  AllowOrigins: []
+  #
+  # ⚠️ 为什么本机必须**显式**列出 5173（2026-10-13 踩过）：
+  #    本地前端由 vite dev server(5173) 反向代理到本服务，而代理开了 changeOrigin，
+  #    于是后端看到的请求 Host 是 127.0.0.1:8052，浏览器带的 Origin 却是
+  #    http://127.0.0.1:5173 —— **host 不相等，「同源」判定必然失败**，握手被 403 拒绝，
+  #    现象是大屏右上角一直「推送已断开，自动重连中」。
+  #    注意 curl 直连看不出来（直连没有 Origin 头，走的是「非浏览器客户端」放行档）。
+  #    二选一：这里加白名单（与生产同构，推荐），或本地 vite 代理关掉 changeOrigin。
+  AllowOrigins:
+    - http://localhost:5173          # 本地前端 dev server
+    - http://127.0.0.1:5173
+  # 上线前：把上面两条 localhost 删掉，换成真实大屏域名（如 https://dash.example.com）。
 
   # 多实例扇出。默认 false = 单实例内存广播。
   # 多实例部署必须置 true: 否则连到 A 实例的大屏收不到 B 实例产生的消息,

@@ -56,3 +56,16 @@ Kafka:
   Enabled: false
 
 JwtSecret: "${JWT_SECRET}"
+
+# ===== 大屏 WebSocket 来源白名单 =====
+# 浏览器的 WebSocket 不受同源策略限制，故 CheckOrigin 必须收敛（见 internal/wsserver/origin.go）。
+# ⚠️ 本机联调必须**显式**列出前端 dev server：vite 代理开了 changeOrigin，后端看到的 Host 是
+#    127.0.0.1:8052，而浏览器带的 Origin 是 http://127.0.0.1:5173 —— host 不相等，「同源」判定
+#    必然失败，握手 403，现象是大屏一直「推送已断开，自动重连中」。
+# 上线前把下面两条 localhost 换成真实大屏域名。
+Ws:
+  AllowOrigins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173
+  Fanout: false
+  FanoutChannel: onepark:dashboard:ws
