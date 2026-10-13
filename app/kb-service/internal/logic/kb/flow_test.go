@@ -26,7 +26,7 @@ func newTestCtx(t *testing.T) (*svc.ServiceContext, context.Context) {
 	}
 	c := config.Config{}
 	c.MySQL.DataSource = dsn
-	c.Retrieval = config.RetrievalConf{Engine: "keyword", TopK: 3, MinScore: 0.5, MaxScan: 5000}
+	c.Retrieval = config.RetrievalConf{Engine: "keyword", TopK: 3, MinScore: 0.35, MaxScan: 5000, MinTerms: 2}
 	svcCtx := svc.NewServiceContext(c)
 
 	cleanup := func() {

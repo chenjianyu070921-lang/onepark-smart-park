@@ -60,21 +60,28 @@ type KeywordRetriever struct {
 	load     Loader
 	minScore float64
 	maxScan  int
+	minTerms int
 }
 
 // NewKeyword 构造关键词检索器.
-func NewKeyword(load Loader, minScore float64, maxScan int) *KeywordRetriever {
+//
+// minTerms: 至少命中多少个**实词元**才算"有关联" —— 小语料里单个泛词命中很常见
+// (问"如何申请专利", "申请"在语料里出现过就被算命中), 只靠分数阈值拦不住, 必须另设这道闸。
+func NewKeyword(load Loader, minScore float64, maxScan, minTerms int) *KeywordRetriever {
 	if maxScan <= 0 {
 		maxScan = 5000
 	}
-	return &KeywordRetriever{load: load, minScore: minScore, maxScan: maxScan}
+	if minTerms <= 0 {
+		minTerms = 2
+	}
+	return &KeywordRetriever{load: load, minScore: minScore, maxScan: maxScan, minTerms: minTerms}
 }
 
 func (r *KeywordRetriever) Name() string { return "keyword" }
 
 // Retrieve 实现 Retriever.
 func (r *KeywordRetriever) Retrieve(ctx context.Context, tenantID uint64, query string, topK int) ([]Hit, error) {
-	qTerms := Tokenize(query)
+	qTerms := ContentTerms(query)
 	if len(qTerms) == 0 {
 		return nil, nil
 	}
@@ -109,24 +116,35 @@ func (r *KeywordRetriever) Retrieve(ctx context.Context, tenantID uint64, query 
 	}
 
 	const k1, b = 1.2, 0.75
-	// 分母只统计"至少能命中一个切片"的查询词(df>0)。
+	// 分母 = **全部查询实词元**的 IDF 之和(含在语料里根本不出现的词)。
 	//
-	// 为什么必须这样(2026-10-13 实测踩到): 口语长句里总有几个词是库里完全没有的
-	// (问"工单超时没人接怎么办", "怎么/么办"这种组合语料里就没有), 而 df=0 的词
-	// IDF 反而最高 —— 若把它们也算进分母, 匹配得再全也会被稀释到阈值以下,
-	// 表现就是"明明有答案却拒答"(实测 score 0.44 < MinScore 0.5)。
-	// 归一化口径应为"召回得到的这部分问句覆盖了多少", 而不是"整句字面覆盖了多少"。
+	// 这个口径是两次实测换来的(2026-10-13, 都记在这):
+	//   · 只把"能命中的词"当分母 -> 只命中一个泛词就满分(实测 top=1.0):
+	//     问"食堂今天中午吃什么", 蹭到"中午"两个字就算完美匹配 —— 不相关问题被当成了准答案。
+	//   · 把"全部词"当分母, 但不滤疑问词 -> 长口语问句被稀释到阈值以下(实测 0.44 < 0.5),
+	//     表现是"明明有答案却拒答"。
+	// 所以最终方案是: **分母含全部实词**(不让部分命中被放大) + 查询侧先滤掉疑问词/泛词
+	// (见 ContentTerms, 把稀释问题从源头上解决) + 再设"最少命中实词数"这道闸(minTerms)。
 	var totalIDF float64
 	idf := make(map[string]float64, len(qTerms))
 	for _, t := range qTerms {
-		if df[t] == 0 {
-			continue
+		// df=0 的词按 df=1 封顶, 不按 BM25 公式给它"最高权重"。
+		//
+		// 为什么(2026-10-13 评测集实测): 中文 2-gram 会把词边界切出噪声词元
+		// ("紧急工单|多久|要到场" 会切出"单多""久要"这种不存在的组合), 而 BM25 里
+		// df=0 的 IDF 是全场最高 —— 于是问"紧急工单多久要到场", 有答案的句子反被
+		// 三个噪声词稀释到阈值以下, 评测集里表现为 4/10 漏答。
+		// 语义上: "语料里根本没出现过的词元"对**区分切片**没有贡献, 给它封顶权重更合理,
+		// 它是否代表"问到了语料外的东西"由 MinTerms/阈值一起判断。
+		dfUse := df[t]
+		if dfUse == 0 {
+			dfUse = 1
 		}
-		v := math.Log(1 + (n-float64(df[t])+0.5)/(float64(df[t])+0.5))
+		v := math.Log(1 + (n-float64(dfUse)+0.5)/(float64(dfUse)+0.5))
 		idf[t] = v
 		totalIDF += v
 	}
-	if totalIDF <= 0 { // 查询词全都不在任何切片里 -> 没有依据
+	if totalIDF <= 0 { // 查询里没有实词 -> 视为没有依据
 		return nil, nil
 	}
 
@@ -137,15 +155,20 @@ func (r *KeywordRetriever) Retrieve(ctx context.Context, tenantID uint64, query 
 			dl = 1
 		}
 		var got float64
+		matched := 0
 		for _, t := range qTerms {
 			tf := float64(docs[i][t])
 			if tf == 0 {
 				continue
 			}
+			matched++
 			norm := tf * (k1 + 1) / (tf + k1*(1-b+b*dl/avgdl))
 			got += idf[t] * norm
 		}
-		if got <= 0 {
+		// 实词命中太少 -> 不算相关。
+		// 为什么需要这道闸: 分数阈值管不住"单个泛词命中"(问"如何申请专利", 语料里有"申请"两个字
+		// 就会被算命中)。要求至少 2 个实词同时命中, 才当作真的在问语料里的东西。
+		if matched < r.minTerms {
 			continue
 		}
 		// 归一化到 0~1 并截断: BM25 的 tf 饱和项(tf*(k1+1)/(...))在"短切片 + 同词反复出现"
@@ -171,6 +194,49 @@ func (r *KeywordRetriever) Retrieve(ctx context.Context, tenantID uint64, query 
 		hits = hits[:topK]
 	}
 	return hits, nil
+}
+
+// stopWords 疑问词 / 泛词 / 语气词.
+//
+// 只用于**查询侧**过滤, 语料侧分词绝不滤 —— 否则正文里的"怎么处理"会被拆残。
+// 为什么必须有它: 这类词几乎出现在每个问句里却不携带领域信息, 而语料里往往没有它们,
+// 于是 IDF 被算得很高 —— 不滤的话"今天天气怎么样"也能在制度文档里蹭出高分(实测踩到)。
+var stopWords = []string{
+	"怎么", "怎么办", "如何", "什么", "哪些", "哪个", "哪里", "多少", "多久",
+	"是不是", "会不会", "能不能", "有没有", "可以", "需要", "请问", "一下",
+	"现在", "今天", "昨天", "明天", "我们", "你们", "他们", "这个", "那个",
+	"为什么", "以及", "或者", "但是", "因为", "所以", "如果", "就是", "还是",
+	"的话", "了吗", "怎样", "是否", "属于", "关于", "针对", "一般", "相关",
+}
+
+// stopTerms 把停用词也转成词元(2-gram), 与 Query 侧分词口径一致。
+var stopTerms = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(stopWords)*2)
+	for _, w := range stopWords {
+		for _, t := range Tokenize(w) {
+			m[t] = struct{}{}
+		}
+	}
+	return m
+}()
+
+// ContentTerms 查询侧取词: 分词 -> 去停用词 -> 去重.
+//
+// 去重是必要的: 同一个词重复出现会把分母算两遍, 让覆盖分虚高。
+func ContentTerms(query string) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, 8)
+	for _, t := range Tokenize(query) {
+		if _, stop := stopTerms[t]; stop {
+			continue
+		}
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	return out
 }
 
 // Tokenize 中文按 2-gram 切, 英文/数字按词切(小写).

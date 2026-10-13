@@ -78,15 +78,31 @@ func TestBuild_大模型成功走生成式(t *testing.T) {
 	}
 }
 
-func TestBuild_命中但挑不出句子时兜底(t *testing.T) {
+func TestBuild_命中但抽不到含实词的句子则拒答(t *testing.T) {
+	// 检索命中了一个切片, 但里面挑不出含实词的完整句 -> 与"没检索到"同等待遇: 拒答。
+	// (第一版这里会兜底吐一句原文, 结果是"看起来答了、其实答非所问", 已按第二道防线改掉)
 	h := []retriever.Hit{{Score: 0.6, Chunk: retriever.Chunk{
-		ID: 9, Title: "零散材料", Source: "x", Seq: 0, Content: "合同 状态机",
+		ID: 9, Title: "零散材料", Source: "x", Seq: 0, Content: "见附件。",
 	}}}
-	got := New(nil).Build(context.Background(), "合同状态机", h)
-	if got.Mode != ModeExtractive {
-		t.Fatalf("应走抽取式, 实际 %s", got.Mode)
+	got := New(nil).Build(context.Background(), "食堂几点开饭", h)
+	if got.Mode != ModeNoHit {
+		t.Fatalf("抽不到含实词的句子应拒答, 实际 mode=%s text=%s", got.Mode, got.Text)
 	}
-	if !strings.Contains(got.Text, "合同") {
-		t.Errorf("兜底也应给出原文片段: %s", got.Text)
+	if !strings.Contains(got.Text, "没有找到") {
+		t.Errorf("拒答文案应明确说明没有依据: %s", got.Text)
+	}
+}
+
+func TestSnippet_围绕命中词取窗口(t *testing.T) {
+	content := "## 一、前面这些内容\n\n这一大段都是与本问题无关的背景说明，用来把关键句推到很后面，验证窗口是不是围绕命中词取的。\n\n### 消防通道\n\n消防通道堵塞属于严重级，要求 15 分钟内到场清理。"
+	got := Snippet(content, []string{"消防通道", "到场"}, 80)
+	if !strings.Contains(got, "消防通道") {
+		t.Errorf("片段应包含命中词附近的内容: %s", got)
+	}
+	if strings.HasPrefix(got, "一、前面这些内容") {
+		t.Errorf("片段不应从段首截取: %s", got)
+	}
+	if strings.Contains(got, "**") || strings.Contains(got, "###") {
+		t.Errorf("片段应清掉 markdown 符号: %s", got)
 	}
 }

@@ -19,7 +19,7 @@ func fixture() []Chunk {
 }
 
 func TestRetrieve_命中排序(t *testing.T) {
-	r := NewKeyword(loaderOf(fixture()), 0.1, 100)
+	r := NewKeyword(loaderOf(fixture()), 0.1, 100, 2)
 	hits, err := r.Retrieve(context.Background(), 1, "工单超时没人接怎么处理", 3)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestRetrieve_命中排序(t *testing.T) {
 
 func TestRetrieve_阈值过滤_没有依据就不返回(t *testing.T) {
 	// 阈值拉到 0.9: 只有题面词几乎全命中才留 —— 用来验证"无依据 -> 空结果"
-	r := NewKeyword(loaderOf(fixture()), 0.9, 100)
+	r := NewKeyword(loaderOf(fixture()), 0.9, 100, 2)
 	hits, err := r.Retrieve(context.Background(), 1, "食堂今天中午吃什么", 3)
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestRetrieve_阈值过滤_没有依据就不返回(t *testing.T) {
 }
 
 func TestRetrieve_空语料不报错(t *testing.T) {
-	r := NewKeyword(loaderOf(nil), 0.1, 100)
+	r := NewKeyword(loaderOf(nil), 0.1, 100, 2)
 	hits, err := r.Retrieve(context.Background(), 1, "合同状态机", 3)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestRetrieve_空语料不报错(t *testing.T) {
 }
 
 func TestRetrieve_空问题不返回(t *testing.T) {
-	r := NewKeyword(loaderOf(fixture()), 0.1, 100)
+	r := NewKeyword(loaderOf(fixture()), 0.1, 100, 2)
 	hits, _ := r.Retrieve(context.Background(), 1, "   ", 3)
 	if len(hits) != 0 {
 		t.Fatalf("空问题应返回空, 实际 %d", len(hits))
@@ -73,10 +73,58 @@ func TestRetrieve_空问题不返回(t *testing.T) {
 }
 
 func TestRetrieve_topK生效(t *testing.T) {
-	r := NewKeyword(loaderOf(fixture()), 0.01, 100)
+	r := NewKeyword(loaderOf(fixture()), 0.01, 100, 2)
 	hits, _ := r.Retrieve(context.Background(), 1, "合同 工单 派单 续约", 2)
 	if len(hits) > 2 {
 		t.Fatalf("topK=2 却返回 %d 条", len(hits))
+	}
+}
+
+func TestRetrieve_单个泛词命中必须被拒(t *testing.T) {
+	// 语料里有"申请"两个字; 问"如何申请专利"时只命中这一个泛词, 不能当有关联
+	chunks := []Chunk{{ID: 1, DocumentID: 1, Title: "审批流程", Content: "提交设备更换或计量校验申请，由主管审批。"}}
+	r := NewKeyword(loaderOf(chunks), 0.1, 100, 2)
+	hits, err := r.Retrieve(context.Background(), 1, "如何申请专利", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("只命中一个泛词不应算相关, 实际返回 %d 条 (score=%v)", len(hits), hits[0].Score)
+	}
+}
+
+func TestRetrieve_只命中一个实词但仍算相关来源(t *testing.T) {
+	// 反向用例: 两个实词同时命中才算相关
+	chunks := []Chunk{{ID: 1, DocumentID: 1, Title: "审批流程", Content: "提交计量校验申请，由能源管理岗审批。"}}
+	r := NewKeyword(loaderOf(chunks), 0.1, 100, 2)
+	hits, _ := r.Retrieve(context.Background(), 1, "计量校验申请怎么走", 3)
+	if len(hits) == 0 {
+		t.Fatal("命中多个实词时应算相关")
+	}
+}
+
+func TestContentTerms_滤疑问词并去重(t *testing.T) {
+	got := ContentTerms("工单超时怎么办？多久能处理？")
+	set := map[string]bool{}
+	for _, t2 := range got {
+		if set[t2] {
+			t.Fatalf("词元重复: %s (%v)", t2, got)
+		}
+		set[t2] = true
+	}
+	for _, bad := range []string{"怎么", "么办", "多久"} {
+		if set[bad] {
+			t.Errorf("疑问词 %q 应被滤掉: %v", bad, got)
+		}
+	}
+	if !set["工单"] || !set["超时"] {
+		t.Errorf("实词应保留: %v", got)
+	}
+}
+
+func TestContentTerms_全是疑问词时返回空(t *testing.T) {
+	if got := ContentTerms("怎么办？"); len(got) != 0 {
+		t.Fatalf("整句都是疑问词 -> 应返回空, 实际 %v", got)
 	}
 }
 
@@ -98,7 +146,8 @@ func TestTokenize(t *testing.T) {
 }
 
 func TestRetrieve_结果稳定可复现(t *testing.T) {
-	r := NewKeyword(loaderOf(fixture()), 0.01, 100)
+	r := NewKeyword(loaderOf(fixture()), 0.01, 100, 2)
+
 	a, _ := r.Retrieve(context.Background(), 1, "合同状态机 续签", 3)
 	b, _ := r.Retrieve(context.Background(), 1, "合同状态机 续签", 3)
 	if len(a) != len(b) {

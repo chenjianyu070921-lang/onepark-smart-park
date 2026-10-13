@@ -8,6 +8,7 @@ import (
 
 	"github.com/zeromicro/go-zero/core/logx"
 
+	"onepark/app/kb-service/internal/answer"
 	"onepark/app/kb-service/internal/ecode"
 	"onepark/app/kb-service/internal/model"
 	"onepark/app/kb-service/internal/retriever"
@@ -56,6 +57,8 @@ func (l *AskLogic) Ask(req *types.AskRequest) (*types.AskResponse, error) {
 
 	res := l.svcCtx.Answer.Build(l.ctx, question, hits)
 
+	// 引用片段围绕"命中的实词"取窗口, 而不是从段首截 200 字 —— 用户点开引用要看到关键句。
+	terms := retriever.ContentTerms(question)
 	citations := make([]types.Citation, 0, len(hits))
 	for _, h := range hits {
 		citations = append(citations, types.Citation{
@@ -65,7 +68,7 @@ func (l *AskLogic) Ask(req *types.AskRequest) (*types.AskResponse, error) {
 			Source:     h.Chunk.Source,
 			Seq:        h.Chunk.Seq,
 			Score:      h.Score,
-			Snippet:    snippetOf(h.Chunk.Content, 200),
+			Snippet:    answer.Snippet(h.Chunk.Content, terms, 200),
 		})
 	}
 	topScore := 0.0
@@ -101,14 +104,3 @@ func (l *AskLogic) writeQaLog(tenantID, userID uint64, q, a, mode string, cites 
 	}
 	return id
 }
-
-func snippetOf(s string, n int) string {
-	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
-}
-
-var _ = retriever.Chunk{} // 保持 import 显式(检索类型在文档注释里被引用)

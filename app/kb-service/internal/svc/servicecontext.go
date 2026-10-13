@@ -47,7 +47,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		}
 		return out, nil
 	}
-	engine := retriever.NewKeyword(load, c.Retrieval.MinScore, c.Retrieval.MaxScan)
+	engine := retriever.NewKeyword(load, c.Retrieval.MinScore, c.Retrieval.MaxScan, c.Retrieval.MinTerms)
 
 	llmClient := llm.New(c.LLM.Enable, llm.Options{
 		BaseURL: c.LLM.BaseURL,
